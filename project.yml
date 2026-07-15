@@ -1,0 +1,105 @@
+name: BetterKeyboard
+options:
+  bundleIdPrefix: is.betterkeyboard
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+packages:
+  LemmaCore:
+    path: Packages/LemmaCore
+  KeyboardKit:
+    url: https://github.com/KeyboardKit/KeyboardKit.git
+    # NOTE: KeyboardKit switched to a closed-source binary (XCFramework) +
+    # LicenseKit distribution as of v10.0, which conflicts with this repo's
+    # locked decision that the free tier stays MIT/auditable and the
+    # extension ships zero network code (LicenseKit performs license
+    # validation). 9.9.1 is the last tag that ships full MIT Swift source
+    # with no license-key machinery. Revisit if that decision changes.
+    exactVersion: 9.9.1
+
+targets:
+  BetterKeyboard:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: App
+    info:
+      path: App/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    entitlements:
+      path: App/BetterKeyboard.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.is.betterkeyboard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: is.betterkeyboard.app
+        PRODUCT_NAME: BetterKeyboard
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - target: BetterKeyboardExt
+        embed: true
+
+  BetterKeyboardExt:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: KeyboardExt
+      - path: data/is/lemma-is.bin
+        buildPhase: resources
+    info:
+      path: KeyboardExt/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            RequestsOpenAccess: true
+            PrefersRightToLeft: false
+            PrimaryLanguage: "is"
+    entitlements:
+      path: KeyboardExt/BetterKeyboardExt.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.is.betterkeyboard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: is.betterkeyboard.app.keyboard
+        PRODUCT_NAME: BetterKeyboardExt
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+    dependencies:
+      - package: KeyboardKit
+        product: KeyboardKit
+      - package: LemmaCore
+        product: LemmaCore
+
+schemes:
+  BetterKeyboard:
+    build:
+      targets:
+        BetterKeyboard: all
+        BetterKeyboardExt: all
+    run:
+      config: Debug
+    archive:
+      config: Release

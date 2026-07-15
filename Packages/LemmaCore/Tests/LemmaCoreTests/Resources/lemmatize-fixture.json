@@ -1,0 +1,1079 @@
+{
+ "börnin": [
+  "barn"
+ ],
+ "keypti": [
+  "kaupa",
+  "keyptur"
+ ],
+ "hestinum": [
+  "hestur"
+ ],
+ "barn": [
+  "barn"
+ ],
+ "kaupa": [
+  "kaupa",
+  "kaup",
+  "kaupi"
+ ],
+ "hestur": [
+  "hestur"
+ ],
+ "BÖRNIN": [
+  "barn"
+ ],
+ "Keypti": [
+  "kaupa",
+  "keyptur"
+ ],
+ "REYKJAVÍK": [
+  "reykjavík"
+ ],
+ "Reykjavík": [
+  "reykjavík"
+ ],
+ "Íslandi": [
+  "ísland"
+ ],
+ "ÍSLANDI": [
+  "ísland"
+ ],
+ "manninum": [
+  "maður"
+ ],
+ "konunni": [
+  "kona"
+ ],
+ "húsið": [
+  "hús",
+  "húsið",
+  "húsa"
+ ],
+ "bókina": [
+  "bók"
+ ],
+ "skólanum": [
+  "skólinn",
+  "skóli"
+ ],
+ "vatnið": [
+  "vatn",
+  "vatnið",
+  "vatna"
+ ],
+ "fjöllin": [
+  "fjall"
+ ],
+ "árnar": [
+  "á",
+  "árna"
+ ],
+ "dagarnir": [
+  "dagur"
+ ],
+ "nóttina": [
+  "nótt"
+ ],
+ "morguninn": [
+  "morgunn"
+ ],
+ "kvöldið": [
+  "kvöld",
+  "kvölda"
+ ],
+ "fórum": [
+  "fara",
+  "fóra",
+  "fórur"
+ ],
+ "gengum": [
+  "ganga",
+  "gengur"
+ ],
+ "sáum": [
+  "sjá",
+  "sá",
+  "sár"
+ ],
+ "hljóp": [
+  "hlaupa"
+ ],
+ "borðaði": [
+  "borða",
+  "borðaður"
+ ],
+ "drakk": [
+  "drekka"
+ ],
+ "svaf": [
+  "sofa"
+ ],
+ "skrifaði": [
+  "skrifa",
+  "skrifaður"
+ ],
+ "lesið": [
+  "lesa",
+  "les",
+  "lesinn"
+ ],
+ "talað": [
+  "tala",
+  "talaður"
+ ],
+ "unnið": [
+  "vinna",
+  "unninn",
+  "unna"
+ ],
+ "komið": [
+  "koma",
+  "kominn"
+ ],
+ "farið": [
+  "fara",
+  "farinn",
+  "far"
+ ],
+ "verið": [
+  "vera",
+  "ver"
+ ],
+ "stærri": [
+  "stór"
+ ],
+ "stærstur": [
+  "stór"
+ ],
+ "betri": [
+  "betra",
+  "góður"
+ ],
+ "bestur": [
+  "góður"
+ ],
+ "minni": [
+  "minni",
+  "minna",
+  "minn",
+  "lítill"
+ ],
+ "minnstur": [
+  "lítill"
+ ],
+ "góðan": [
+  "góða",
+  "góður"
+ ],
+ "góðum": [
+  "góður",
+  "góði"
+ ],
+ "góðra": [
+  "góður"
+ ],
+ "fallegri": [
+  "fallegur"
+ ],
+ "fallegasta": [
+  "fallegur"
+ ],
+ "við": [
+  "við",
+  "ég",
+  "viður"
+ ],
+ "þið": [
+  "þú"
+ ],
+ "þeir": [
+  "hann",
+  "sá"
+ ],
+ "þær": [
+  "hún",
+  "þær",
+  "sá"
+ ],
+ "þau": [
+  "það",
+  "sá"
+ ],
+ "hún": [
+  "hún",
+  "húnn"
+ ],
+ "hann": [
+  "hann"
+ ],
+ "það": [
+  "það",
+  "sá"
+ ],
+ "mig": [
+  "ég",
+  "mig"
+ ],
+ "þig": [
+  "þú"
+ ],
+ "sig": [
+  "sig"
+ ],
+ "okkur": [
+  "ég",
+  "okkur"
+ ],
+ "ykkur": [
+  "þú"
+ ],
+ "mér": [
+  "ég"
+ ],
+ "þér": [
+  "þú",
+  "þér"
+ ],
+ "sér": [
+  "sér",
+  "sig",
+  "sjá"
+ ],
+ "minn": [
+  "minna",
+  "minn"
+ ],
+ "þinn": [
+  "þinn"
+ ],
+ "sinn": [
+  "sinn",
+  "sinna"
+ ],
+ "okkar": [
+  "ég"
+ ],
+ "ykkar": [
+  "þú"
+ ],
+ "þeirra": [
+  "það",
+  "hann",
+  "hún",
+  "sá"
+ ],
+ "á": [
+  "á",
+  "eiga",
+  "ær"
+ ],
+ "í": [
+  "í"
+ ],
+ "um": [
+  "um"
+ ],
+ "til": [
+  "til"
+ ],
+ "frá": [
+  "frá",
+  "frár"
+ ],
+ "eftir": [
+  "eftir"
+ ],
+ "fyrir": [
+  "fyrir"
+ ],
+ "með": [
+  "með"
+ ],
+ "án": [
+  "án",
+  "ánn"
+ ],
+ "eiga": [
+  "eiga"
+ ],
+ "átti": [
+  "eiga",
+  "átta"
+ ],
+ "leiða": [
+  "leið",
+  "leiða",
+  "leiðir",
+  "leiði",
+  "leiður"
+ ],
+ "leið": [
+  "leið",
+  "leiða",
+  "líða",
+  "leiður"
+ ],
+ "lá": [
+  "liggja",
+  "lá"
+ ],
+ "sá": [
+  "sjá",
+  "sá",
+  "sár"
+ ],
+ "bar": [
+  "bera",
+  "bar"
+ ],
+ "vil": [
+  "vil",
+  "vilja"
+ ],
+ "xyzzy": [
+  "xyzzy"
+ ],
+ "asdfghjkl": [
+  "asdfghjkl"
+ ],
+ "kubernetes": [
+  "kubernetes"
+ ],
+ "javascript": [
+  "javascript"
+ ],
+ "bílastæði": [
+  "bílastæði"
+ ],
+ "flugvöllur": [
+  "flugvöllur"
+ ],
+ "tölvupóstur": [
+  "tölvupóstur"
+ ],
+ "símanúmer": [
+  "símanúmer"
+ ],
+ "þögn": [
+  "þögn"
+ ],
+ "æðislegur": [
+  "æðislegur"
+ ],
+ "öðruvísi": [
+  "öðruvísi"
+ ],
+ "ánægður": [
+  "ánægður",
+  "ánægja"
+ ],
+ "élið": [
+  "élið"
+ ],
+ "ísinn": [
+  "ís",
+  "ísinn"
+ ],
+ "óður": [
+  "óða",
+  "óður"
+ ],
+ "úlfur": [
+  "úlfur"
+ ],
+ "ýmislegt": [
+  "ýmislegur"
+ ],
+ "ðr": [
+  "ðr"
+ ],
+ "maður": [
+  "maður"
+ ],
+ "börn": [
+  "barn"
+ ],
+ "börnunum": [
+  "barn"
+ ],
+ "fór": [
+  "fara"
+ ],
+ "förum": [
+  "fara",
+  "för",
+  "far"
+ ],
+ "fóru": [
+  "fara",
+  "fóra"
+ ],
+ "borðið": [
+  "borð",
+  "borða"
+ ],
+ "borð": [
+  "borð"
+ ],
+ "borða": [
+  "borð",
+  "borða",
+  "borði"
+ ],
+ "sjá": [
+  "sjá",
+  "sjár"
+ ],
+ "túninu": [
+  "tún"
+ ],
+ "Börnin": [
+  "barn"
+ ],
+ "léku": [
+  "leika"
+ ],
+ "úti": [
+  "úti"
+ ],
+ "Við": [
+  "við",
+  "ég",
+  "viður"
+ ],
+ "mörg": [
+  "margur"
+ ],
+ "Þeir": [
+  "hann",
+  "sá"
+ ],
+ "Þetta": [
+  "þetta",
+  "þessi"
+ ],
+ "barátta": [
+  "barátta"
+ ],
+ "jafnrétti": [
+  "jafnrétti"
+ ],
+ "góður": [
+  "góður"
+ ],
+ "góða": [
+  "góða",
+  "góður",
+  "góði"
+ ],
+ "góðu": [
+  "góða",
+  "góður"
+ ],
+ "góðs": [
+  "góður"
+ ],
+ "góðar": [
+  "góður",
+  "góði"
+ ],
+ "stór": [
+  "stór",
+  "stó"
+ ],
+ "mín": [
+  "ég",
+  "minn"
+ ],
+ "gerði": [
+  "gera",
+  "gerði",
+  "gerður"
+ ],
+ "gerðum": [
+  "gera",
+  "gerð",
+  "gerði",
+  "gerður",
+  "gerðir"
+ ],
+ "sáu": [
+  "sjá"
+ ],
+ "séð": [
+  "sjá",
+  "séður"
+ ],
+ "þingmaður": [
+  "þingmaður"
+ ],
+ "þingmenn": [
+  "þingmaður"
+ ],
+ "Þingmenn": [
+  "þingmaður"
+ ],
+ "ræddu": [
+  "ræða",
+  "ræddur"
+ ],
+ "frumvarpið": [
+  "frumvarp"
+ ],
+ "gær": [
+  "gær"
+ ],
+ "Þingmaðurinn": [
+  "þingmaður"
+ ],
+ "sagði": [
+  "segja",
+  "sagður"
+ ],
+ "Bætið": [
+  "bæta",
+  "bæti",
+  "bæt"
+ ],
+ "deigið": [
+  "deig",
+  "deigja"
+ ],
+ "Notið": [
+  "nota",
+  "njóta"
+ ],
+ "þrjú": [
+  "þrír"
+ ],
+ "landbúnaðarráðherra": [
+  "landbúnaðarráðherra"
+ ],
+ "landbúnaður": [
+  "landbúnaður"
+ ],
+ "ráðherra": [
+  "ráðherra"
+ ],
+ "húsnæðislán": [
+  "húsnæðislán"
+ ],
+ "húsnæði": [
+  "húsnæði"
+ ],
+ "lán": [
+  "lán"
+ ],
+ "sjúkrahús": [
+  "sjúkrahús"
+ ],
+ "sjúkur": [
+  "sjúkur"
+ ],
+ "hús": [
+  "hús"
+ ],
+ "bílstjóri": [
+  "bílstjóri"
+ ],
+ "bíll": [
+  "bíll"
+ ],
+ "stjóra": [
+  "stjóri",
+  "stjóra",
+  "stjór"
+ ],
+ "borgarstjóri": [
+  "borgarstjóri"
+ ],
+ "stjóri": [
+  "stjóri",
+  "stjóra"
+ ],
+ "Sími": [
+  "síma",
+  "sími"
+ ],
+ "tölvupóst": [
+  "tölvupóstur"
+ ],
+ "Tími": [
+  "tíma",
+  "tími"
+ ],
+ "Verð": [
+  "verður",
+  "verða",
+  "verð",
+  "verja"
+ ],
+ "Þyngd": [
+  "þyngd",
+  "þyngja"
+ ],
+ "Afsláttur": [
+  "afsláttur"
+ ],
+ "skilaboð": [
+  "skilaboð"
+ ],
+ "Síða": [
+  "síður",
+  "síðir",
+  "síða"
+ ],
+ "eða": [
+  "eða",
+  "eð"
+ ],
+ "húseigandi": [
+  "húseigandi"
+ ],
+ "Bíll": [
+  "bíll"
+ ],
+ "bílaleigur": [
+  "bílaleiga"
+ ],
+ "bílaleiga": [
+  "bílaleiga"
+ ],
+ "húsnæðislánareglur": [
+  "húsnæðislánareglur"
+ ],
+ "þgf": [
+  "þgf"
+ ],
+ "bíl": [
+  "bíll"
+ ],
+ "hér": [
+  "hér"
+ ],
+ "borðinu": [
+  "borð"
+ ],
+ "Bókin": [
+  "bók"
+ ],
+ "glöð": [
+  "glaður"
+ ],
+ "bíó": [
+  "bíó"
+ ],
+ "Þau": [
+  "það",
+  "sá"
+ ],
+ "ætla": [
+  "ætla"
+ ],
+ "Húsnæðislán": [
+  "húsnæðislán"
+ ],
+ "dýr": [
+  "dýr"
+ ],
+ "Landbúnaðarráðherra": [
+  "landbúnaðarráðherra"
+ ],
+ "Hún": [
+  "hún",
+  "húnn"
+ ],
+ "bílinn": [
+  "bíll"
+ ],
+ "Bílinn": [
+  "bíll"
+ ],
+ "rauður": [
+  "rauða",
+  "rauður"
+ ],
+ "skógur": [
+  "skógur"
+ ],
+ "ræddum": [
+  "ræða",
+  "ræddur"
+ ],
+ "lög": [
+  "lög",
+  "lag",
+  "lögur"
+ ],
+ "Samkvæmt": [
+  "samkvæmt",
+  "samkvæmur"
+ ],
+ "ákvæðum": [
+  "ákvæði",
+  "ákveða"
+ ],
+ "lánaregla": [
+  "lánaregla"
+ ],
+ "Nýjar": [
+  "nýja",
+  "nýr"
+ ],
+ "skrifað": [
+  "skrifa",
+  "skrifaður"
+ ],
+ "skrifuð": [
+  "skrifa",
+  "skrifaður"
+ ],
+ "Reykjavíkur": [
+  "reykjavík"
+ ],
+ "Borgarstjórinn": [
+  "borgarstjóri"
+ ],
+ "tók": [
+  "taka"
+ ],
+ "máls": [
+  "mál"
+ ],
+ "sýking": [
+  "sýking"
+ ],
+ "náms": [
+  "nám",
+  "námur"
+ ],
+ "námskrá": [
+  "námskrá"
+ ],
+ "nám": [
+  "nám",
+  "námur"
+ ],
+ "framhaldsskóla": [
+  "framhaldsskóli"
+ ],
+ "sofið": [
+  "sofa",
+  "sofinn"
+ ],
+ "ríkisstjórn": [
+  "ríkisstjórn"
+ ],
+ "ríkisstjórnin": [
+  "ríkisstjórn"
+ ],
+ "Ríkisstjórnin": [
+  "ríkisstjórn"
+ ],
+ "Bók": [
+  "bók"
+ ],
+ "góð": [
+  "góður"
+ ],
+ "Ræða": [
+  "ræða",
+  "ræður",
+  "ræði"
+ ],
+ "löng": [
+  "langur"
+ ],
+ "Ríkisstjórn": [
+  "ríkisstjórn"
+ ],
+ "Tónlist": [
+  "tónlist"
+ ],
+ "frábær": [
+  "frábær"
+ ],
+ "Húsnæðislánareglur": [
+  "húsnæðislánareglur"
+ ],
+ "flóknar": [
+  "flókna",
+  "flókinn"
+ ],
+ "BÍN": [
+  "bín"
+ ],
+ "stjórn": [
+  "stjórn"
+ ],
+ "ríkissjóður": [
+  "ríkissjóður"
+ ],
+ "blómi": [
+  "blóm",
+  "blómi"
+ ],
+ "blóm": [
+  "blóm"
+ ],
+ "arðgreiðsla": [
+  "arðgreiðsla"
+ ],
+ "íslandsbanki": [
+  "íslandsbanki"
+ ],
+ "ríki": [
+  "ríki",
+  "ríkja",
+  "ríkir",
+  "ríkur"
+ ],
+ "sjóður": [
+  "sjóður"
+ ],
+ "arður": [
+  "arður"
+ ],
+ "greiðsla": [
+  "greiðsla"
+ ],
+ "tjón": [
+  "tjón"
+ ],
+ "milljarður": [
+  "milljarður"
+ ],
+ "króna": [
+  "króna",
+  "kró"
+ ],
+ "Löngu": [
+  "löngu",
+  "langa",
+  "langur"
+ ],
+ "áður": [
+  "áður"
+ ],
+ "Jón": [
+  "jón"
+ ],
+ "hafði": [
+  "hafa",
+  "hafður"
+ ],
+ "bráðnað": [
+  "bráðna"
+ ],
+ "hádeginu": [
+  "hádegi"
+ ],
+ "veitingastaðinn": [
+  "veitingastaður"
+ ],
+ "rauðvín": [
+  "rauðvín"
+ ],
+ "ánægju": [
+  "ánægja"
+ ],
+ "bráðna": [
+  "bráðna",
+  "bráðinn"
+ ],
+ "veitingastaður": [
+  "veitingastaður"
+ ],
+ "ánægja": [
+  "ánægja"
+ ],
+ "staður": [
+  "staður"
+ ],
+ "Það": [
+  "það",
+  "sá"
+ ],
+ "viðurkenna": [
+  "viðurkenna"
+ ],
+ "þjóðin": [
+  "þjóð"
+ ],
+ "ósátt": [
+  "ósáttur",
+  "ósátt"
+ ],
+ "gjörðir": [
+  "gjöra",
+  "gjörð",
+  "gjörður"
+ ],
+ "þjóð": [
+  "þjóð"
+ ],
+ "ósáttur": [
+  "ósáttur"
+ ],
+ "gjörð": [
+  "gjöra",
+  "gjörð",
+  "gjörður"
+ ],
+ "viðurkennt": [
+  "viðurkenna",
+  "viðurkenndur"
+ ],
+ "ákveðið": [
+  "ákveðið",
+  "ákveða",
+  "ákveðinn"
+ ],
+ "sjálfur": [
+  "sjálfur"
+ ],
+ "Alþingi": [
+  "alþingi",
+  "alþing"
+ ],
+ "skýrsluna": [
+  "skýrsla"
+ ],
+ "ákveða": [
+  "ákveða"
+ ],
+ "skýrsla": [
+  "skýrsla"
+ ],
+ "gráður": [
+  "gráða"
+ ],
+ "ánægð": [
+  "ánægður",
+  "ánægja"
+ ],
+ "gráða": [
+  "gráða",
+  "gráði"
+ ],
+ "þann": [
+  "sá"
+ ],
+ "júní": [
+  "júní"
+ ],
+ "árið": [
+  "ár"
+ ],
+ "Þingvöllum": [
+  "þingvellir",
+  "þingvöllur"
+ ],
+ "þingvellir": [
+  "þingvellir",
+  "þingvöllur"
+ ],
+ "þingvöllur": [
+  "þingvöllur"
+ ],
+ "Hér": [
+  "hér"
+ ],
+ "þáttun": [
+  "þáttun"
+ ],
+ "horfði": [
+  "horfa"
+ ],
+ "Pál": [
+  "páll"
+ ],
+ "kökuna": [
+  "kaka"
+ ],
+ "stóð": [
+  "standa",
+  "stóð"
+ ],
+ "sínum": [
+  "sinn"
+ ],
+ "upplýsing": [
+  "upplýsing"
+ ],
+ "reykjavík": [
+  "reykjavík"
+ ],
+ "hrærið": [
+  "hræra",
+  "hræri"
+ ],
+ "hræra": [
+  "hræra",
+  "hræri"
+ ],
+ "áform": [
+  "áform"
+ ],
+ "Halló": [
+  "halló"
+ ],
+ "persónuupplýsingar": [
+  "persónuupplýsingar"
+ ],
+ "mikilvægar": [
+  "mikilvægur"
+ ],
+ "þjóðmálaráðherra": [
+  "þjóðmálaráðherra"
+ ],
+ "húseignir": [
+  "húseign"
+ ],
+ "húsa": [
+  "hús",
+  "húsi",
+  "húsa"
+ ],
+ "húss": [
+  "hús"
+ ],
+ "appið": [
+  "app"
+ ],
+ "blörfið": [
+  "blörfið"
+ ],
+ "hlaðvarpið": [
+  "hlaðvarp"
+ ],
+ "viður": [
+  "viða",
+  "viður"
+ ],
+ "Börn": [
+  "barn"
+ ],
+ "húsnæðislánafund": [
+  "húsnæðislánafund"
+ ],
+ "köttur": [
+  "köttur"
+ ],
+ "Maðurinn": [
+  "maður"
+ ],
+ "Þar": [
+  "þar"
+ ],
+ "bjó": [
+  "búa"
+ ],
+ "Orð": [
+  "orð"
+ ],
+ "góðir": [
+  "góður"
+ ]
+}

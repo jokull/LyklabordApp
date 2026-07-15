@@ -1,0 +1,13 @@
+# Xcode / XcodeGen
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+.build/
+.swiftpm/
+
+# XcodeGen cache
+.xcodegen/
+
+# macOS
+.DS_Store
