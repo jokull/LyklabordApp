@@ -64,15 +64,35 @@ final class KeyboardViewController: KeyboardInputViewController {
         // an `@available(*, deprecated...)` attribute, so this produces no
         // compiler warnings.)
         //
+        // `BetterKeyboardLayoutService` below is our subclass of
+        // `DeviceBasedLayoutService` (see "Bottom-row affordances" section)
+        // that adds the SwiftKey-style `.` key between space and return on
+        // iPhone (PLAN.md "Bottom-row affordances"); iPad keeps KeyboardKit's
+        // stock bottom row unchanged.
+        //
         // Callouts (long-press accents) are wired separately via the
         // `.keyboardCalloutActions` view modifier in
         // `viewWillSetupKeyboardView()` below — that's the current, non-
         // deprecated mechanism regardless of layout service choice.
-        services.layoutService = KeyboardLayout.DeviceBasedLayoutService(
+        services.layoutService = BetterKeyboardLayoutService(
             alphabeticInputSet: .icelandic,
             numericInputSet: .numeric,
             symbolicInputSet: .symbolic
         )
+
+        // Spacebar long-press → cursor movement (PLAN.md "Bottom-row
+        // affordances" / "Spacebar behavior"). KeyboardKit 9.9.1 ships this
+        // as `Keyboard.SpaceLongPressBehavior.moveInputCursor`, which is
+        // already the compiled-in default for `KeyboardSettings
+        // .spaceLongPressBehavior` (see `KeyboardSettings.swift`). We still
+        // set it explicitly here — rather than relying on the vendored
+        // default — because `@AppStorage` persists to the App Group's
+        // shared `UserDefaults`: once a value has been written under this
+        // key (e.g. by a future settings screen, or a prior build that
+        // picked a different default), the compiled-in default no longer
+        // applies. Setting it explicitly on every launch keeps this
+        // affordance guaranteed regardless of persisted state.
+        state.keyboardContext.settings.spaceLongPressBehavior = .moveInputCursor
 
         // M1: bilingual IS/EN autocomplete via TypeEngine. The service
         // bootstraps itself lazily on its own utility-QoS serial queue (mmap
@@ -172,8 +192,99 @@ extension Callouts.Actions {
             "y": "yý",
             "d": "dð",
             "t": "tþ",
+            // Bottom-row affordance #2 (PLAN.md): long-press on the new `.`
+            // key (right of the spacebar — see `BetterKeyboardIPhoneLayoutService`
+            // below) shows this cluster, period nearest/first since that's
+            // the char under the finger. Overrides `Callouts.Actions.base`'s
+            // stock "." -> ".…" mapping.
+            ".": ".,!?@#:;-",
         ])
         actions.actionsDictionary.merge(icelandicOverrides.actionsDictionary) { _, new in new }
         return actions
     }
 }
+
+// MARK: - Bottom-row affordances (period key)
+
+/// iPhone layout service that inserts a `.` key between the spacebar and
+/// the return key, matching SwiftKey/Gboard muscle memory (PLAN.md
+/// "Bottom-row affordances": `[123] [globe] [space] [.] [return]`).
+///
+/// Subclasses the vendored `KeyboardLayout.iPhoneLayoutService` rather than
+/// editing it in place — `bottomActions(for:)` is `open`, so this is the
+/// same non-deprecated override mechanism the rest of this file relies on
+/// (see the layout-service comment in `viewDidLoad()` above). Only applies
+/// to the plain alphabetic keyboard type: the email/url/webSearch bottom
+/// rows (which already substitute `@`/`.com`/etc. for the space slot) and
+/// the numeric/symbolic keypads (whose input sets already contain `.`/`,`)
+/// are left untouched.
+final class BetterKeyboardIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
+
+    override func bottomActions(
+        for context: KeyboardContext
+    ) -> KeyboardAction.Row {
+        var actions = super.bottomActions(for: context)
+        guard context.keyboardType == .alphabetic else { return actions }
+        guard let returnIndex = actions.firstIndex(where: { $0.isPrimaryAction }) else { return actions }
+        actions.insert(.character("."), at: returnIndex)
+        return actions
+    }
+}
+
+/// Device-based layout service that routes iPhone through
+/// `BetterKeyboardIPhoneLayoutService` (adds the period key) while iPad
+/// keeps KeyboardKit's stock `iPadLayoutService`, unmodified — per PLAN.md
+/// decision #3 ("iPad functional via KeyboardKit, unoptimized").
+///
+/// `DeviceBasedLayoutService.iPhoneService`/`iPadService` are `lazy var`
+/// (stored properties), which Swift cannot override, so this instead
+/// overrides `keyboardLayoutService(for:)` — also `open` — and substitutes
+/// our own iPhone service only for the `.phone` case, deferring to
+/// `super` (which returns the stock `iPadService`) for everything else.
+final class BetterKeyboardLayoutService: KeyboardLayout.DeviceBasedLayoutService {
+
+    private lazy var betterIPhoneService: KeyboardLayoutService = BetterKeyboardIPhoneLayoutService(
+        alphabeticInputSet: alphabeticInputSet,
+        numericInputSet: numericInputSet,
+        symbolicInputSet: symbolicInputSet
+    )
+
+    override func keyboardLayoutService(
+        for context: KeyboardContext
+    ) -> KeyboardLayoutService {
+        switch context.deviceTypeForKeyboard {
+        case .phone: betterIPhoneService
+        default: super.keyboardLayoutService(for: context)
+        }
+    }
+}
+
+// MARK: - Double-space → ". " (built-in, no code needed)
+
+// PLAN.md bottom-row affordance #3 ("Double-space → '. '") turned out to
+// already be a fully wired KeyboardKit 9.9.1 feature, not something to
+// implement:
+//
+//   - `Keyboard.StandardKeyboardBehavior.shouldEndCurrentSentence(after:on:)`
+//     (`Packages/KeyboardKit/Sources/KeyboardKit/_Keyboard/Keyboard+StandardKeyboardBehavior.swift`)
+//     returns true on `.release` of `.space` when the proxy's text before
+//     the cursor ends in two spaces, the cursor is at a new word, the
+//     previous sentence isn't already closed, and the second tap landed
+//     within `endSentenceThreshold` (3s default) of the first.
+//   - `KeyboardAction.StandardActionHandler.tryEndCurrentSentence(after:on:)`
+//     calls that check unconditionally as part of every `handle(_:on:)`,
+//     then does `textDocumentProxy.endSentence(withText: ". ")`, which
+//     deletes the trailing spaces and inserts ". ".
+//
+// Both `services.keyboardBehavior` and `services.actionHandler` are left
+// at their KeyboardKit defaults (`Keyboard.StandardKeyboardBehavior` /
+// `KeyboardAction.StandardActionHandler`) in this file, so this fires as-is.
+// Regression coverage: `Keyboard_StandardKeyboardBehaviorTests
+// .testShouldEndSentenceOnlyForSpaceAfterPreviousSpace` (upstream, already
+// in the vendored test suite) plus the new
+// `KeyboardAction_SpaceSequencingTests` in
+// `Packages/KeyboardKit/Tests/KeyboardKitTests/Actions/` (added for this
+// change), which exercises the same behavior end-to-end through
+// `StandardActionHandler.handle(_:on:)` and confirms it doesn't fire on a
+// single space or disturb the mode-1 autocorrect-on-space commit (PLAN.md
+// "Spacebar behavior").
