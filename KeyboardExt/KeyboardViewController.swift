@@ -45,12 +45,34 @@ final class KeyboardViewController: KeyboardInputViewController {
         state.keyboardContext.locale = .icelandic
         state.keyboardContext.locales = [.icelandic]
 
-        // Custom layout (input keys) and callouts (long-press accents) are
-        // wired up as value/modifier APIs in `viewWillSetupKeyboardView()`
-        // below, not via the deprecated `services.layoutService` /
-        // `services.calloutService` service-protocol assignments — see the
-        // "Icelandic Layout" / "Icelandic Callouts" sections at the bottom
-        // of this file.
+        // Icelandic layout: swap in the Icelandic alphabetic input set on
+        // top of KeyboardKit's own row-assembly machinery
+        // (`KeyboardLayout.DeviceBasedLayoutService`, vendored in
+        // Packages/KeyboardKit/Sources/KeyboardKit/_Deprecated/Layout
+        // Services/). That service is what builds the *full* keyboard —
+        // shift, backspace, 123/globe/space/return bottom row, iPhone vs
+        // iPad variants, margins/widths — around whichever input set it's
+        // given, picking `iPhoneLayoutService`/`iPadLayoutService`
+        // internally based on device type. Hand-assembling just the input
+        // rows (the previous `IcelandicKeyboardLayoutProvider`, now
+        // removed) skipped all of that and rendered letters only. Doc
+        // comments in that vendored code say "> Deprecated: ... will be
+        // removed in 10.0", but per PLAN.md we vendor 9.9.1 permanently and
+        // never track v10 (closed-source), so these are first-class APIs
+        // in our fork, not actually-deprecated code — see the `_Deprecated`
+        // README-equivalent note there. (None of these declarations carry
+        // an `@available(*, deprecated...)` attribute, so this produces no
+        // compiler warnings.)
+        //
+        // Callouts (long-press accents) are wired separately via the
+        // `.keyboardCalloutActions` view modifier in
+        // `viewWillSetupKeyboardView()` below — that's the current, non-
+        // deprecated mechanism regardless of layout service choice.
+        services.layoutService = KeyboardLayout.DeviceBasedLayoutService(
+            alphabeticInputSet: .icelandic,
+            numericInputSet: .numeric,
+            symbolicInputSet: .symbolic
+        )
 
         // M1: bilingual IS/EN autocomplete via TypeEngine. The service
         // bootstraps itself lazily on its own utility-QoS serial queue (mmap
@@ -66,8 +88,13 @@ final class KeyboardViewController: KeyboardInputViewController {
 
     override func viewWillSetupKeyboardView() {
         setupKeyboardView { controller in
+            // No explicit `layout:` — the default `KeyboardView` init falls
+            // back to `services.layoutService.keyboardLayout(for:)`, which
+            // is the `DeviceBasedLayoutService` configured with `.icelandic`
+            // above (viewDidLoad). That's what produces the full keyboard
+            // (space/backspace/shift/123/globe/return), not just the letter
+            // rows.
             KeyboardView(
-                layout: icelandicLayoutProvider.keyboardLayout(for: controller.state.keyboardContext),
                 state: controller.state,
                 services: controller.services,
                 buttonContent: { $0.view },
@@ -82,11 +109,6 @@ final class KeyboardViewController: KeyboardInputViewController {
         }
     }
 }
-
-/// The Icelandic layout provider, shared by every call to
-/// `viewWillSetupKeyboardView()` (re-invoked on each keyboard-view render,
-/// so it's cheap to construct here rather than stored as a stored property).
-private let icelandicLayoutProvider = IcelandicKeyboardLayoutProvider()
 
 // MARK: - Icelandic Layout
 
@@ -120,67 +142,6 @@ extension KeyboardLayout.InputSet {
             .init(chars: "asdfghjklæö"),
             .init(chars: "zxcvbnmþ", deviceVariations: [.pad: "zxcvbnmþ,."])
         ])
-    }
-}
-
-/// Generates the full keyboard layout (letters + numeric + symbolic pages)
-/// using the Icelandic input set for the alphabetic page. Numeric/symbolic
-/// pages reuse KeyboardKit's standard sets for now.
-///
-/// KeyboardKit note: this replicates the (row-building + item-sizing) logic
-/// that used to live in the now-deprecated `KeyboardLayout.BaseLayoutService`
-/// — deprecated in 9.9.1, removed in v10, in favor of passing a plain
-/// `KeyboardLayout` value via `KeyboardView(layout:)`. The logic itself
-/// isn't Pro-gated or new to v10, it's just no longer wrapped in a
-/// subclassable service protocol — see research/keyboardkit-v10-delta.md §1.
-struct IcelandicKeyboardLayoutProvider {
-    var alphabeticInputSet: KeyboardLayout.InputSet = .icelandic
-    var numericInputSet: KeyboardLayout.InputSet = .numeric
-    var symbolicInputSet: KeyboardLayout.InputSet = .symbolic
-
-    /// Get a keyboard layout for the provided context.
-    func keyboardLayout(for context: KeyboardContext) -> KeyboardLayout {
-        KeyboardLayout(
-            itemRows: itemRows(for: context),
-            deviceConfiguration: .standard(for: context),
-            inputToolbarInputSet: inputSetForInputToolbar(with: context)
-        )
-    }
-
-    private func inputSet(for context: KeyboardContext) -> KeyboardLayout.InputSet {
-        switch context.keyboardType {
-        case .numeric: numericInputSet
-        case .symbolic: symbolicInputSet
-        default: alphabeticInputSet
-        }
-    }
-
-    private func inputSetForInputToolbar(with context: KeyboardContext) -> KeyboardLayout.InputSet {
-        switch context.keyboardType {
-        case .numeric: symbolicInputSet
-        default: numericInputSet
-        }
-    }
-
-    private func inputCharacters(for context: KeyboardContext) -> [[String]] {
-        inputSet(for: context).rows.characters(
-            for: context.keyboardCase,
-            device: context.deviceTypeForKeyboard
-        )
-    }
-
-    private func inputActions(for context: KeyboardContext) -> KeyboardAction.Rows {
-        .init(characters: inputCharacters(for: context))
-    }
-
-    private func itemRows(for context: KeyboardContext) -> KeyboardLayout.ItemRows {
-        // `KeyboardAction.standardLayoutItem(for:)` is the non-deprecated
-        // 9.9.1 free-function replacement for `BaseLayoutService`'s
-        // item/size/inset builder methods (itemSize/itemInsets/itemAlignment).
-        let config = KeyboardLayout.DeviceConfiguration.standard(for: context)
-        return inputActions(for: context).map { row in
-            row.map { action in action.standardLayoutItem(for: config) }
-        }
     }
 }
 
