@@ -182,6 +182,61 @@ final class AppModel {
             return Strings.Dictionary.addWordInvalid
         }
     }
+
+    // MARK: - SwiftKey import
+
+    /// Outcome of a SwiftKey `vocabulary.txt` import, pre-shaped for the UI.
+    /// `skippedInvalid` folds together parse-level skips (comment/junk lines
+    /// in the export file) and import-level rejects — to the user these are
+    /// one category: "lines that weren't valid words".
+    struct ImportOutcome: Equatable {
+        var imported: Int
+        var skippedInvalid: Int
+        var skippedTombstoned: Int
+    }
+
+    enum ImportError: Error {
+        /// `startAccessingSecurityScopedResource` failed — the picked URL
+        /// can't be opened from our sandbox.
+        case accessDenied
+        /// The file couldn't be read/decoded as UTF-8 text.
+        case unreadable
+    }
+
+    /// Import a SwiftKey export's `vocabulary.txt` (picked via
+    /// `.fileImporter`). The URL from the file importer is security-scoped
+    /// (outside our sandbox), so the read is bracketed with
+    /// `startAccessingSecurityScopedResource` / `stop...`. Parsing +
+    /// `PersonalModel.importLearnedWords` semantics: imported words become
+    /// explicitly-accepted learned words immediately (they show up under
+    /// "Lærð orð", not "Mín orð"); tombstones win — words the user deleted
+    /// here stay deleted.
+    func importSwiftKeyVocabulary(from url: URL) -> Result<ImportOutcome, ImportError> {
+        guard let model else { return .failure(.accessDenied) }
+        let didStartAccess = url.startAccessingSecurityScopedResource()
+        // `startAccessing...` returns false for URLs that aren't security-
+        // scoped (rare with fileImporter, but possible for files already in
+        // our container) — in that case reading may still succeed, so only
+        // treat the *read* failing as fatal.
+        defer {
+            if didStartAccess { url.stopAccessingSecurityScopedResource() }
+        }
+        let parsed: (words: [String], skipped: Int)
+        do {
+            parsed = try SwiftKeyImport.parseVocabulary(at: url)
+        } catch {
+            return .failure(didStartAccess ? .unreadable : .accessDenied)
+        }
+        let summary = model.importLearnedWords(parsed.words)
+        persist()
+        return .success(
+            ImportOutcome(
+                imported: summary.imported,
+                skippedInvalid: parsed.skipped + summary.skippedInvalid,
+                skippedTombstoned: summary.skippedTombstoned
+            )
+        )
+    }
 }
 
 /// Spacebar behavior modes (PLAN.md "Spacebar behavior — three

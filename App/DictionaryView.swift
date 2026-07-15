@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DictionaryView: View {
     @Environment(AppModel.self) private var appModel
@@ -19,23 +20,35 @@ struct DictionaryView: View {
     @State private var newWordText = ""
     @State private var addWordError: String?
     @State private var pendingUndo: PendingUndo?
+    @State private var showingImportSheet = false
+    @State private var showingImportPicker = false
+    @State private var importAlert: ImportAlert?
 
     private struct PendingUndo: Identifiable {
         let id = UUID()
         let word: String
     }
 
-    private var filteredLearned: [String] {
-        filter(appModel.learnedWords)
+    private enum ImportAlert: Identifiable {
+        case success(AppModel.ImportOutcome)
+        case failure(String)
+
+        var id: String {
+            switch self {
+            case .success: return "success"
+            case .failure: return "failure"
+            }
+        }
     }
 
-    private var filteredUserAdded: [String] {
-        filter(appModel.userAddedWords)
-    }
-
+    /// Single-pass filter, called once per render from `list` (not a
+    /// computed property referenced multiple times — after a SwiftKey import
+    /// the learned list can hold ~15k words, and one lowercased-contains
+    /// sweep per keystroke over that is fine; three per keystroke is silly).
     private func filter(_ words: [String]) -> [String] {
         guard !searchText.isEmpty else { return words }
-        return words.filter { $0.localizedCaseInsensitiveContains(searchText) }
+        let needle = searchText.lowercased()
+        return words.filter { $0.lowercased().contains(needle) }
     }
 
     var body: some View {
@@ -65,9 +78,36 @@ struct DictionaryView: View {
                     }
                     .disabled(appModel.containerState == .unavailable)
                 }
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        showingImportSheet = true
+                    } label: {
+                        Label(Strings.SwiftKeyImport.actionTitle, systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(appModel.containerState == .unavailable)
+                }
             }
             .sheet(isPresented: $showingAddSheet) {
                 addWordSheet
+            }
+            .sheet(isPresented: $showingImportSheet) {
+                importSheet
+            }
+            .alert(item: $importAlert) { alert in
+                switch alert {
+                case .success(let outcome):
+                    Alert(
+                        title: Text(Strings.SwiftKeyImport.resultTitle),
+                        message: Text(importSummaryMessage(outcome)),
+                        dismissButton: .default(Text(Strings.SwiftKeyImport.resultOK))
+                    )
+                case .failure(let message):
+                    Alert(
+                        title: Text(Strings.SwiftKeyImport.errorTitle),
+                        message: Text(message),
+                        dismissButton: .default(Text(Strings.SwiftKeyImport.resultOK))
+                    )
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 if let pendingUndo {
@@ -80,7 +120,9 @@ struct DictionaryView: View {
     // MARK: - List
 
     private var list: some View {
-        List {
+        let filteredLearned = filter(appModel.learnedWords)
+        let filteredUserAdded = filter(appModel.userAddedWords)
+        return List {
             if !filteredLearned.isEmpty {
                 Section {
                     ForEach(filteredLearned, id: \.self) { word in
@@ -173,10 +215,98 @@ struct DictionaryView: View {
                     Label(Strings.Dictionary.addWordButton, systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
+
+                Button {
+                    showingImportSheet = true
+                } label: {
+                    Label(Strings.SwiftKeyImport.actionTitle, systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    // MARK: - SwiftKey import
+
+    private var importSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(Strings.SwiftKeyImport.explainer)
+                    Label(Strings.SwiftKeyImport.explainerNote, systemImage: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        showingImportPicker = true
+                    } label: {
+                        Label(Strings.SwiftKeyImport.chooseFileButton, systemImage: "doc.text")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+                .padding()
+            }
+            .navigationTitle(Strings.SwiftKeyImport.sheetTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(Strings.SwiftKeyImport.cancelButton) {
+                        showingImportSheet = false
+                    }
+                }
+            }
+            .fileImporter(
+                isPresented: $showingImportPicker,
+                allowedContentTypes: [.plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                showingImportSheet = false
+                handleImportPick(result)
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func handleImportPick(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure:
+            // The user cancelled the picker (the only common failure) —
+            // no alert, they're back on the (now dismissed) sheet's parent.
+            return
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            switch appModel.importSwiftKeyVocabulary(from: url) {
+            case .success(let outcome):
+                importAlert = .success(outcome)
+            case .failure(.accessDenied):
+                importAlert = .failure(Strings.SwiftKeyImport.errorNoAccess)
+            case .failure(.unreadable):
+                importAlert = .failure(Strings.SwiftKeyImport.errorUnreadable)
+            }
+        }
+    }
+
+    private func importSummaryMessage(_ outcome: AppModel.ImportOutcome) -> String {
+        var lines = [Strings.SwiftKeyImport.importedMessage(formattedCount(outcome.imported))]
+        if outcome.skippedInvalid > 0 {
+            lines.append(Strings.SwiftKeyImport.skippedInvalidMessage(formattedCount(outcome.skippedInvalid)))
+        }
+        if outcome.skippedTombstoned > 0 {
+            lines.append(Strings.SwiftKeyImport.skippedTombstonedMessage(formattedCount(outcome.skippedTombstoned)))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Icelandic-style grouping ("14.194"), independent of device locale —
+    /// the surrounding copy is Icelandic either way.
+    private func formattedCount(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "is_IS")
+        return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }
 
     // MARK: - Add word

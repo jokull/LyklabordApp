@@ -62,6 +62,25 @@ enum Strings {
         static let noSearchResults = "Ekkert orð fannst"
     }
 
+    enum SwiftKeyImport {
+        static let actionTitle = "Flytja inn úr SwiftKey"
+        static let sheetTitle = "Flytja inn úr SwiftKey"
+        static let explainer = "Þú getur flutt orðasafnið þitt úr SwiftKey yfir í Lyklaborð. Sæktu gögnin þín í SwiftKey (Stillingar → Account → „Download your data“) og veldu síðan skrána „vocabulary.txt“ úr möppunni „SwiftKey Keyboard/Dictionary“ í útflutningnum."
+        static let explainerNote = "Innflutt orð verða strax gild lærð orð. Orð sem þú hefur áður eytt hér verða ekki flutt inn aftur — þín eyðing gildir."
+        static let chooseFileButton = "Velja skrá"
+        static let cancelButton = "Hætta við"
+
+        static let resultTitle = "Innflutningi lokið"
+        static func importedMessage(_ count: String) -> String { "\(count) orð flutt inn" }
+        static func skippedInvalidMessage(_ count: String) -> String { "\(count) línum sleppt (ekki gild orð)" }
+        static func skippedTombstonedMessage(_ count: String) -> String { "\(count) orðum sleppt (þú hafðir eytt þeim hér)" }
+        static let resultOK = "Í lagi"
+
+        static let errorTitle = "Innflutningur mistókst"
+        static let errorUnreadable = "Ekki tókst að lesa skrána. Athugaðu að þetta sé „vocabulary.txt“ úr SwiftKey-útflutningnum (SwiftKey Keyboard/Dictionary/vocabulary.txt)."
+        static let errorNoAccess = "Ekki fékkst aðgangur að skránni. Prófaðu að afrita hana fyrst í Skrár (Files) og velja hana þaðan."
+    }
+
     enum Settings {
         static let navigationTitle = "Stillingar"
 
