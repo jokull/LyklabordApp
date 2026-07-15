@@ -386,15 +386,27 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         if gesture == .release,
             case .character(let char) = action,
             char.count == 1,
-            let character = char.first,
-            character.isLetter || character.isNumber,
-            let revert = betterAutocompleteService?.pendingContinuationRevert(for: character)
+            let character = char.first
         {
-            let proxy = keyboardContext.textDocumentProxy
-            for _ in 0..<revert.deleteCount { proxy.deleteBackward() }
-            proxy.insertText(revert.text)
+            if character.isLetter || character.isNumber,
+                let revert = betterAutocompleteService?.pendingContinuationRevert(for: character)
+            {
+                executeProxyEdit(revert)
+            }
+            // Punctuation attachment ("word . " → "word. "): the space
+            // keystroke after an armed memo re-attaches the period; any
+            // other keystroke discards the memo inside the session.
+            if let attach = betterAutocompleteService?.pendingPunctuationAttachment(for: character) {
+                executeProxyEdit(attach)
+            }
         }
         super.handle(gesture, on: action, replaced: replaced)
+    }
+
+    private func executeProxyEdit(_ edit: RevertInstruction) {
+        let proxy = keyboardContext.textDocumentProxy
+        for _ in 0..<edit.deleteCount { proxy.deleteBackward() }
+        proxy.insertText(edit.text)
     }
 
     override func handle(_ suggestion: Autocomplete.Suggestion) {

@@ -77,6 +77,15 @@ final class Typist {
             proxy.insertText(revert.text)
             lastRevert = revert
         }
+        // Punctuation attachment (extension action-handler hook, PLAN.md
+        // "Space-miss correction" #3): a space right after "word ␣." orders
+        // the stray space removed before this keystroke's space lands, so
+        // the document reads "word.␣". Other characters discard the memo
+        // inside the session.
+        if let attachment = session.punctuationAttachment(for: character) {
+            for _ in 0..<attachment.deleteCount { proxy.deleteBackward() }
+            proxy.insertText(attachment.text)
+        }
         // KeyboardKit space-commit: a delimiter keystroke first applies the
         // pending autocorrect suggestion (replace current word), then inserts
         // the delimiter. '.' is excluded by our action-handler subclass (the

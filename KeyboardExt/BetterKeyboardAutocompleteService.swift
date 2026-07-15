@@ -61,6 +61,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// '.'-replacement memo exists.
     private let revertMemoLock = NSLock()
     private var revertMemoArmed = false
+    private var attachmentMemoArmed = false
 
     private func setRevertMemoArmed(_ armed: Bool) {
         revertMemoLock.lock()
@@ -72,6 +73,18 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         revertMemoLock.lock()
         defer { revertMemoLock.unlock() }
         return revertMemoArmed
+    }
+
+    private func setAttachmentMemoArmed(_ armed: Bool) {
+        revertMemoLock.lock()
+        attachmentMemoArmed = armed
+        revertMemoLock.unlock()
+    }
+
+    private var isAttachmentMemoArmed: Bool {
+        revertMemoLock.lock()
+        defer { revertMemoLock.unlock() }
+        return attachmentMemoArmed
     }
 
     // MARK: - Constants
@@ -165,6 +178,20 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         }
     }
 
+    /// Punctuation-attachment decision ("word . " → "word. "), consulted by
+    /// `BetterKeyboardActionHandler` BEFORE a keystroke is inserted — same
+    /// synchronous memo-gated pattern as `pendingContinuationRevert`: the
+    /// lock-guarded armed flag keeps ordinary keystrokes off the engine
+    /// queue; the session consumes or discards the memo per keystroke
+    /// (space attaches, anything else discards — ".net" survives).
+    func pendingPunctuationAttachment(for character: Character) -> RevertInstruction? {
+        guard isAttachmentMemoArmed else { return nil }
+        return queue.sync {
+            defer { setAttachmentMemoArmed(session?.hasPendingPunctuationAttachment == true) }
+            return session?.punctuationAttachment(for: character)
+        }
+    }
+
     // Word learning/ignoring is M2 (LearningStore + personal dictionary).
     // `StandardActionHandler` auto-learns tapped `.unknown` suggestions via
     // `learnWord`, so these must exist but stay no-ops for now.
@@ -251,6 +278,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         }
         let suggestions = session.suggestions(for: text, limit: 3)
         setRevertMemoArmed(session.hasPendingContinuationRevert)
+        setAttachmentMemoArmed(session.hasPendingPunctuationAttachment)
         let pendingToken = TypingSession.splitCurrentWord(of: text).currentWord
         return .init(
             inputText: text,

@@ -68,6 +68,13 @@ final class SpatialModelTests: XCTestCase {
         XCTAssertLessThan(cost, twoSubs)
     }
 
+    func testSpaceAdjacentLettersDerivedFromGeometry() {
+        // The bottom-row letters whose key centers fall inside the
+        // spacebar's horizontal span: c v b n m. z, x and þ sit over the
+        // 123/globe/./return keys and must NOT count as space-adjacent.
+        XCTAssertEqual(model.spaceAdjacentLetters, Set("cvbnm"))
+    }
+
     func testInsertionAndDeletionCosts() {
         // typed an extra char
         XCTAssertEqual(

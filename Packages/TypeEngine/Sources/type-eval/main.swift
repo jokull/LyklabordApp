@@ -101,9 +101,14 @@ let elapsed = clock.measure {
 }
 
 // Conservatism control: type every expected word verbatim; none may
-// auto-replace (they are all in-lexicon).
+// auto-replace (they are all in-lexicon). Multi-word expectations (the
+// "split" category: "hello world") are checked word-by-word — each half is
+// a valid word the user could type on its own.
+let expectedWords = Set(
+    cases.flatMap { $0.expected.split(separator: " ").map(String.init) }
+)
 var validWordViolations: [String] = []
-for word in Set(cases.map(\.expected)) {
+for word in expectedWords {
     let suggestions = engine.suggestions(context: "", currentWord: word, limit: 3)
     if suggestions.contains(where: { $0.isAutocorrect }) {
         validWordViolations.append(word)
@@ -142,7 +147,7 @@ print(
 print("")
 if validWordViolations.isEmpty {
     print(
-        "valid-word safety: OK — 0/\(Set(cases.map(\.expected)).count) expected words auto-replaced when typed verbatim"
+        "valid-word safety: OK — 0/\(expectedWords.count) expected words auto-replaced when typed verbatim"
     )
 } else {
     print("valid-word safety: VIOLATIONS — \(validWordViolations.sorted().joined(separator: ", "))")

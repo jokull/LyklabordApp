@@ -199,6 +199,110 @@ final class CorrectorTests: XCTestCase {
         )
     }
 
+    // MARK: Space-miss splits
+
+    func testSpaceSubstitutionSplitIsOffered() {
+        // "gottnveður" = "gott veður" with the spacebar tap landing on n
+        // (directly above the space): the interior n is consumed as the
+        // missed space and both halves are exact-valid.
+        let result = makeCorrector().correct(typed: "gottnveður")
+        XCTAssertTrue(
+            result.suggestions.contains { $0.text == "gott veður" },
+            "expected gott veður, got \(result.suggestions.map(\.text))"
+        )
+    }
+
+    func testSpaceInsertionSplitIsOffered() {
+        // No mis-tapped letter, just a skipped spacebar keystroke.
+        let result = makeCorrector().correct(typed: "gottveður")
+        XCTAssertTrue(
+            result.suggestions.contains { $0.text == "gott veður" },
+            "expected gott veður, got \(result.suggestions.map(\.text))"
+        )
+    }
+
+    func testSubstitutionSplitOutranksInsertionRepairPath() {
+        // Both classes can reach "gott veður" from "gottnveður" (insertion
+        // split "gottn"+"veður" would need an edits1 repair of the left
+        // half); the substitution split's smaller penalty must win, making
+        // the split the top suggestion here (typed unknown, halves exact,
+        // strong bigram).
+        let result = makeCorrector().correct(typed: "gottnveður")
+        XCTAssertEqual(result.suggestions.first?.text, "gott veður")
+    }
+
+    func testSplitHalvesMayBeCheaplyRepaired() {
+        // "godandag" = "góðan dag" with a skipped space AND missing
+        // diacritics: the left half is repaired by the diacritic-
+        // restoration pass before scoring.
+        let result = makeCorrector().correct(typed: "godandag")
+        XCTAssertTrue(
+            result.suggestions.contains { $0.text == "góðan dag" },
+            "expected góðan dag, got \(result.suggestions.map(\.text))"
+        )
+    }
+
+    func testValidWordIsNeverSplit() {
+        // "íslenska" is attested: valid words are never split, whatever
+        // their halves might score.
+        let result = makeCorrector().correct(typed: "íslenska")
+        XCTAssertFalse(
+            result.suggestions.contains { $0.text.contains(" ") },
+            "valid word must not be split, got \(result.suggestions.map(\.text))"
+        )
+    }
+
+    func testMorphologyValidWordIsNeverSplit() {
+        // BÍN-valid compounds (unknown to the frequency tables) are valid
+        // tokens: never split (PLAN.md: never auto-insert spaces into
+        // compounds).
+        let morphology = FakeMorphology(["gottveður"])
+        let result = makeCorrector(morphology: morphology).correct(typed: "gottveður")
+        XCTAssertTrue(result.typedWordIsValid)
+        XCTAssertFalse(result.suggestions.contains { $0.text.contains(" ") })
+    }
+
+    func testCloseSingleWordFixSuppressesSplits() {
+        // "hestr" has a one-edit fix (hest/hestur) below the split gate:
+        // the split pass must not even run (no spaced candidates).
+        let result = makeCorrector().correct(typed: "hestr")
+        XCTAssertFalse(
+            result.suggestions.contains { $0.text.contains(" ") },
+            "cheap single-word fix must suppress splits, got \(result.suggestions.map(\.text))"
+        )
+    }
+
+    func testShortTokensAreNeverSplit() {
+        // Below splitMinLength nothing is split ("ogað" = "og að" would be
+        // plausible, but 4 chars is too little evidence).
+        let result = makeCorrector().correct(typed: "ogað")
+        XCTAssertFalse(result.suggestions.contains { $0.text.contains(" ") })
+    }
+
+    func testSplitScoreRewardsBigramCoherence() {
+        // The second half is scored conditioned on the first: the same
+        // split scores strictly higher when the (first, second) bigram is
+        // attested than when it is not.
+        let unigrams: [String: UInt32] = ["gott": 150, "veður": 200, "og": 2000]
+        let withBigram = Corrector(
+            icelandic: DictLexicon(unigrams: unigrams, bigrams: ["gott veður": 30]),
+            english: Fixtures.english
+        )
+        let withoutBigram = Corrector(
+            icelandic: DictLexicon(unigrams: unigrams, bigrams: [:]),
+            english: Fixtures.english
+        )
+        func score(_ corrector: Corrector) -> Double? {
+            corrector.splitCandidates(
+                typedChars: Array("gottnveður"), previousWord: nil, pIcelandic: 0.5
+            ).first(where: { $0.word == "gott veður" })?.score
+        }
+        guard let coherent = score(withBigram), let incoherent = score(withoutBigram) else {
+            return XCTFail("split candidate missing")
+        }
+        XCTAssertGreaterThan(coherent, incoherent)
+    }
+
     // MARK: edits2 budgets
 
     func testEdits2ExpansionCapFallsBackGracefully() {

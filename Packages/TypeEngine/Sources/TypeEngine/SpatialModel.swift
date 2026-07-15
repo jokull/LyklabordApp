@@ -44,6 +44,16 @@ public struct SpatialModel: Sendable {
     /// iOS-style row stagger: home row shifted +0.5, bottom row a further +0.25.
     static let rowOffsets: [Double] = [0.0, 0.5, 0.75]
 
+    /// Horizontal span of the spacebar, in the same key-width units as the
+    /// letter grid. On the iOS iPhone layout the bottom function row is
+    /// `[123] [globe] [space...] [.] [return]`; the spacebar occupies
+    /// roughly the middle five key widths of the ~10-key-wide keyboard.
+    /// Bottom-row letters whose key centers fall inside this span sit
+    /// directly above the spacebar — a tap intended for space can land on
+    /// them (and vice versa). With the current geometry that derives
+    /// c v b n m (z, x and þ sit over the 123/globe/./return keys instead).
+    static let spacebarXSpan: ClosedRange<Double> = 2.5...7.5
+
     /// Accented characters are entered via long-press on their base key, so
     /// they share that key's position (the `minSubstitution` floor still
     /// applies between distinct characters).
@@ -62,6 +72,11 @@ public struct SpatialModel: Sendable {
     }()
 
     public let costs: Costs
+    /// Letters on the bottom letter row whose key centers lie within the
+    /// spacebar's horizontal span (see `spacebarXSpan`) — derived from the
+    /// layout geometry, not hardcoded. A tap on one of these may be a
+    /// missed spacebar tap (space-substitution splits in the corrector).
+    public let spaceAdjacentLetters: Set<Character>
     private let positions: [Character: SIMD2<Double>]
 
     public init(costs: Costs = Costs()) {
@@ -76,6 +91,11 @@ public struct SpatialModel: Sendable {
             pos[accented] = pos[base]
         }
         self.positions = pos
+        let bottomRowIndex = Double(Self.icelandicRows.count - 1)
+        self.spaceAdjacentLetters = Set(
+            pos.filter { $0.value.y == bottomRowIndex && Self.spacebarXSpan.contains($0.value.x) }
+                .keys
+        )
     }
 
     /// -log P(typed | intended) for a single character substitution.

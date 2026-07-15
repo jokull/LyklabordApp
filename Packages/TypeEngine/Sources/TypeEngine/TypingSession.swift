@@ -106,6 +106,20 @@ public final class TypingSession {
     /// same keystroke, and (b) recognize a host-side '.'-triggered
     /// auto-replacement of the pending token (revert-on-continuation).
     private var lastEmittedAutocorrect: String?
+    /// All non-verbatim suggestion texts emitted by the previous
+    /// `suggestions(for:)` call. A window change that appends SEVERAL words
+    /// in one keystroke is normally a host paste (never committed) — except
+    /// when it is exactly one of these texts being applied (a split
+    /// correction like "smellir á", via autocorrect-on-delimiter or a tap):
+    /// then each word is committed in order.
+    private var lastEmittedSuggestionTexts: [String] = []
+    /// Punctuation-attachment memo (PLAN.md "Space-miss correction" #3):
+    /// armed when a '.' keystroke lands exactly one space after a word
+    /// ("word ␣."). If the very next keystroke is a space, the session
+    /// orders a proxy edit that attaches the period to the word
+    /// ("word ␣.␣" → "word.␣"); any other character discards the memo (a
+    /// letter after the dot is a token like ".net" — never touched).
+    private var punctuationAttachmentArmed = false
     /// Revert-on-continuation memo (PLAN.md layer 4): set when the window
     /// diff shows the pending token was auto-replaced on a '.' keystroke
     /// ("teh" → "the."). One-keystroke-lived: consumed by
@@ -134,9 +148,10 @@ public final class TypingSession {
     /// detection compares against the previous call).
     @discardableResult
     public func suggestions(for textBeforeCursor: String, limit: Int = 3) -> [Suggestion] {
-        // A revert memo not consumed before the next keystroke landed is
-        // dead: the continuation window has passed.
+        // A revert or attachment memo not consumed before the next keystroke
+        // landed is dead: its one-keystroke window has passed.
         dotReplacement = nil
+        punctuationAttachmentArmed = false
 
         let (context, currentWord) = Self.splitCurrentWord(of: textBeforeCursor)
 
@@ -145,6 +160,11 @@ public final class TypingSession {
             noteDotReplacementIfAny(currentWord: currentWord)
             confirmIfCommitted(
                 context: context,
+                currentWord: currentWord,
+                appendedAfterContext: appendedAfterContext
+            )
+            armPunctuationAttachmentIfAny(
+                window: textBeforeCursor,
                 currentWord: currentWord,
                 appendedAfterContext: appendedAfterContext
             )
@@ -170,6 +190,7 @@ public final class TypingSession {
             limit: limit
         )
         lastEmittedAutocorrect = bar.first(where: { $0.isAutocorrect })?.text
+        lastEmittedSuggestionTexts = bar.filter { !$0.isVerbatim }.map(\.text)
         return bar
     }
 
@@ -213,6 +234,37 @@ public final class TypingSession {
         return RevertInstruction(deleteCount: memo.corrected.count, text: memo.original)
     }
 
+    /// Whether a punctuation-attachment memo is armed (the last keystroke
+    /// was a '.' typed exactly one space after a word). Same embedder
+    /// fast-path role as `hasPendingContinuationRevert`.
+    public var hasPendingPunctuationAttachment: Bool { punctuationAttachmentArmed }
+
+    /// Punctuation-attachment decision (PLAN.md "Space-miss correction" #3).
+    /// The embedder calls this BEFORE inserting a typed character: when the
+    /// previous keystroke was a '.' typed exactly one space after a word
+    /// ("word ␣.") and the new character is a space, the stray space is
+    /// removed so the sentence reads "word.␣" — the space-before-period
+    /// swap. Any other character discards the memo (letters keep dotted
+    /// tokens like ".net" intact).
+    ///
+    /// Returns the proxy edit to perform (delete the " ." tail, re-insert
+    /// ".") or nil; the delimiter character is inserted afterwards by the
+    /// normal keystroke path. Consuming the memo fixes up the session's
+    /// last-seen window so the edit is not misread as an external change.
+    public func punctuationAttachment(for character: Character) -> RevertInstruction? {
+        guard punctuationAttachmentArmed else { return nil }
+        punctuationAttachmentArmed = false
+        guard character == " " else { return nil }
+        if let window = lastSeenWindow, window.hasSuffix(" .") {
+            lastSeenWindow = String(window.dropLast(2)) + "."
+        }
+        // The ". " this normalizes into existence is a sentence boundary
+        // the commit path never observes (the word was already committed by
+        // the earlier plain space): relax the lane here instead.
+        engine.noteSentenceBoundary()
+        return RevertInstruction(deleteCount: 2, text: ".")
+    }
+
     /// Tell the session the text before the cursor changed for a reason
     /// other than typing — cursor jump, host-app mutation (autofill, undo),
     /// switching fields. This clears the pending word-in-progress so the
@@ -226,6 +278,8 @@ public final class TypingSession {
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
+        punctuationAttachmentArmed = false
+        lastEmittedSuggestionTexts = []
     }
 
     /// Window-aware variant, safe to forward from the extension's
@@ -250,7 +304,9 @@ public final class TypingSession {
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
+        punctuationAttachmentArmed = false
         lastEmittedAutocorrect = nil
+        lastEmittedSuggestionTexts = []
         committedWordCount = 0
         posteriorUpdateCount = 0
         lastCommittedWord = nil
@@ -298,8 +354,12 @@ public final class TypingSession {
                     context: "",
                     currentWord: segment,
                     limit: limit
-                ).map {
-                    Suggestion(
+                ).compactMap {
+                    // Space-miss splits never apply inside a verbatim-class
+                    // token: "tilvinstri" → "til vinstri" is a fine split,
+                    // "profilmynd.til vinstri" is a broken URL.
+                    guard !$0.text.contains(" ") else { return nil }
+                    return Suggestion(
                         text: prefix + $0.text + (pendingDot ? "." : ""),
                         isAutocorrect: false,
                         confidence: $0.confidence
@@ -474,13 +534,30 @@ public final class TypingSession {
     ) {
         guard currentWord.isEmpty, !previousCurrentWord.isEmpty else { return }
         guard !appendedAfterContext.isEmpty else { return }
-        // A single keystroke commits at most one word.
-        guard Self.wordTokens(in: appendedAfterContext).count <= 1 else { return }
+        let boundary = Self.containsSentenceBoundary(appendedAfterContext)
+        let appendedTokens = Self.wordTokens(in: appendedAfterContext)
+        // A single keystroke commits at most one word — a change that
+        // introduced several words at once is a host paste/autofill, never
+        // a user keystroke. The one exception: the appended words are
+        // exactly a multi-word (space-miss split) suggestion from the
+        // previous bar being applied by the delimiter/tap that caused this
+        // change ("smelirna" + space → "smellir á "); then each word is a
+        // genuine commit, in order, with the final word carrying any
+        // sentence boundary.
+        if appendedTokens.count > 1 {
+            let joined = appendedTokens.joined(separator: " ")
+            guard
+                lastEmittedSuggestionTexts.contains(where: {
+                    $0 == joined || $0 == joined + "."
+                })
+            else { return }
+            for (index, token) in appendedTokens.enumerated() {
+                confirm(token, sentenceBoundary: boundary && index == appendedTokens.count - 1)
+            }
+            return
+        }
         guard let committed = Self.lastWord(in: context) else { return }
-        confirm(
-            committed,
-            sentenceBoundary: Self.containsSentenceBoundary(appendedAfterContext)
-        )
+        confirm(committed, sentenceBoundary: boundary)
     }
 
     /// The proxy's ". " sentence cut collapsed the window in the same
@@ -499,12 +576,34 @@ public final class TypingSession {
         }
         let token = lastEmittedAutocorrect ?? previousCurrentWord
         let stem = token.hasSuffix(".") ? String(token.dropLast()) : token
-        guard let committed = Self.lastWord(in: stem + " ") else {
+        // A split autocorrect ("smellir á.") recovers as multiple words;
+        // ordinary tokens as one.
+        let words = Self.wordTokens(in: stem)
+        guard !words.isEmpty else {
             carriedContext = lastCommittedWord
             return
         }
-        confirm(committed, sentenceBoundary: true)
-        carriedContext = committed
+        for (index, word) in words.enumerated() {
+            confirm(word, sentenceBoundary: index == words.count - 1)
+        }
+        carriedContext = words.last
+    }
+
+    /// Arm the punctuation-attachment memo (see `punctuationAttachment`)
+    /// when THIS keystroke was a '.' typed exactly one space after a word:
+    /// the window ends "word ␣." (single space) and the change appended
+    /// exactly that dot — cursor jumps and pastes never arm it.
+    private func armPunctuationAttachmentIfAny(
+        window: String,
+        currentWord: String,
+        appendedAfterContext: String
+    ) {
+        guard currentWord.isEmpty, appendedAfterContext == "." else { return }
+        guard window.hasSuffix(" .") else { return }
+        guard let beforeSpace = window.dropLast(2).last, Self.isWordable(beforeSpace) else {
+            return
+        }
+        punctuationAttachmentArmed = true
     }
 
     private func confirm(_ committed: String, sentenceBoundary: Bool) {

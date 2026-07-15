@@ -62,3 +62,15 @@ brayð	brauð	is
 fiskyr	fiskur	is
 veðyr	veður	is
 fallegyr	fallegur	is
+# split: space-miss pairs — pure insertion splits and space-substitution
+# splits (c v b n m consumed as the missed space), incl. half repairs.
+helloworld	hello world	split
+thisnis	this is	split
+withmthe	with the	split
+ofnthe	of the	split
+seebyou	see you	split
+verygood	very good	split
+þettaner	þetta er	split
+takkfyrir	takk fyrir	split
+gottnveður	gott veður	split
+godanbdag	góðan dag	split

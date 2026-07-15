@@ -427,6 +427,82 @@ final class TypingSessionTests: XCTestCase {
         XCTAssertEqual(s.lastCommittedWord, "hestur")
     }
 
+    // MARK: - Space-miss splits (multi-word suggestions)
+
+    func testAppliedSplitSuggestionCommitsEachWord() {
+        let s = session()
+        // "gottnveður" = "gott veður" with the spacebar tap landing on n;
+        // the split leads the engine suggestions.
+        let bar = typeThrough(s, "gottnveður")
+        XCTAssertTrue(bar.contains { $0.text == "gott veður" })
+        // Delimiter applies the suggestion (KeyboardKit replaces the token
+        // and a space follows): BOTH words are committed, in order.
+        s.suggestions(for: "gott veður ")
+        XCTAssertEqual(s.committedWordCount, 2)
+        XCTAssertEqual(s.lastCommittedWord, "veður")
+    }
+
+    func testMultiWordHostChangeIsStillNeverCommitted() {
+        let s = session()
+        typeThrough(s, "gottnveður")
+        // Multi-word text that was NOT an emitted suggestion: host paste,
+        // not an applied split — no commits.
+        s.suggestions(for: "gott vetur ")
+        XCTAssertEqual(s.committedWordCount, 0)
+    }
+
+    // MARK: - Punctuation attachment ("word ␣.␣" → "word.␣")
+
+    func testPunctuationAttachmentOrdersEditOnSpace() {
+        let s = session()
+        typeThrough(s, "hestur .")
+        XCTAssertEqual(s.committedWordCount, 1)
+        XCTAssertTrue(s.hasPendingPunctuationAttachment)
+        XCTAssertEqual(
+            s.punctuationAttachment(for: " "),
+            RevertInstruction(deleteCount: 2, text: ".")
+        )
+        // The embedder executes the edit, then inserts the space: the next
+        // window is a clean evolution — no spurious commit, memo gone.
+        s.suggestions(for: "hestur. ")
+        XCTAssertEqual(s.committedWordCount, 1)
+        XCTAssertFalse(s.hasPendingPunctuationAttachment)
+    }
+
+    func testPunctuationAttachmentIsDiscardedByLetter() {
+        let s = session()
+        typeThrough(s, "hestur .")
+        XCTAssertTrue(s.hasPendingPunctuationAttachment)
+        // ".net"-style continuation: the letter consumes the memo with no
+        // edit, and it does not come back for a later space.
+        XCTAssertNil(s.punctuationAttachment(for: "n"))
+        XCTAssertFalse(s.hasPendingPunctuationAttachment)
+        XCTAssertNil(s.punctuationAttachment(for: " "))
+    }
+
+    func testPunctuationAttachmentRequiresExactlyOneSpace() {
+        let s = session()
+        typeThrough(s, "hestur  .")
+        XCTAssertFalse(s.hasPendingPunctuationAttachment)
+    }
+
+    func testPunctuationAttachmentNotArmedByDeferredDot() {
+        let s = session()
+        // "hestur." is a pending deferred-dot token, not a stray period.
+        typeThrough(s, "hestur.")
+        XCTAssertFalse(s.hasPendingPunctuationAttachment)
+    }
+
+    func testPunctuationAttachmentMemoDiesAfterOneKeystroke() {
+        let s = session()
+        typeThrough(s, "hestur .")
+        XCTAssertTrue(s.hasPendingPunctuationAttachment)
+        // A keystroke lands WITHOUT the embedder consulting the memo (e.g.
+        // wiring raced): the next suggestions() call discards it.
+        s.suggestions(for: "hestur .x")
+        XCTAssertFalse(s.hasPendingPunctuationAttachment)
+    }
+
     // MARK: - External text changes (cursor jumps, host mutation)
 
     func testExternalChangeNotePreventsSpuriousCommit() {

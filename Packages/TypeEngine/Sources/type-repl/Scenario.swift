@@ -39,6 +39,8 @@ import TypeEngine
 ///   EXPECT_ONLY_VERBATIM <word>    bar is exactly the verbatim slot <word>
 ///   EXPECT_CONTAINS <word>         <word> appears in the bar
 ///   EXPECT_NOT_CONTAINS <word>     <word> does not appear in the bar
+///   EXPECT_NO_SPLIT                no suggestion text contains a space
+///                                  (space-miss splits must not be offered)
 ///   EXPECT_EMPTY                   bar is empty
 ///   EXPECT_NONEMPTY                bar is not empty
 ///   EXPECT_POSTERIOR_GT <x>        P(Icelandic) > x
@@ -243,6 +245,14 @@ struct ScenarioRunner {
                     bar.contains(where: { $0.text == argument })
                         ? "did not expect \"\(argument)\" in bar: \(Self.describe(bar))"
                         : nil
+                }
+
+            case "EXPECT_NO_SPLIT":
+                expectBar { bar in
+                    if let split = bar.first(where: { $0.text.contains(" ") }) {
+                        return "split suggestion offered: \"\(split.text)\" (bar: \(Self.describe(bar)))"
+                    }
+                    return nil
                 }
 
             case "EXPECT_EMPTY":

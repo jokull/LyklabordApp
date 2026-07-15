@@ -549,3 +549,99 @@ EXPECT_BUFFER "the. "
 EXPECT_COMMITS 1
 EXPECT_LAST_COMMIT the
 DOT_APPLY off
+
+# ---------------------------------------------------------------------------
+# Space-miss correction (PLAN.md "Space-miss correction"; real dogfood
+# sample "Smelirna generate" = "smellir á" + missed space on the n)
+# ---------------------------------------------------------------------------
+
+# Bar = verbatim slot + 3 engine slots, so EXPECT_CONTAINS below asserts
+# "offered within the top-3 engine candidates" (the spec bar).
+LIMIT 4
+
+SCENARIO smelirna offers smellir á split in icelandic context
+# The dogfood sample: spacebar tap landed on n (directly above space),
+# dropped l, missing accent. Space-substitution split at the n + gemination
+# repair of the left half + diacritic restoration of the right half.
+T "ég er að "
+EXPECT_POSTERIOR_GT 0.7
+T smelirna
+EXPECT_CONTAINS smellir á
+# Deliberately NOT asserting autocorrect here: the split may auto-apply
+# only if it clears the ordinary conservatism margin (with the current
+# tunables it does — margin vs "smellir a" — but the scenario contract is
+# "offered", so tunable drift can tighten it back to tap-only without
+# breaking the suite). The verbatim escape hatch always leads regardless.
+EXPECT_VERBATIM smelirna
+
+SCENARIO þettaner autocorrects to þetta er
+T þettaner
+# Substitution split at the interior n: both halves exact-valid, strong
+# bigram — clears the autocorrect margin at the neutral posterior.
+EXPECT_AUTOCORRECT þetta er
+# The delimiter applies the split like any autocorrect; each word is
+# committed in order (multi-word commit path) and posterior drifts IS.
+T " "
+EXPECT_BUFFER "þetta er "
+EXPECT_COMMITS 2
+EXPECT_LAST_COMMIT er
+EXPECT_POSTERIOR_GT 0.7
+
+SCENARIO helloworld splits to hello world in english context
+T "the with and "
+T helloworld
+EXPECT_AUTOCORRECT hello world
+
+SCENARIO thisnis splits to this is
+T "the with and "
+T thisnis
+EXPECT_AUTOCORRECT this is
+
+SCENARIO valid bata is never split (conservatism regression guard)
+# "bata" is attested (BÍN form of bati): valid words are never split and
+# never auto-replaced, however plausible "bat a"/"ba ta" might score.
+T bata
+EXPECT_NO_AUTOCORRECT
+EXPECT_NO_SPLIT
+
+SCENARIO compound morgundaginn is never split
+# PLAN.md "Compounds": never auto-insert spaces into compounds. The token
+# is BÍN-valid, so the unknown-token gate keeps splits away entirely.
+T "við þurfum að morgundaginn"
+EXPECT_NO_AUTOCORRECT
+EXPECT_NO_SPLIT
+
+SCENARIO verbatim-class dotted token is never split
+# "tilvinstri" alone would split to "til vinstri" — inside a dotted
+# (URL-shaped) token that would butcher the URL, so splits are filtered.
+T profilmynd.tilvinstri
+EXPECT_NO_AUTOCORRECT
+EXPECT_NO_SPLIT
+
+LIMIT 5
+
+# ---------------------------------------------------------------------------
+# Punctuation attachment ("word ␣.␣" → "word.␣")
+# ---------------------------------------------------------------------------
+
+SCENARIO space period space attaches the period to the word
+T "submit . "
+EXPECT_BUFFER "submit. "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT submit
+
+SCENARIO period after two spaces is not attached
+# Gate: the period must follow EXACTLY one space after a word.
+T "submit  . "
+EXPECT_BUFFER "submit  . "
+
+SCENARIO letter after space-period keeps the dotted token intact
+# ".net" typed as its own token: the attachment memo is discarded by the
+# letter — nothing is deleted, the space survives.
+T "get .net "
+EXPECT_BUFFER "get .net "
+
+SCENARIO period at sentence start is not attached
+# No word before the space: nothing to attach to.
+T ". "
+EXPECT_BUFFER ". "

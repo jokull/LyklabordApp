@@ -35,6 +35,8 @@ enum EvalWordlists {
         "necessary": 40, "occasion": 20, "publicly": 16, "successful": 30,
         "truly": 24, "basically": 26, "tomorrow": 46, "weird": 28,
         "accommodate": 12, "true": 48, "success": 34, "public": 52,
+        // split-pair halves (space-miss category)
+        "is": 2400, "world": 60, "hello": 40,
     ]
 
     static let englishBigrams: [String: UInt32] = [

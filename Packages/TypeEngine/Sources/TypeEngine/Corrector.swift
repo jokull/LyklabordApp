@@ -218,6 +218,30 @@ public struct Corrector {
             let s = model.blendedScore(of: word, previous: previousWord, pIcelandic: pIcelandic)
             return (word, cost, -cost + config.languageWeight * s)
         }
+
+        // 6. Space-miss splits (PLAN.md "Space-miss correction"): an unknown
+        // all-letter token with no good single-word candidate may be two
+        // words around a missed/mis-hit spacebar tap. Gated exactly like
+        // edits2 (unknown + the cheap passes' best spatial cost above the
+        // gate — bestSoFar deliberately excludes edits2 junk), so ordinary
+        // typos and prefixes-in-progress (which always have a cheap
+        // completion) never pay for it. Split candidates join the same
+        // scored pool: the channel cost (penalty + half repairs) plays the
+        // spatial-cost role in ranking, conservatism and confidence.
+        if !typedIsValid,
+            typedChars.count >= config.splitMinLength,
+            typedChars.allSatisfy(\.isLetter),
+            bestSoFar > config.splitGate
+        {
+            scored.append(
+                contentsOf: splitCandidates(
+                    typedChars: typedChars,
+                    previousWord: previousWord,
+                    pIcelandic: pIcelandic
+                )
+            )
+        }
+
         scored.sort { $0.score > $1.score || ($0.score == $1.score && $0.word < $1.word) }
 
         // ---- Conservatism / autocorrect decision --------------------------
@@ -245,6 +269,179 @@ public struct Corrector {
             )
         }
         return CorrectionResult(suggestions: Array(suggestions), typedWordIsValid: typedIsValid)
+    }
+
+    // MARK: - Space-miss splits
+
+    /// Split hypotheses for an unknown token (see `correct` step 6). Two
+    /// generation classes, explored best-evidence-first under a wall-clock
+    /// budget:
+    ///
+    /// 1. **Space-substitution** (cheap penalty): an interior letter that
+    ///    sits directly above the spacebar (`SpatialModel
+    ///    .spaceAdjacentLetters`, derived from key geometry) is consumed AS
+    ///    the space — "smelirna" → "smelir"+"a".
+    /// 2. **Space-insertion** (full omitted-keystroke penalty): a space is
+    ///    inserted between two characters — "helloworld" → "hello"+"world".
+    ///
+    /// Each half must be exact-valid or cheaply repairable by the targeted
+    /// passes (`halfHypotheses`); a candidate's score combines both halves'
+    /// calibrated language scores — blended JOINTLY per lane, the second
+    /// half conditioned on the first so bigram coherence is priced in (see
+    /// `BlendedLanguageModel.blendedPairScore`) — plus the split penalty
+    /// and any half repair costs:
+    ///
+    ///   score = -(penalty + cost_left + cost_right)
+    ///           + λ·S_pair(left, right | prev, posterior)
+    ///
+    /// Returned tuples mirror the single-word pool's (word, spatialCost,
+    /// score) shape; the channel cost stands in for the spatial cost in the
+    /// autocorrect conservatism check.
+    func splitCandidates(
+        typedChars: [Character],
+        previousWord: String?,
+        pIcelandic: Double
+    ) -> [(word: String, spatialCost: Double, score: Double)] {
+        let n = typedChars.count
+        guard n >= config.splitMinLength else { return [] }
+
+        // (left, right, penalty, repairCap) hypotheses. Substitution splits
+        // first (strongest evidence, smallest class), then insertion
+        // splits; each class walked center-out — a missed space is
+        // likeliest near the middle of the fused token — so the budget
+        // sheds edges. Insertion splits get the tighter half-repair cap
+        // (no tap evidence — see splitInsertionHalfRepairMaxCost).
+        var hypotheses:
+            [(left: [Character], right: [Character], penalty: Double, repairCap: Double)] = []
+        let centerOut: (Int, Int) -> Bool = { lhs, rhs in
+            let l = abs(2 * lhs - n)
+            let r = abs(2 * rhs - n)
+            return l < r || (l == r && lhs < rhs)
+        }
+
+        let substitutionPositions = (1..<(n - 1))
+            .filter { spatial.spaceAdjacentLetters.contains(typedChars[$0]) }
+            .sorted(by: centerOut)
+            .prefix(config.splitMaxPositions)
+        for j in substitutionPositions {
+            hypotheses.append(
+                (
+                    Array(typedChars[0..<j]),
+                    Array(typedChars[(j + 1)...]),
+                    config.splitSubstitutionPenalty,
+                    config.splitHalfRepairMaxCost
+                )
+            )
+        }
+
+        let insertionPositions = (1...(n - 1))
+            .sorted(by: centerOut)
+            .prefix(min(n - 2, config.splitMaxPositions))
+        for i in insertionPositions {
+            hypotheses.append(
+                (
+                    Array(typedChars[0..<i]),
+                    Array(typedChars[i...]),
+                    config.splitInsertionPenalty,
+                    config.splitInsertionHalfRepairMaxCost
+                )
+            )
+        }
+
+        var best: [String: (spatialCost: Double, score: Double)] = [:]
+        var halfCache: [String: [(word: String, cost: Double)]] = [:]
+        func resolvedHalves(for half: [Character]) -> [(word: String, cost: Double)] {
+            let key = String(half)
+            if let cached = halfCache[key] { return cached }
+            let fresh = halfHypotheses(half)
+            halfCache[key] = fresh
+            return fresh
+        }
+
+        let deadline = ContinuousClock.now + .seconds(config.splitTimeBudget)
+        for hypothesis in hypotheses {
+            if ContinuousClock.now >= deadline { break }
+            let lefts = resolvedHalves(for: hypothesis.left)
+            guard !lefts.isEmpty else { continue }
+            let rights = resolvedHalves(for: hypothesis.right)
+            guard !rights.isEmpty else { continue }
+            for (leftWord, leftCost) in lefts where leftCost <= hypothesis.repairCap {
+                for (rightWord, rightCost) in rights where rightCost <= hypothesis.repairCap {
+                    let channel = hypothesis.penalty + leftCost + rightCost
+                    let text = leftWord + " " + rightWord
+                    if let existing = best[text], existing.spatialCost <= channel { continue }
+                    let language = model.blendedPairScore(
+                        first: leftWord,
+                        second: rightWord,
+                        previous: previousWord,
+                        pIcelandic: pIcelandic
+                    )
+                    best[text] = (channel, -channel + config.languageWeight * language)
+                }
+            }
+        }
+        return best.map { (word: $0.key, spatialCost: $0.value.spatialCost, score: $0.value.score) }
+    }
+
+    /// Resolutions of one split half: the half itself when valid (cost 0)
+    /// plus cheaply-repaired valid forms from the targeted passes —
+    /// diacritic restoration, gemination, and (only when those find
+    /// nothing) single edits with tight spatial cost. Never edits2. Capped
+    /// at `splitHalfHypothesisLimit`, cheapest first.
+    func halfHypotheses(_ chars: [Character]) -> [(word: String, cost: Double)] {
+        var best: [String: Double] = [:]
+        func admit(_ word: String, _ cost: Double) {
+            guard cost <= config.splitHalfRepairMaxCost else { return }
+            guard word.count > 1 || isGenuineSingleCharWord(word) else { return }
+            if let existing = best[word], existing <= cost { return }
+            best[word] = cost
+        }
+
+        let text = String(chars)
+        if model.isKnownAnywhere(text) { admit(text, 0) }
+        for variant in Self.diacriticVariants(of: chars)
+        where isCandidateWord(variant, checkMorphology: true) {
+            admit(variant, spatialCost(typedChars: chars, candidate: variant))
+        }
+        for variant in Self.geminationVariants(of: chars)
+        where isCandidateWord(variant, checkMorphology: true) {
+            admit(variant, spatialCost(typedChars: chars, candidate: variant))
+        }
+        // edits1 is the expensive pass (hundreds of existence checks): only
+        // walked when the cheap passes produced nothing, and never for
+        // 1–2 char halves (every 1–2 letter word is one edit from another).
+        if best.isEmpty, chars.count >= 3 {
+            for (word, cost) in Self.edits1Costed(of: chars, spatial: spatial)
+            where cost <= config.splitHalfRepairMaxCost
+                && isCandidateWord(word, checkMorphology: true)
+            {
+                admit(word, cost)
+            }
+        }
+        return best
+            .sorted { $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key) }
+            .prefix(config.splitHalfHypothesisLimit)
+            .map { (word: $0.key, cost: $0.value) }
+    }
+
+    /// A single-character split half must be a GENUINE one-letter word —
+    /// always an extreme-frequency function word in its language (IS á/í,
+    /// EN a/i) — not corpus tokenization noise: "s" and "e" are attested in
+    /// both lexicons but only at mid-tier typicality. Judged by calibrated
+    /// z-score against `splitSingleCharHalfMinZ`.
+    private func isGenuineSingleCharWord(_ word: String) -> Bool {
+        let minZ = config.splitSingleCharHalfMinZ
+        if model.icelandic.frequency(of: word) != nil,
+            model.calibratedUnigramScore(of: word, language: .icelandic) >= minZ
+        {
+            return true
+        }
+        if model.english.frequency(of: word) != nil,
+            model.calibratedUnigramScore(of: word, language: .english) >= minZ
+        {
+            return true
+        }
+        return false
     }
 
     // MARK: - Internals
