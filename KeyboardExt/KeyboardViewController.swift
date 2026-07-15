@@ -312,6 +312,35 @@ final class BetterKeyboardIPhoneLayoutService: KeyboardLayout.iPhoneLayoutServic
         actions.insert(.character("."), at: returnIndex)
         return actions
     }
+
+    /// Bottom-row width tuning (dogfood feedback 2026-07-15: the period key
+    /// plus KeyboardKit's stock 25% return squeezed the spacebar to ~38% of
+    /// the row, causing space-taps to land on '.'). Return narrows to 19%
+    /// (landscape 16%) and the period key to 8% — slimmer than a letter key,
+    /// it's a modifier-class target — handing the reclaimed ~11% to the
+    /// spacebar (~45%, near Apple's proportions). Alphabetic only; other
+    /// keyboard types keep stock widths.
+    override func itemSizeWidth(
+        for action: KeyboardAction,
+        row: Int,
+        index: Int,
+        context: KeyboardContext
+    ) -> KeyboardLayout.ItemWidth {
+        if context.keyboardType == .alphabetic,
+            row == inputSet(for: context).rows.count
+        {
+            switch action {
+            case .character("."):
+                return .percentage(0.08)
+            case .primary:
+                let portrait = context.interfaceOrientation.isPortrait
+                return .percentage(portrait ? 0.19 : 0.16)
+            default:
+                break
+            }
+        }
+        return super.itemSizeWidth(for: action, row: row, index: index, context: context)
+    }
 }
 
 /// Device-based layout service that routes iPhone through
