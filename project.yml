@@ -16,6 +16,8 @@ packages:
     path: Packages/Learning
   LemmaCore:
     path: Packages/LemmaCore
+  Sync:
+    path: Packages/Sync
   Lexicon:
     path: Packages/Lexicon
   TypeEngine:
@@ -66,6 +68,10 @@ targets:
         embed: true
       - package: Learning
         product: Learning
+      # App-only by design: the keyboard extension NEVER depends on Sync
+      # (zero network code in the extension — architecture invariant).
+      - package: Sync
+        product: Sync
 
   BetterKeyboardExt:
     type: app-extension

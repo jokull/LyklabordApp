@@ -53,6 +53,11 @@ final class AppModel {
     private(set) var userAddedWords: [String] = []
     private(set) var lastErrorMessage: String?
 
+    /// M2 wave 3: owns the CloudKit sync loop (app-only — the keyboard
+    /// extension never syncs). Fed by `compact()` and every dictionary
+    /// mutation via `noteLocalChange()` (coalesced ~5s in the coordinator).
+    let syncCoordinator: SyncCoordinator
+
     private var model: PersonalModel?
     private let modelURL: URL?
     private let eventLogURL: URL?
@@ -73,7 +78,13 @@ final class AppModel {
             modelURL = nil
             eventLogURL = nil
         }
+        syncCoordinator = SyncCoordinator(modelURL: modelURL)
         loadModel()
+        // A pulled/merged model was written to `modelURL` by the
+        // coordinator — reload our in-memory copy and listings from disk.
+        syncCoordinator.onModelDataReplaced = { [weak self] in
+            self?.loadModel()
+        }
     }
 
     // MARK: - Loading & compaction
@@ -116,6 +127,9 @@ final class AppModel {
                 try model.compactAndSave(applying: EventLog(url: logURL), to: modelURL)
             }
             refreshListings()
+            // Freshly compacted state on disk — schedule a (coalesced)
+            // sync round so other devices see it.
+            syncCoordinator.noteLocalChange()
         } catch {
             lastErrorMessage = "\(error)"
         }
@@ -130,6 +144,9 @@ final class AppModel {
         guard let model, let modelURL else { return }
         do {
             try model.save(to: modelURL)
+            // Dictionary-editor mutation persisted — coalesced sync so
+            // deletions (tombstones) and additions propagate promptly.
+            syncCoordinator.noteLocalChange()
         } catch {
             lastErrorMessage = "\(error)"
         }
