@@ -21,10 +21,22 @@ import TypeEngine
 ///   TRUNCATE_AT <n>          cap the context window at n chars (proxy truncation)
 ///   STALE_READS on|off       next proxy read after each edit returns pre-edit text
 ///   REFRESH                  re-read proxy + re-run autocomplete (no keystroke)
+///   FIELD <kind>             field type: standard|url|email|webSearch (layer 2 gate)
+///   TAP <text>               tap the bar suggestion with exactly this text
+///                            (KeyboardKit tap semantics: replace token + space)
+///   DOT_APPLY on|off         model STOCK KeyboardKit '.'-autocorrect-apply
+///                            (off = our action handler's deferral, the default)
 ///
-///   EXPECT_TOP <word>              top suggestion is exactly <word>
-///   EXPECT_AUTOCORRECT <word>      top suggestion is <word> AND flagged autocorrect
+///   NOTE: the verbatim escape-hatch slot (the literal typed token, quoted
+///   on device) always leads a non-empty bar; EXPECT_TOP and
+///   EXPECT_AUTOCORRECT therefore judge the top NON-verbatim suggestion,
+///   while EXPECT_VERBATIM checks the escape-hatch slot itself.
+///
+///   EXPECT_TOP <word>              top non-verbatim suggestion is exactly <word>
+///   EXPECT_AUTOCORRECT <word>      top non-verbatim suggestion is <word> AND flagged autocorrect
 ///   EXPECT_NO_AUTOCORRECT [word]   no suggestion is flagged autocorrect
+///   EXPECT_VERBATIM <word>         bar leads with the verbatim slot <word>
+///   EXPECT_ONLY_VERBATIM <word>    bar is exactly the verbatim slot <word>
 ///   EXPECT_CONTAINS <word>         <word> appears in the bar
 ///   EXPECT_NOT_CONTAINS <word>     <word> does not appear in the bar
 ///   EXPECT_EMPTY                   bar is empty
@@ -150,23 +162,63 @@ struct ScenarioRunner {
             case "REFRESH":
                 typist.refresh()
 
+            case "FIELD":
+                if let kind = FieldKind(rawValue: argument) {
+                    typist.session.fieldKind = kind
+                } else {
+                    fail("bad FIELD argument: \(argument)")
+                }
+
+            case "DOT_APPLY":
+                typist.appliesAutocorrectOnDot = (argument == "on")
+
+            case "TAP":
+                if !typist.tapSuggestion(Self.unquote(argument)) {
+                    fail("no suggestion \"\(argument)\" to tap, bar: \(Self.describe(typist.lastSuggestions))")
+                }
+
             case "EXPECT_TOP":
                 expectBar { bar in
-                    bar.first?.text == argument
+                    bar.first(where: { !$0.isVerbatim })?.text == argument
                         ? nil
                         : "expected top \"\(argument)\", bar: \(Self.describe(bar))"
                 }
 
             case "EXPECT_AUTOCORRECT":
                 expectBar { bar in
-                    guard let top = bar.first else {
-                        return "expected autocorrect \"\(argument)\", bar empty"
+                    guard let top = bar.first(where: { !$0.isVerbatim }) else {
+                        return "expected autocorrect \"\(argument)\", bar: \(Self.describe(bar))"
                     }
                     if top.text != argument {
                         return "expected autocorrect \"\(argument)\", top is \"\(top.text)\"\(top.isAutocorrect ? "*" : "")"
                     }
                     if !top.isAutocorrect {
                         return "top is \"\(top.text)\" but NOT flagged autocorrect"
+                    }
+                    return nil
+                }
+
+            case "EXPECT_VERBATIM":
+                expectBar { bar in
+                    guard let first = bar.first else {
+                        return "expected verbatim \"\(argument)\", bar empty"
+                    }
+                    if !first.isVerbatim {
+                        return "expected verbatim slot first, bar: \(Self.describe(bar))"
+                    }
+                    if first.text != argument {
+                        return "expected verbatim \"\(argument)\", got \"\(first.text)\""
+                    }
+                    return nil
+                }
+
+            case "EXPECT_ONLY_VERBATIM":
+                expectBar { bar in
+                    guard bar.count == 1, let only = bar.first, only.isVerbatim else {
+                        return "expected only the verbatim slot, bar: \(Self.describe(bar))"
+                    }
+                    if only.text != argument {
+                        return "expected verbatim \"\(argument)\", got \"\(only.text)\""
                     }
                     return nil
                 }
@@ -277,6 +329,9 @@ struct ScenarioRunner {
     static func describe(_ bar: [Suggestion]) -> String {
         bar.isEmpty
             ? "(empty)"
-            : bar.map { "\($0.text)\($0.isAutocorrect ? "*" : "")" }.joined(separator: ", ")
+            : bar.map {
+                let text = $0.isVerbatim ? "\u{201C}\($0.text)\u{201D}" : $0.text
+                return "\(text)\($0.isAutocorrect ? "*" : "")"
+            }.joined(separator: ", ")
     }
 }

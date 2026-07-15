@@ -10,11 +10,22 @@ public struct Suggestion: Equatable, Sendable {
     public let isAutocorrect: Bool
     /// Softmax posterior over the scored candidate pool, in (0, 1].
     public let confidence: Double
+    /// True for the verbatim escape-hatch slot: the literal token the user
+    /// typed, offered so it can be committed as-is (rendered quoted by the
+    /// keyboard toolbar via KeyboardKit's `.unknown` suggestion type).
+    /// Emitted by `TypingSession`, never by the corrector/predictor.
+    public let isVerbatim: Bool
 
-    public init(text: String, isAutocorrect: Bool, confidence: Double) {
+    public init(
+        text: String,
+        isAutocorrect: Bool,
+        confidence: Double,
+        isVerbatim: Bool = false
+    ) {
         self.text = text
         self.isAutocorrect = isAutocorrect
         self.confidence = confidence
+        self.isVerbatim = isVerbatim
     }
 }
 

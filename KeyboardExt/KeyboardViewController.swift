@@ -15,6 +15,7 @@
 
 import KeyboardKit
 import SwiftUI
+import TypeEngine
 
 /// The `KeyboardApp` descriptor shared by the app and the extension. Kept
 /// minimal for the M0 spike: no license key (we stay on the free/MIT tier
@@ -101,9 +102,27 @@ final class KeyboardViewController: KeyboardInputViewController {
         // viewDidLoad). Until the engine is ready it returns empty
         // suggestions. Replaces the default `.disabled` service; the
         // standard KeyboardView toolbar (`toolbar: { $0.view }` below)
-        // renders `AutocompleteContext.suggestions`, and the standard action
-        // handler applies `.autocorrect` suggestions on space/delimiter.
+        // renders `AutocompleteContext.suggestions`, and the action handler
+        // applies `.autocorrect` suggestions on space/delimiter.
         services.autocompleteService = BetterKeyboardAutocompleteService()
+
+        // Verbatim escape hatch + URL handling (PLAN.md): our
+        // `StandardActionHandler` subclass (below) excludes '.' from the
+        // autocorrect-applying delimiters (the deferral that keeps
+        // "profilmynd.tilvinstri.is" from being corrected at the first
+        // dot), performs the deferred '.'-apply on the FOLLOWING delimiter,
+        // executes revert-on-continuation proxy edits, and forwards
+        // verbatim-suggestion taps to the session.
+        services.actionHandler = BetterKeyboardActionHandler(controller: self)
+    }
+
+    // MARK: - Appearance
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Push the field kind (URL/email/webSearch autocorrect gate) before
+        // the first keystroke of a newly focused field can be autocompleted.
+        forwardTextContextChange()
     }
 
     // MARK: - Text / selection change forwarding
@@ -130,6 +149,9 @@ final class KeyboardViewController: KeyboardInputViewController {
     private func forwardTextContextChange() {
         guard let service = services.autocompleteService as? BetterKeyboardAutocompleteService
         else { return }
+        // Field-type gate (PLAN.md verbatim/URL layer 2): URL/email/web-
+        // search fields must never auto-apply a correction.
+        service.updateFieldKind(BetterKeyboardAutocompleteService.fieldKind(for: state.keyboardContext))
         service.noteTextContextChange(textDocumentProxy.documentContextBeforeInput ?? "")
     }
 
@@ -283,6 +305,105 @@ final class BetterKeyboardLayoutService: KeyboardLayout.DeviceBasedLayoutService
         case .phone: betterIPhoneService
         default: super.keyboardLayoutService(for: context)
         }
+    }
+}
+
+// MARK: - Verbatim escape hatch + URL handling (action handler)
+
+/// `StandardActionHandler` subclass implementing the keyboard-side half of
+/// PLAN.md's "Verbatim escape hatch + URL handling" (the session-side half
+/// lives in `TypeEngine.TypingSession`, shared with the `type-repl`
+/// harness whose Typist mirrors exactly these behaviors):
+///
+/// 1. **'.'-deferral (primary mechanism on device)**: stock KeyboardKit
+///    applies the pending `.autocorrect` suggestion on EVERY autocorrect
+///    trigger, including '.'. That is precisely the reported
+///    "profilmynd." → "prófílmynd." bug: at the '.' keystroke nobody can
+///    know whether the dot ends a sentence or continues a URL/domain. Our
+///    `shouldApplyAutocorrectSuggestion` excludes '.', so the dot inserts
+///    literally and the session keeps the token pending ("teh.").
+/// 2. **Deferred apply**: when the NEXT delimiter arrives (space/return/…),
+///    the session's re-armed suggestion ("the.") must be applied even
+///    though KeyboardKit now considers the cursor "at a new word" (its own
+///    word boundary stops at the dot). We allow that apply exactly when
+///    the armed suggestion carries a pending deferred-dot token that still
+///    matches the live proxy text (staleness guard); its
+///    `additionalDeleteCount` (set by the service bridge) makes
+///    `replaceCurrentWordPreCursorPart` delete the whole pending token.
+/// 3. **Revert-on-continuation (fallback)**: if a '.'-triggered
+///    auto-replacement DID happen (any path we don't control) and the very
+///    next keystroke is a letter/digit, the session orders a proxy edit
+///    that restores the originally typed token before the new character is
+///    inserted — URLs self-heal ("prófílmynd." → "profilmynd.t…").
+/// 4. **Verbatim taps**: tapping the quoted `.unknown` escape-hatch slot
+///    commits the literal token (KeyboardKit inserts tapped suggestions
+///    as-is and never re-applies an autocorrect on that path — the
+///    follow-up `handle(.release, on: .character(""))` is not an
+///    autocorrect trigger); we additionally tell the session, so a
+///    delimiter typed right after cannot re-correct the token either.
+final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
+
+    private var betterAutocompleteService: BetterKeyboardAutocompleteService? {
+        autocompleteService as? BetterKeyboardAutocompleteService
+    }
+
+    override func shouldApplyAutocorrectSuggestion(
+        before gesture: Keyboard.Gesture,
+        on action: KeyboardAction
+    ) -> Bool {
+        // 1. '.'-deferral: the period keystroke never applies autocorrect.
+        if action == .character(".") { return false }
+        if super.shouldApplyAutocorrectSuggestion(before: gesture, on: action) { return true }
+        // 2. Deferred apply: super said no — the only case we overrule is
+        // its `isCursorAtNewWord` veto when the armed suggestion is our
+        // deferred-dot correction for the token that is still, verbatim,
+        // at the cursor (the proxy-suffix check also rejects stale bars).
+        guard gesture == .release, action.shouldApplyAutocorrectSuggestion else { return false }
+        if action == .space, spaceDragGestureHandler.currentDragTextPositionOffset != 0 {
+            return false
+        }
+        guard
+            let suggestion = autocompleteContext.suggestions.first(where: { $0.isAutocorrect }),
+            let pending = suggestion.additionalInfo[
+                BetterKeyboardAutocompleteService.pendingTokenInfoKey
+            ],
+            pending.hasSuffix("."),
+            keyboardContext.textDocumentProxy.documentContextBeforeInput?.hasSuffix(pending) == true
+        else { return false }
+        return true
+    }
+
+    override func handle(
+        _ gesture: Keyboard.Gesture,
+        on action: KeyboardAction,
+        replaced: Bool
+    ) {
+        // 3. Revert-on-continuation: before a letter/digit is inserted, the
+        // session may order the last '.'-triggered auto-replacement undone
+        // (it holds the (original, corrected) memo for exactly one
+        // keystroke). Executed as plain proxy edits, then the keystroke
+        // proceeds normally.
+        if gesture == .release,
+            case .character(let char) = action,
+            char.count == 1,
+            let character = char.first,
+            character.isLetter || character.isNumber,
+            let revert = betterAutocompleteService?.pendingContinuationRevert(for: character)
+        {
+            let proxy = keyboardContext.textDocumentProxy
+            for _ in 0..<revert.deleteCount { proxy.deleteBackward() }
+            proxy.insertText(revert.text)
+        }
+        super.handle(gesture, on: action, replaced: replaced)
+    }
+
+    override func handle(_ suggestion: Autocomplete.Suggestion) {
+        // 4. Verbatim tap: `.unknown` suggestions are only ever produced by
+        // our service's verbatim escape-hatch slot.
+        if suggestion.isUnknown {
+            betterAutocompleteService?.noteVerbatimChoice(suggestion.text)
+        }
+        super.handle(suggestion)
     }
 }
 

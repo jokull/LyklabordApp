@@ -48,6 +48,40 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
 
     private var session: TypingSession?
     private var bootstrapFailed = false
+    /// Latest known field kind, kept even while the session is still
+    /// bootstrapping so it can be applied the moment the session exists.
+    private var fieldKind: FieldKind = .standard
+
+    // MARK: - Cross-queue fast path (lock-guarded, NOT queue-confined)
+
+    /// Mirror of `session.hasPendingContinuationRevert`, updated on `queue`
+    /// after every autocomplete pass and read from the main thread by the
+    /// action handler, so the per-keystroke revert consult can skip the
+    /// queue round-trip on the overwhelmingly common keystrokes where no
+    /// '.'-replacement memo exists.
+    private let revertMemoLock = NSLock()
+    private var revertMemoArmed = false
+
+    private func setRevertMemoArmed(_ armed: Bool) {
+        revertMemoLock.lock()
+        revertMemoArmed = armed
+        revertMemoLock.unlock()
+    }
+
+    private var isRevertMemoArmed: Bool {
+        revertMemoLock.lock()
+        defer { revertMemoLock.unlock() }
+        return revertMemoArmed
+    }
+
+    // MARK: - Constants
+
+    /// `additionalInfo` key carrying the pending token a suggestion
+    /// replaces. `BetterKeyboardActionHandler` uses it to (a) allow the
+    /// deferred '.'-apply even though KeyboardKit considers the cursor "at
+    /// a new word" after the dot, and (b) verify against the live proxy
+    /// text that the suggestion is not stale before applying.
+    static let pendingTokenInfoKey = "is.betterkeyboard.pendingToken"
 
     // MARK: - Init
 
@@ -90,6 +124,44 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     func noteTextContextChange(_ textBeforeCursor: String) {
         queue.async { [weak self] in
             self?.session?.noteExternalTextChange(window: textBeforeCursor)
+        }
+    }
+
+    /// Update the field-type gate (PLAN.md verbatim/URL layer 2): in
+    /// URL/email/web-search fields the session strips `isAutocorrect` from
+    /// every suggestion (they stay available, tap-only). Forwarded by the
+    /// controller whenever the host field/context changes.
+    func updateFieldKind(_ kind: FieldKind) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.fieldKind = kind
+            self.session?.fieldKind = kind
+        }
+    }
+
+    /// The user tapped the verbatim (quoted `.unknown`) suggestion:
+    /// remember the choice so an immediately following delimiter cannot
+    /// re-correct the token (layer 1 escape hatch). Forwarded by
+    /// `BetterKeyboardActionHandler.handle(_ suggestion:)`.
+    func noteVerbatimChoice(_ token: String) {
+        queue.async { [weak self] in
+            self?.session?.noteVerbatimChoice(token)
+        }
+    }
+
+    /// Revert-on-continuation decision (layer 4 fallback), consulted by
+    /// `BetterKeyboardActionHandler` BEFORE a letter/digit keystroke is
+    /// inserted: when the previous keystroke was a '.' that auto-replaced
+    /// the pending token, the returned proxy edit undoes the replacement so
+    /// URLs/domains self-heal. Synchronous by necessity (the keystroke
+    /// cannot proceed until the decision is known), but gated on the
+    /// lock-guarded memo flag so ordinary keystrokes never block on the
+    /// engine queue.
+    func pendingContinuationRevert(for character: Character) -> RevertInstruction? {
+        guard isRevertMemoArmed else { return nil }
+        return queue.sync {
+            defer { setRevertMemoArmed(session?.hasPendingContinuationRevert == true) }
+            return session?.continuationRevert(for: character)
         }
     }
 
@@ -151,7 +223,9 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             // keystrokes don't pay page-fault costs (PLAN.md cold-start
             // quirk). Runs on this queue, before the session is published.
             engine.warmUp()
-            session = TypingSession(engine: engine)
+            let newSession = TypingSession(engine: engine)
+            newSession.fieldKind = fieldKind
+            session = newSession
             let ms = (CFAbsoluteTimeGetCurrent() - start) * 1000
             NSLog(
                 "[better-keyboard] TypeEngine ready in %.1f ms (is: %d unigrams, en: %d unigrams, morphology: %@)",
@@ -176,22 +250,93 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             return .init(inputText: text, suggestions: [])
         }
         let suggestions = session.suggestions(for: text, limit: 3)
+        setRevertMemoArmed(session.hasPendingContinuationRevert)
+        let pendingToken = TypingSession.splitCurrentWord(of: text).currentWord
         return .init(
             inputText: text,
-            suggestions: suggestions.map(Self.bridge)
+            suggestions: suggestions.map { Self.bridge($0, pendingToken: pendingToken) }
         )
     }
 
-    /// Map a TypeEngine suggestion onto KeyboardKit's model. `.autocorrect`
-    /// is what makes `StandardActionHandler` auto-apply the suggestion when
-    /// the user types a word delimiter (space-commit); TypeEngine only sets
-    /// `isAutocorrect` on its top candidate under its conservatism rules, so
-    /// the mapping is direct.
-    private static func bridge(_ suggestion: Suggestion) -> Autocomplete.Suggestion {
-        Autocomplete.Suggestion(
+    /// Map a TypeEngine suggestion onto KeyboardKit's model.
+    ///
+    /// - `.autocorrect` is what makes the action handler auto-apply the
+    ///   suggestion when the user types a word delimiter (space-commit);
+    ///   TypeEngine only sets `isAutocorrect` on its top candidate under
+    ///   its conservatism rules, so the mapping is direct.
+    /// - The verbatim escape-hatch slot maps to `.unknown`, which native
+    ///   keyboards (and our toolbar, via the quoted `title`) render quoted.
+    /// - `additionalDeleteCount` bridges the token-boundary difference:
+    ///   TypeEngine suggestions replace the session's WHOLE pending token
+    ///   (which can span dots/'@' — "profilmynd.tilvinstri", "teh."), while
+    ///   KeyboardKit's `replaceCurrentWordPreCursorPart` only deletes its
+    ///   own current word (which never spans a dot). The extra count covers
+    ///   the difference so a tap or a deferred '.'-apply replaces the whole
+    ///   token instead of shearing it at the last dot.
+    private static func bridge(
+        _ suggestion: Suggestion,
+        pendingToken: String
+    ) -> Autocomplete.Suggestion {
+        let kkWordCount = Self.keyboardKitCurrentWord(of: pendingToken).count
+        return Autocomplete.Suggestion(
             text: suggestion.text,
-            type: suggestion.isAutocorrect ? .autocorrect : .regular,
-            additionalInfo: ["confidence": String(format: "%.3f", suggestion.confidence)]
+            type: suggestion.isVerbatim
+                ? .unknown
+                : (suggestion.isAutocorrect ? .autocorrect : .regular),
+            title: suggestion.isVerbatim
+                ? "\u{201C}\(suggestion.text)\u{201D}"
+                : suggestion.text,
+            additionalDeleteCount: max(pendingToken.count - kkWordCount, 0),
+            additionalInfo: [
+                "confidence": String(format: "%.3f", suggestion.confidence),
+                Self.pendingTokenInfoKey: pendingToken,
+            ]
         )
+    }
+
+    /// KeyboardKit's view of the current word within our pending token: the
+    /// trailing run of non-word-delimiter characters (mirrors
+    /// `UITextDocumentProxy.currentWordPreCursorPart` /
+    /// `String.wordFragmentAtEnd`, where '.' is always a delimiter).
+    private static func keyboardKitCurrentWord(of token: String) -> Substring {
+        token.suffix(while: { !"\($0)".isWordDelimiter })
+    }
+}
+
+private extension String {
+
+    /// Trailing run of characters satisfying `predicate`.
+    func suffix(while predicate: (Character) -> Bool) -> Substring {
+        var start = endIndex
+        while start > startIndex {
+            let previous = index(before: start)
+            guard predicate(self[previous]) else { break }
+            start = previous
+        }
+        return self[start...]
+    }
+}
+
+// MARK: - Field-kind mapping (UIKit/KeyboardKit → TypeEngine)
+
+extension BetterKeyboardAutocompleteService {
+
+    /// TypeEngine field kind for the active keyboard context, combining
+    /// KeyboardKit's own keyboard type with the host field's `UIKeyboardType`
+    /// (the same dual sourcing as `KeyboardContext.prefersAutocomplete`,
+    /// since many native field types never map to a KeyboardKit type).
+    static func fieldKind(for context: KeyboardContext) -> FieldKind {
+        switch context.keyboardType {
+        case .url: return .url
+        case .email: return .email
+        case .webSearch: return .webSearch
+        default: break
+        }
+        switch context.textDocumentProxy.keyboardType {
+        case .URL?: return .url
+        case .emailAddress?: return .email
+        case .webSearch?: return .webSearch
+        default: return .standard
+        }
     }
 }

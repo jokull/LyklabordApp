@@ -18,7 +18,14 @@
 # The harness simulates the device typing loop: keystrokes go through a
 # proxy window (iOS-style truncation: cut at sentence boundary, 200-char
 # cap), and a delimiter keystroke first applies a pending autocorrect
-# suggestion, exactly like KeyboardKit's space-commit.
+# suggestion, exactly like KeyboardKit's space-commit (with '.' excluded —
+# the extension's action-handler subclass defers the '.'-apply to the next
+# delimiter; DOT_APPLY on restores stock KeyboardKit behavior).
+#
+# 2026-07-15 verbatim/URL wave: the literal typed token now always leads a
+# non-empty bar (verbatim escape-hatch slot, quoted on device); EXPECT_TOP /
+# EXPECT_AUTOCORRECT judge the top NON-verbatim suggestion, and
+# EXPECT_VERBATIM / EXPECT_ONLY_VERBATIM check the escape-hatch slot.
 
 LIMIT 5
 
@@ -26,8 +33,14 @@ LIMIT 5
 # Corrections and completions
 # ---------------------------------------------------------------------------
 
+# The verbatim slot occupies one bar position, so these two completion-depth
+# scenarios need a 6-wide bar to keep asserting the 5th-ranked engine
+# candidate (on device the bar is 3 slots and "hestur" was never visible).
+LIMIT 6
+
 SCENARIO hestr offers hestur among completions
 T hestr
+EXPECT_VERBATIM hestr
 EXPECT_CONTAINS hestur
 EXPECT_NO_AUTOCORRECT hestr
 # Top-1 is "hest" (drop-the-extra-r reading, most frequent hest* form in
@@ -61,6 +74,8 @@ EXPECT_TOP góðan
 SCENARIO capitalization is preserved on suggestions
 T Hestr
 EXPECT_CONTAINS Hestur
+
+LIMIT 5
 
 # ---------------------------------------------------------------------------
 # Valid words are never auto-replaced (conservatism invariant)
@@ -223,9 +238,11 @@ EXPECT_POSTERIOR_LT 0.51
 # Completion gate + next-word prediction
 # ---------------------------------------------------------------------------
 
-SCENARIO one typed character yields no suggestions
+SCENARIO one typed character yields only the verbatim slot
 T h
-EXPECT_EMPTY
+# The ≥2-char gate still keeps the engine out of 1-char prefixes; the
+# verbatim escape hatch is nevertheless always present for a non-empty word.
+EXPECT_ONLY_VERBATIM h
 
 SCENARIO two typed characters yield suggestions
 T he
@@ -294,8 +311,9 @@ T vel-þekkt
 EXPECT_COMMITS 0
 # Fixed quirk: both parts are valid, so the compound is treated as valid —
 # no correction, no hyphen-stripping autocorrect, and no edits2 walk (this
-# was also the slowest path in the suite: 300–2000 ms/keystroke).
-EXPECT_EMPTY
+# was also the slowest path in the suite: 300–2000 ms/keystroke). Only the
+# verbatim escape-hatch slot shows.
+EXPECT_ONLY_VERBATIM vel-þekkt
 T " "
 EXPECT_BUFFER "vel-þekkt "
 EXPECT_LAST_COMMIT vel-þekkt
@@ -412,3 +430,122 @@ EXPECT_CONTEXT hestu
 STALE_READS off
 REFRESH
 EXPECT_CONTEXT hestur
+
+# ---------------------------------------------------------------------------
+# Verbatim escape hatch + URL handling (PLAN.md, "profilmynd." bug)
+# ---------------------------------------------------------------------------
+
+SCENARIO url with dots survives verbatim end to end
+# The user-reported bug: typing "profilmynd.tilvinstri.is" had "profilmynd."
+# autocorrected to "prófílmynd.". The '.'-commit deferral + dotted-token
+# verbatim class must let the URL through untouched in a normal text field.
+T profilmynd
+# OOV word: an accent-restoring autocorrect is armed here — and must NOT
+# fire on the '.'.
+EXPECT_AUTOCORRECT prófílmynd
+T .
+# Deferred dot: nothing applied, nothing committed, correction re-armed
+# with the pending dot attached (sentence-final "profilmynd. " would still
+# correct — see next scenario).
+EXPECT_BUFFER profilmynd.
+EXPECT_COMMITS 0
+T tilvinstri.is
+# Internal dot: verbatim-class — autocorrect dead, verbatim slot leads.
+EXPECT_VERBATIM profilmynd.tilvinstri.is
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "profilmynd.tilvinstri.is "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT profilmynd.tilvinstri.is
+
+SCENARIO sentence-final period still corrects on the following space
+T teh
+EXPECT_AUTOCORRECT the
+T .
+# The '.' keystroke itself applies nothing (deferral)…
+EXPECT_BUFFER teh.
+EXPECT_COMMITS 0
+# …but the correction stays armed, dot included, and the space applies it.
+EXPECT_AUTOCORRECT the.
+T " "
+EXPECT_BUFFER "the. "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT the
+
+SCENARIO eg abbreviation is untouched
+T "e.g. "
+EXPECT_BUFFER "e.g. "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT e.g
+
+SCENARIO email address is untouched
+T jokull@triptojapan.com
+EXPECT_VERBATIM jokull@triptojapan.com
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "jokull@triptojapan.com "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT jokull@triptojapan.com
+
+SCENARIO verbatim tap commits literally and suppresses re-correction
+T teh
+EXPECT_VERBATIM teh
+EXPECT_AUTOCORRECT the
+TAP teh
+# KeyboardKit tap semantics: token replaced with itself + space inserted.
+EXPECT_BUFFER "teh "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT teh
+# The tap also plants the verbatim-choice memo: were the token still
+# pending (host without the auto-space), a delimiter could not re-correct
+# it. Type it again after an explicit tap-less commit to show autocorrect
+# re-arms for future words as usual.
+T teh
+EXPECT_AUTOCORRECT the
+
+SCENARIO url field suppresses autocorrect but keeps suggestions
+FIELD url
+T teh
+# Suggestions remain (tap-only)…
+EXPECT_NONEMPTY
+EXPECT_CONTAINS the
+# …but nothing may auto-apply, so the space commits the literal token.
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "teh "
+EXPECT_LAST_COMMIT teh
+FIELD standard
+
+SCENARIO email field suppresses autocorrect
+FIELD email
+T "godan "
+EXPECT_BUFFER "godan "
+FIELD standard
+
+SCENARIO stock keyboardkit dot-apply self-heals via revert-on-continuation
+# Layer 4 fallback: model STOCK KeyboardKit, which applies the armed
+# autocorrect ON the '.' keystroke. The very next letter must revert the
+# correction and typing continues on the original token.
+DOT_APPLY on
+T teh
+EXPECT_AUTOCORRECT the
+T .
+EXPECT_BUFFER the.
+T t
+EXPECT_BUFFER teh.t
+EXPECT_COMMITS 0
+T "ilvinstri.is "
+EXPECT_BUFFER "teh.tilvinstri.is "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT teh.tilvinstri.is
+DOT_APPLY off
+
+SCENARIO stock dot-apply followed by space keeps the correction
+DOT_APPLY on
+T "teh. "
+# Sentence-final shape under stock behavior: apply on '.', space follows —
+# no continuation, no revert.
+EXPECT_BUFFER "the. "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT the
+DOT_APPLY off

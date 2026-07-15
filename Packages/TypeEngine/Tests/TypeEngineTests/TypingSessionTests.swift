@@ -75,31 +75,305 @@ final class TypingSessionTests: XCTestCase {
 
     func testLastWordStripsDelimiters() {
         XCTAssertEqual(TypingSession.lastWord(in: "fara í búð, "), "búð")
-        XCTAssertEqual(TypingSession.lastWord(in: "hestur."), "hestur")
+        // Deferral semantics: a dot at the very end of the text is not yet
+        // a delimiter (the commit decision waits for the next keystroke),
+        // so the trailing token still carries it; once whitespace follows,
+        // the dot is a delimiter and is stripped.
+        XCTAssertEqual(TypingSession.lastWord(in: "hestur."), "hestur.")
+        XCTAssertEqual(TypingSession.lastWord(in: "hestur. "), "hestur")
         XCTAssertNil(TypingSession.lastWord(in: "  ,. "))
         XCTAssertNil(TypingSession.lastWord(in: ""))
     }
 
+    // MARK: - Dotted tokens (URL/domain/email/file shape, PLAN.md layer 3)
+
+    func testInternalDotIsNotADelimiter() {
+        let (context, word) = TypingSession.splitCurrentWord(of: "sjá profilmynd.tilvinstri.is")
+        XCTAssertEqual(context, "sjá ")
+        XCTAssertEqual(word, "profilmynd.tilvinstri.is")
+    }
+
+    func testAtSignIsNotADelimiter() {
+        let (context, word) = TypingSession.splitCurrentWord(of: "jokull@triptojapan.com")
+        XCTAssertEqual(context, "")
+        XCTAssertEqual(word, "jokull@triptojapan.com")
+    }
+
+    func testTrailingDotIsDeferred() {
+        // "word." at the cursor: the dot may become word-internal (URL) or
+        // a sentence period — the split keeps it pending until the next
+        // keystroke decides.
+        let (context, word) = TypingSession.splitCurrentWord(of: "profilmynd.")
+        XCTAssertEqual(context, "")
+        XCTAssertEqual(word, "profilmynd.")
+    }
+
+    func testDotFollowedBySpaceIsADelimiter() {
+        let (context, word) = TypingSession.splitCurrentWord(of: "hestur. ")
+        XCTAssertEqual(context, "hestur. ")
+        XCTAssertEqual(word, "")
+    }
+
+    func testDoubleDotIsADelimiter() {
+        // A second '.' resolves the deferral: "word.." is a finished word
+        // plus ".." (ellipsis-style), never a dotted token.
+        let (context, word) = TypingSession.splitCurrentWord(of: "hestur..")
+        XCTAssertEqual(context, "hestur..")
+        XCTAssertEqual(word, "")
+    }
+
+    func testDotAfterDelimiterIsADelimiter() {
+        let (context, word) = TypingSession.splitCurrentWord(of: "því .is")
+        XCTAssertEqual(context, "því .")
+        XCTAssertEqual(word, "is")
+    }
+
+    func testVerbatimClassTokenDetection() {
+        XCTAssertTrue(TypingSession.isVerbatimClassToken("profilmynd.tilvinstri"))
+        XCTAssertTrue(TypingSession.isVerbatimClassToken("jokull@triptojapan"))
+        XCTAssertTrue(TypingSession.isVerbatimClassToken("e.g"))
+        XCTAssertTrue(TypingSession.isVerbatimClassToken("3.14"))
+        XCTAssertFalse(TypingSession.isVerbatimClassToken("hestur"))
+        XCTAssertFalse(TypingSession.isVerbatimClassToken("hestur."))  // trailing dot only
+        XCTAssertFalse(TypingSession.isVerbatimClassToken("don't"))
+        XCTAssertFalse(TypingSession.isVerbatimClassToken(""))
+    }
+
+    func testWordTokensKeepDottedTokensWhole() {
+        XCTAssertEqual(
+            TypingSession.wordTokens(in: "sjá profilmynd.tilvinstri.is "),
+            ["sjá", "profilmynd.tilvinstri.is"]
+        )
+        XCTAssertEqual(TypingSession.wordTokens(in: "the. "), ["the"])
+        XCTAssertEqual(TypingSession.wordTokens(in: "completely different "), ["completely", "different"])
+    }
+
     // MARK: - Completion gate
 
-    func testSingleCharacterYieldsNoSuggestions() {
-        XCTAssertTrue(session().suggestions(for: "h").isEmpty)
+    func testSingleCharacterYieldsOnlyTheVerbatimSlot() {
+        // The ≥2-char gate still keeps the engine out of 1-char prefixes,
+        // but the verbatim escape hatch (layer 1) is always present for a
+        // non-empty current word.
+        let bar = session().suggestions(for: "h")
+        XCTAssertEqual(bar.count, 1)
+        XCTAssertEqual(bar.first?.text, "h")
+        XCTAssertEqual(bar.first?.isVerbatim, true)
     }
 
     func testTwoCharactersYieldSuggestions() {
-        XCTAssertFalse(session().suggestions(for: "he").isEmpty)
+        // Engine suggestions (beyond the verbatim slot) kick in at 2 chars.
+        XCTAssertTrue(session().suggestions(for: "he").contains { !$0.isVerbatim })
     }
 
     func testEmptyTextYieldsNextWordPredictions() {
-        // Empty current word is prediction, not completion; not gated.
-        XCTAssertFalse(session().suggestions(for: "").isEmpty)
+        // Empty current word is prediction, not completion; not gated, and
+        // no verbatim slot (there is no typed token to escape-hatch).
+        let bar = session().suggestions(for: "")
+        XCTAssertFalse(bar.isEmpty)
+        XCTAssertFalse(bar.contains { $0.isVerbatim })
     }
 
     func testGateAppliesToCurrentWordNotWholeText() {
-        // 1-char *current word* after committed context is still gated.
+        // 1-char *current word* after committed context is still gated
+        // (verbatim slot only, no engine suggestions).
         let s = session()
         typeThrough(s, "góðan d")
-        XCTAssertTrue(s.suggestions(for: "góðan d").isEmpty)
+        let bar = s.suggestions(for: "góðan d")
+        XCTAssertEqual(bar.map(\.text), ["d"])
+        XCTAssertEqual(bar.first?.isVerbatim, true)
+    }
+
+    // MARK: - Verbatim escape hatch (layer 1)
+
+    func testVerbatimSlotLeadsTheBar() {
+        let s = session()
+        let bar = typeThrough(s, "hestr")
+        XCTAssertEqual(bar.first?.text, "hestr")
+        XCTAssertEqual(bar.first?.isVerbatim, true)
+        XCTAssertFalse(bar.first?.isAutocorrect ?? true)
+        XCTAssertTrue(bar.dropFirst().allSatisfy { !$0.isVerbatim })
+    }
+
+    func testVerbatimSlotCountsAgainstTheLimit() {
+        let s = session()
+        let bar = typeThrough(s, "hestr", limit: 3)
+        XCTAssertLessThanOrEqual(bar.count, 3)
+        XCTAssertEqual(bar.first?.isVerbatim, true)
+    }
+
+    func testVerbatimChoiceSuppressesAutocorrect() {
+        // The user tapped the verbatim slot for "teh"; if the token shows
+        // up again as the pending word (e.g. no auto-inserted space), an
+        // immediate delimiter must not re-correct it.
+        let s = session()
+        XCTAssertTrue(typeThrough(s, "teh").contains { $0.isAutocorrect })
+        s.noteVerbatimChoice("teh")
+        let bar = s.suggestions(for: "teh")
+        XCTAssertFalse(bar.contains { $0.isAutocorrect })
+        XCTAssertEqual(bar.first?.text, "teh")
+        XCTAssertEqual(bar.first?.isVerbatim, true)
+    }
+
+    func testVerbatimChoiceMemoIsClearedByCommit() {
+        let s = session()
+        typeThrough(s, "teh")
+        s.noteVerbatimChoice("teh")
+        typeThrough(s, "teh og ")  // "og" commits: memo gone
+        let bar = s.suggestions(for: "teh og teh")
+        XCTAssertTrue(bar.contains { $0.isAutocorrect })
+    }
+
+    // MARK: - Field-type gate (layer 2)
+
+    func testURLFieldSuppressesAutocorrectButKeepsSuggestions() {
+        for kind in [FieldKind.url, .email, .webSearch] {
+            let s = session()
+            s.fieldKind = kind
+            let bar = typeThrough(s, "teh")
+            XCTAssertFalse(bar.contains { $0.isAutocorrect }, "\(kind) must not autocorrect")
+            XCTAssertTrue(bar.contains { !$0.isVerbatim }, "\(kind) keeps tap-only suggestions")
+        }
+    }
+
+    func testStandardFieldStillAutocorrects() {
+        let s = session()
+        s.fieldKind = .standard
+        XCTAssertTrue(typeThrough(s, "teh").contains { $0.isAutocorrect })
+    }
+
+    // MARK: - Dotted-token typing (layer 3)
+
+    func testDottedTokenNeverAutocorrects() {
+        let s = session()
+        var buffer = ""
+        for ch in "teh.tilvinstri.is" {
+            buffer.append(ch)
+            let bar = s.suggestions(for: buffer)
+            if buffer.contains(".") && !buffer.hasSuffix(".") {
+                // Internal dot present: verbatim-class, autocorrect dead.
+                XCTAssertFalse(
+                    bar.contains { $0.isAutocorrect },
+                    "autocorrect fired on \(buffer)"
+                )
+                XCTAssertEqual(bar.first?.text, buffer)
+                XCTAssertEqual(bar.first?.isVerbatim, true)
+            }
+        }
+        XCTAssertEqual(s.committedWordCount, 0, "no dot may commit inside the token")
+        s.suggestions(for: "teh.tilvinstri.is ")
+        XCTAssertEqual(s.committedWordCount, 1)
+        XCTAssertEqual(s.lastCommittedWord, "teh.tilvinstri.is")
+    }
+
+    func testDottedTokenSegmentSuggestionsAreTapOnlyAndFullToken() {
+        let s = session()
+        let bar = typeThrough(s, "takk.hestr")
+        // Suggestions correct the trailing segment but replace the whole
+        // token, so a tap can't shear the URL apart.
+        XCTAssertTrue(bar.contains { $0.text == "takk.hestur" }, "bar: \(bar.map(\.text))")
+        XCTAssertFalse(bar.contains { $0.isAutocorrect })
+    }
+
+    func testEmailShapedTokenNeverAutocorrects() {
+        let s = session()
+        let bar = typeThrough(s, "jokull@triptojapan.com")
+        XCTAssertFalse(bar.contains { $0.isAutocorrect })
+        s.suggestions(for: "jokull@triptojapan.com ")
+        XCTAssertEqual(s.committedWordCount, 1)
+        XCTAssertEqual(s.lastCommittedWord, "jokull@triptojapan.com")
+    }
+
+    // MARK: - Deferred '.'-commit (layer 3 delimiter semantics)
+
+    func testTrailingDotDoesNotCommit() {
+        let s = session()
+        typeThrough(s, "hestur.")
+        XCTAssertEqual(s.committedWordCount, 0)
+        XCTAssertNil(s.lastCommittedWord)
+    }
+
+    func testDotThenSpaceCommitsTheStem() {
+        let s = session()
+        typeThrough(s, "hestur. ")
+        XCTAssertEqual(s.committedWordCount, 1)
+        XCTAssertEqual(s.lastCommittedWord, "hestur")
+    }
+
+    func testDotThenLetterGrowsOneDottedToken() {
+        let s = session()
+        typeThrough(s, "hestur.i")
+        XCTAssertEqual(s.committedWordCount, 0)
+        s.suggestions(for: "hestur.is ")
+        XCTAssertEqual(s.committedWordCount, 1)
+        XCTAssertEqual(s.lastCommittedWord, "hestur.is")
+    }
+
+    func testPendingDotKeepsAutocorrectArmedWithDotAppended() {
+        // "teh." must still become "the. " when a space follows (sentence
+        // period), so the autocorrect stays armed, dot included — the
+        // deferred apply replaces the whole pending token.
+        let s = session()
+        let bar = typeThrough(s, "teh.")
+        let autocorrect = bar.first { $0.isAutocorrect }
+        XCTAssertEqual(autocorrect?.text, "the.")
+        // The embedder applies it on the space; the session reads the
+        // corrected form back out of the committed text.
+        s.suggestions(for: "the. ")
+        XCTAssertEqual(s.committedWordCount, 1)
+        XCTAssertEqual(s.lastCommittedWord, "the")
+    }
+
+    func testDeferredCommitSurvivesProxySentenceCut() {
+        // Real proxies cut the before-window at ". ", so the space that
+        // commits "teh." can collapse the window to "" in the same
+        // keystroke. The commit must be recovered from session state —
+        // including the corrected form the embedder just applied.
+        let s = session()
+        typeThrough(s, "teh.")
+        s.suggestions(for: "")  // ". " sentence cut right after the apply
+        XCTAssertEqual(s.committedWordCount, 1)
+        XCTAssertEqual(s.lastCommittedWord, "the")
+    }
+
+    // MARK: - Revert-on-continuation (layer 4 fallback)
+
+    func testHostDotApplyThenLetterRevertsTheCorrection() {
+        // Stock-KeyboardKit shape: the host applied "the." on the period
+        // keystroke ("teh" + '.'), then the user typed a letter — the
+        // session must order the correction undone.
+        let s = session()
+        typeThrough(s, "teh")
+        s.suggestions(for: "the.")  // host applied the armed autocorrect + '.'
+        let revert = s.continuationRevert(for: "t")
+        XCTAssertEqual(revert, RevertInstruction(deleteCount: 4, text: "teh."))
+        // After the revert edits + the continuation letter, typing resumes
+        // on the original token with no spurious commit or external reset.
+        s.suggestions(for: "teh.t")
+        XCTAssertEqual(s.committedWordCount, 0)
+        s.suggestions(for: "teh.ti ")
+        XCTAssertEqual(s.lastCommittedWord, "teh.ti")
+    }
+
+    func testRevertMemoIsDiscardedOnNonContinuation() {
+        let s = session()
+        typeThrough(s, "teh")
+        s.suggestions(for: "the.")
+        XCTAssertNil(s.continuationRevert(for: " "), "space is not a continuation")
+        XCTAssertNil(s.continuationRevert(for: "t"), "memo must be one-shot")
+    }
+
+    func testRevertMemoDiesAfterTheNextKeystroke() {
+        let s = session()
+        typeThrough(s, "teh")
+        s.suggestions(for: "the.")
+        s.suggestions(for: "the. ")  // next keystroke landed: window passed
+        XCTAssertNil(s.continuationRevert(for: "t"))
+    }
+
+    func testNoRevertMemoWithoutAReplacement() {
+        let s = session()
+        typeThrough(s, "hestur.")  // typed dot, nothing was replaced
+        XCTAssertNil(s.continuationRevert(for: "t"))
     }
 
     // MARK: - Commit detection
@@ -235,11 +509,14 @@ final class TypingSessionTests: XCTestCase {
     func testSentenceTruncationCarriesBigramContext() {
         // The iOS proxy cuts the before-window at ". "; the words are still
         // on screen, so the first word of the new sentence should keep
-        // bigram context ("góðan" -> "dag" in the fixtures).
+        // bigram context ("góðan" -> "dag" in the fixtures). With the
+        // deferred '.'-commit, "góðan." is still pending at the dot; the
+        // space keystroke both commits it and collapses the window.
         let s = session()
         typeThrough(s, "góðan.")
-        XCTAssertEqual(s.lastCommittedWord, "góðan")
+        XCTAssertNil(s.lastCommittedWord, "trailing dot commit is deferred")
         let predictions = s.suggestions(for: "")  // proxy sentence cut
+        XCTAssertEqual(s.lastCommittedWord, "góðan")
         XCTAssertEqual(predictions.first?.text, "dag", "carried bigram context should rank dag first")
     }
 
