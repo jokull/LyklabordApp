@@ -2,9 +2,8 @@
 //  ContentView.swift
 //  BetterKeyboard
 //
-//  Minimal M0 screen: explains how to enable the keyboard extension, and
-//  gives a text field to try it out in. Real onboarding/settings UI is a
-//  later milestone.
+//  "Byrjun" tab: explains how to enable the keyboard extension, and gives a
+//  text field to try it out in. Lives inside `RootView`'s TabView.
 //
 
 import SwiftUI
@@ -18,38 +17,38 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Lyklaborð")
+                        Text(Strings.Onboarding.title)
                             .font(.largeTitle.bold())
-                        Text("A privacy-first Icelandic + English keyboard. Zero network code in the keyboard extension — everything runs on your device.")
+                        Text(Strings.Onboarding.subtitle)
                             .foregroundStyle(.secondary)
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Set up the keyboard")
+                        Text(Strings.Onboarding.setupHeading)
                             .font(.title2.bold())
 
-                        stepRow(number: 1, text: "Open Settings → General → Keyboard → Keyboards")
-                        stepRow(number: 2, text: "Tap \"Add New Keyboard…\" and choose Lyklaborð")
-                        stepRow(number: 3, text: "Tap Lyklaborð again and enable \"Allow Full Access\" (optional — the keyboard works fully without it; Full Access only enables iCloud sync of your personal dictionary in a later version)")
+                        stepRow(number: 1, text: Strings.Onboarding.step1)
+                        stepRow(number: 2, text: Strings.Onboarding.step2)
+                        stepRow(number: 3, text: Strings.Onboarding.step3)
 
                         Button {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 UIApplication.shared.open(url)
                             }
                         } label: {
-                            Label("Open Settings", systemImage: "gear")
+                            Label(Strings.Onboarding.openSettingsButton, systemImage: "gear")
                         }
                         .buttonStyle(.borderedProminent)
                         .padding(.top, 4)
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Try it out")
+                        Text(Strings.Onboarding.tryHeading)
                             .font(.title2.bold())
-                        Text("Switch to Lyklaborð with the globe key (🌐) and type here:")
+                        Text(Strings.Onboarding.tryBody)
                             .foregroundStyle(.secondary)
 
-                        TextField("Skrifaðu eitthvað…", text: $sampleText, axis: .vertical)
+                        TextField(Strings.Onboarding.tryPlaceholder, text: $sampleText, axis: .vertical)
                             .textFieldStyle(.roundedBorder)
                             .focused($isTextFieldFocused)
                             .lineLimit(4...8)
@@ -57,7 +56,7 @@ struct ContentView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Lyklaborð")
+            .navigationTitle(Strings.Onboarding.title)
         }
     }
 

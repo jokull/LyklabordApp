@@ -334,6 +334,18 @@ public final class PersonalModel {
         tombstones.remove(word)
     }
 
+    /// Bulk-import support (see `SwiftKeyImport`): upsert an explicitly-
+    /// accepted entry with a seeded count. Internal — external callers go
+    /// through `importLearnedWords(_:seedCount:)`, which validates and
+    /// respects tombstones.
+    func upsertExplicitEntry(_ word: String, seedCount: UInt32) {
+        var stats = words[word] ?? WordStats()
+        stats.explicitlyAccepted = true
+        stats.count = max(stats.count, seedCount)
+        stats.unknownCount = max(stats.unknownCount, seedCount)
+        words[word] = stats
+    }
+
     // MARK: - Touch model accessors
 
     /// Mean tap offset from key center for `char`, with the effective sample

@@ -1,0 +1,89 @@
+//
+//  Strings.swift
+//  BetterKeyboard
+//
+//  All user-facing copy lives here (M2 app track). Icelandic-first — this is
+//  an Icelandic product — with English where it reads more naturally
+//  (technical terms, brand names). Hardcoded rather than a .strings catalog
+//  for now: gathering everything in one enum keeps a future localization
+//  pass a single-file diff instead of a scavenger hunt.
+//
+
+import Foundation
+
+enum Strings {
+
+    enum Tab {
+        static let onboarding = "Byrjun"
+        static let dictionary = "Orðasafn"
+        static let settings = "Stillingar"
+    }
+
+    enum Onboarding {
+        static let title = "Lyklaborð"
+        static let subtitle = "Íslenskt og enskt lyklaborð sem hugsar um friðhelgi. Ekkert netkóði er í lyklaborðsviðbótinni sjálfri — allt gerist á tækinu þínu."
+
+        static let setupHeading = "Setja upp lyklaborðið"
+        static let step1 = "Opnaðu Stillingar → Almennt → Lyklaborð → Lyklaborð"
+        static let step2 = "Ýttu á „Bæta við lyklaborði…“ og veldu Lyklaborð"
+        static let step3 = "Ýttu aftur á Lyklaborð og virkjaðu „Leyfa fullan aðgang“ (valfrjálst — lyklaborðið virkar að fullu án þess; fullur aðgangur er eingöngu til að samstilla orðasafnið þitt við iCloud í seinni útgáfu)"
+        static let openSettingsButton = "Opna Stillingar"
+
+        static let tryHeading = "Prófaðu það"
+        static let tryBody = "Skiptu yfir í Lyklaborð með hnettinum (🌐) og skrifaðu hér:"
+        static let tryPlaceholder = "Skrifaðu eitthvað…"
+    }
+
+    enum Dictionary {
+        static let navigationTitle = "Orðasafn"
+        static let searchPrompt = "Leita að orði"
+
+        static let learnedSectionTitle = "Lærð orð"
+        static let userAddedSectionTitle = "Mín orð"
+
+        static let addWordButton = "Bæta við orði"
+        static let addWordTitle = "Bæta við orði"
+        static let addWordPlaceholder = "Nýtt orð"
+        static let addWordSave = "Vista"
+        static let addWordCancel = "Hætta við"
+        static let addWordInvalid = "Þetta er ekki gilt stakt orð — engin bil eða tákn, að minnsta kosti einn bókstafur."
+
+        static let deleteButton = "Eyða"
+        static let undoButton = "Afturkalla"
+        static func deletedMessage(_ word: String) -> String { "„\(word)“ eytt" }
+
+        static let containerUnavailableTitle = "Sameiginleg gagnageymsla ekki tiltæk"
+        static let containerUnavailableBody = "Þetta kemur venjulega fyrir í hermi (Simulator) án réttra heimilda fyrir App Group. Á alvöru tæki virkar orðasafnið eðlilega — orð sem lyklaborðið lærir birtast hér."
+
+        static let emptyStateTitle = "Ekkert í orðasafninu ennþá"
+        static let emptyStateHowItWorks = "Lyklaborðið lærir orð sem þú skrifar. Orð telst lært eftir að hafa verið samþykkt tvo mismunandi daga — eða strax ef þú ýtir á það í tillögustikunni (skýrt merki um að orðið sé rétt)."
+        static let emptyStatePrivacy = "Þetta gerist eingöngu á tækinu þínu. Orðasafnið fer aldrei neitt nema í þitt eigið iCloud — lyklaborðsviðbótin sjálf snertir aldrei netið."
+
+        static let noSearchResults = "Ekkert orð fannst"
+    }
+
+    enum Settings {
+        static let navigationTitle = "Stillingar"
+
+        static let spacebarSectionTitle = "Bilslá"
+        static let spacebarSectionFooter = "Hvað gerist þegar þú ýtir á bilslána meðan þú skrifar orð."
+        static let spacebarModeCompleteTitle = "Klára orð"
+        static let spacebarModeCompleteDetail = "Bil klárar orðið sem er í vinnslu með tillögunni í miðjunni."
+        static let spacebarModePredictionTitle = "Setja alltaf inn tillögu"
+        static let spacebarModePredictionDetail = "Bil setur inn tillöguna í miðjunni, jafnvel þótt ekkert sé skrifað — heil setning með bilslánni."
+        static let spacebarModeSpaceTitle = "Bara bil"
+        static let spacebarModeSpaceDetail = "Bil er alltaf bara bil. Leiðréttingar eru eingöngu gerðar með því að ýta á tillögustikuna."
+
+        static let aboutSectionTitle = "Um Lyklaborð"
+        static let aboutOpenSourceTitle = "Opinn hugbúnaður"
+        static let aboutOpenSourceDetail = "Kóðinn er opinn og öllum aðgengilegur — hægt er að skoða nákvæmlega hvað lyklaborðið gerir."
+        static let aboutBinTitle = "Beygingarlýsing íslensks nútímamáls (BÍN)"
+        static let aboutBinDetail = "Beygingargögn koma frá BÍN, © Stofnun Árna Magnússonar í íslenskum fræðum (bin.arnastofnun.is). Sjá ATTRIBUTION.md í grunnkóðanum fyrir nánari skilmála."
+        static let aboutNoTelemetryTitle = "Engin fjarmæling"
+        static let aboutNoTelemetryDetail = "Engin notkunargögn, engin greiningargögn, engin skilaboð til neins netþjóns. Lyklaborðsviðbótin sjálf inniheldur engan netkóða."
+
+        static let syncSectionTitle = "iCloud samstilling"
+        static let syncStatusTitle = "Staða samstillingar"
+        static let syncComingSoon = "Kemur í seinni útgáfu — orðasafnið mun samstillast dulkóðað við þitt eigið iCloud, án reiknings eða netþjóns frá okkur."
+    }
+}
