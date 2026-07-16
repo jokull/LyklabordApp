@@ -18,3 +18,6 @@ ReplayRig/.derived/
 # Python
 __pycache__/
 *.pyc
+
+# Personal typing sessions — never commit
+tools/session-analyzer/sessions/
