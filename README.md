@@ -2,9 +2,20 @@
   <img src="docs/assets/icon.png" width="160" alt="Lyklaborð — a keycap bearing the Icelandic letter Ð" />
 </p>
 
-# Lyklaborð
+<h1 align="center">Lyklaborð</h1>
 
-**A privacy-first iOS keyboard for Icelandic — that also types excellent English.**
+<p align="center">
+  <strong>Íslenskt lyklaborð sem kann íslensku.</strong><br>
+  <em>A privacy-first iOS keyboard for Icelandic — that also types excellent English.</em>
+</p>
+
+<p align="center">
+  <a href="https://lyklabord.solberg.is"><strong>lyklabord.solberg.is</strong></a>
+</p>
+
+<p align="center">
+  <sub>The landing page's hero is a real-time 3D render of an Apple Extended Keyboard II Ð-keycap — tap it, it presses.</sub>
+</p>
 
 Lyklaborð is what SwiftKey should have been for Iceland: one Icelandic layout that fluently blends Icelandic and English as you type, morphology-aware autocorrect built on [BÍN](https://bin.arnastofnun.is) (3 million word forms — the first keyboard on any platform that actually understands Icelandic inflection), on-device learning with a personal dictionary you fully control, and a hard privacy guarantee: **the keyboard extension contains zero networking code.** Verify it — that's why the source is here.
 

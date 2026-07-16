@@ -28,6 +28,7 @@ enum Strings {
     /// one place so the About links, the privacy policy, and the export
     /// file's `$schema` pointer never drift apart.
     enum Links {
+        static let website = "https://lyklabord.solberg.is"
         static let githubRepo = "https://github.com/jokull/LyklabordApp"
         static let privacyPolicy = "https://github.com/jokull/LyklabordApp/blob/main/docs/PRIVACY.md"
         static let exportFormat = "https://github.com/jokull/LyklabordApp/blob/main/docs/EXPORT_FORMAT.md"
@@ -42,6 +43,10 @@ enum Strings {
 
     enum Onboarding {
         static let title = "Lyklaborð"
+        /// Hero tagline, matched verbatim to the landing page (lyklabord.solberg.is).
+        static let tagline = "Íslenskt lyklaborð sem kann íslensku."
+        /// Accessibility label for the keycap hero image.
+        static let heroAccessibilityLabel = "Þrívíður Ð-hnappur — merki Lyklaborðs"
         static let subtitle = "Íslenskt og enskt lyklaborð sem hugsar um friðhelgi. Ekkert netkóði er í lyklaborðsviðbótinni sjálfri — allt gerist á tækinu þínu."
 
         static let setupHeading = "Setja upp lyklaborðið"
@@ -125,6 +130,8 @@ enum Strings {
         static let aboutNoTelemetryDetail = "Engin notkunargögn, engin greiningargögn, engin skilaboð til neins netþjóns. Lyklaborðsviðbótin sjálf inniheldur engan netkóða."
 
         // Tappable trust links (v1-blocker: "audit the repo" needs a link).
+        static let aboutWebsiteTitle = "Vefsíða Lyklaborðs"
+        static let aboutWebsiteDetail = "lyklabord.solberg.is — kynning á lyklaborðinu og eiginleikum þess."
         static let aboutGithubTitle = "Frumkóði á GitHub"
         static let aboutGithubDetail = "Sjáðu nákvæmlega hvað lyklaborðið gerir — allt smáforritið og lyklaborðið eru opinn hugbúnaður."
         static let aboutPrivacyTitle = "Persónuverndarstefna"

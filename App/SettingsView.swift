@@ -250,6 +250,15 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         Section(Strings.Settings.aboutSectionTitle) {
+            if let url = URL(string: Strings.Links.website) {
+                Link(destination: url) {
+                    linkRow(
+                        title: Strings.Settings.aboutWebsiteTitle,
+                        detail: Strings.Settings.aboutWebsiteDetail,
+                        systemImage: "globe"
+                    )
+                }
+            }
             if let url = URL(string: Strings.Links.githubRepo) {
                 Link(destination: url) {
                     linkRow(

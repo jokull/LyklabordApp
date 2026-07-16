@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var sampleText: String = ""
+    @State private var keycapPressed = false
     @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
@@ -19,6 +20,8 @@ struct ContentView: View {
                     // Title comes from `.navigationTitle` (large nav title),
                     // matching the Orðasafn/Stillingar tabs. No in-view title
                     // Text here — that would duplicate the nav title.
+                    hero
+
                     Text(Strings.Onboarding.subtitle)
                         .foregroundStyle(.secondary)
 
@@ -71,6 +74,38 @@ struct ContentView: View {
             }
             .navigationTitle(Strings.Onboarding.title)
         }
+    }
+
+    // Branded hero: the Wave-6 keycap mark over the site's tagline. Tapping the
+    // keycap springs it down and back — a small delightful echo of the press
+    // interaction on lyklabord.solberg.is. Centered, restrained, Apple-like.
+    private var hero: some View {
+        VStack(spacing: 16) {
+            Image("KeycapHero")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 152, height: 152)
+                .shadow(color: .black.opacity(0.12), radius: 14, x: 0, y: 8)
+                .scaleEffect(keycapPressed ? 0.93 : 1)
+                .offset(y: keycapPressed ? 4 : 0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.5), value: keycapPressed)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    keycapPressed = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        keycapPressed = false
+                    }
+                }
+                .accessibilityLabel(Strings.Onboarding.heroAccessibilityLabel)
+
+            Text(Strings.Onboarding.tagline)
+                .font(.title2.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     private func stepRow(number: Int, text: String) -> some View {
