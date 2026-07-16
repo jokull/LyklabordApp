@@ -9,6 +9,9 @@ DerivedData/
 # XcodeGen cache
 .xcodegen/
 
+# Replay rig build output (traces/ has its own .gitignore for raw data + results)
+ReplayRig/.derived/
+
 # macOS
 .DS_Store
 

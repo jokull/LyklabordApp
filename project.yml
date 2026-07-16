@@ -124,6 +124,49 @@ targets:
       - package: TypeEngine
         product: TypeEngine
 
+  # --- Last-mile replay rig (PLAN.md testing pyramid tier 3) ------------------
+  # Additive-only: neither BetterKeyboard nor BetterKeyboardExt is modified.
+  # ReplayHost is a minimal single-TextField app the rig types into; the
+  # Lyklaborð keyboard reaches it system-wide (installed by the main app), so
+  # ReplayHost deliberately does NOT embed the extension. Rig-only — never
+  # shipped to the App Store (SKIP_INSTALL handled per-target).
+  ReplayHost:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: ReplayRig/ReplayHost
+    info:
+      path: ReplayRig/ReplayHost/Info.plist
+      properties:
+        CFBundleDisplayName: ReplayHost
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.replayhost
+        PRODUCT_NAME: ReplayHost
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+
+  ReplayRigUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: ReplayRig/ReplayRigUITests
+    dependencies:
+      - target: ReplayHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.replayhost.uitests
+        PRODUCT_NAME: ReplayRigUITests
+        TEST_TARGET_NAME: ReplayHost
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   BetterKeyboard:
     build:
@@ -134,3 +177,18 @@ schemes:
       config: Debug
     archive:
       config: Release
+
+  # Dedicated rig scheme so the main BetterKeyboard scheme is untouched. The
+  # UI-test target is attached here; `xcodebuild test -scheme ReplayRig` builds
+  # ReplayHost and runs ReplayRigUITests against it.
+  ReplayRig:
+    build:
+      targets:
+        ReplayHost: all
+        ReplayRigUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ReplayRigUITests
