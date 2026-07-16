@@ -148,6 +148,14 @@ final class KeyboardViewController: KeyboardInputViewController {
         // reload only when the file actually changed.
         (services.autocompleteService as? BetterKeyboardAutocompleteService)?
             .refreshPersonalSnapshotIfNeeded()
+        // Spacebar behavior (PLAN.md "Spacebar behavior — three
+        // user-selectable modes"): re-read the mode the containing app's
+        // settings screen wrote into the App Group suite. Live per
+        // presentation — the app is a different process, so a change made
+        // there while the keyboard is off-screen is picked up here (without
+        // Full Access the suite is unavailable and this stays at mode 1).
+        (services.autocompleteService as? BetterKeyboardAutocompleteService)?
+            .refreshSpacebarMode()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -404,6 +412,15 @@ final class BetterKeyboardLayoutService: KeyboardLayout.DeviceBasedLayoutService
 ///    follow-up `handle(.release, on: .character(""))` is not an
 ///    autocorrect trigger); we additionally tell the session, so a
 ///    delimiter typed right after cannot re-correct the token either.
+///
+/// It also implements PLAN.md "Spacebar behavior" **mode 2** ("always insert
+/// a prediction"): on a `.space` release with no word in progress it injects
+/// the top bar prediction before the space (see
+/// `shouldInsertSpacePrediction()` / `spacePrediction()`). **Mode 3** ("always
+/// insert a space") needs no code here — the service demotes `.autocorrect`
+/// suggestions to `.regular`, so the space-commit path finds nothing to apply.
+/// The active mode is read from the App Group suite via the service
+/// (`BetterKeyboardAutocompleteService.spacebarMode`).
 final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
 
     private var betterAutocompleteService: BetterKeyboardAutocompleteService? {
@@ -441,6 +458,26 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         on action: KeyboardAction,
         replaced: Bool
     ) {
+        // Spacebar mode 2 ("always insert a prediction", PLAN.md "Spacebar
+        // behavior — three user-selectable modes"): on a `.space` release
+        // with NO word in progress, insert the top bar prediction BEFORE the
+        // space instead of a bare space ("sentence by spacebar"). Runs before
+        // `super`, which then inserts the actual space, refreshes
+        // autocomplete, and fires feedback as usual.
+        //
+        // This never double-fires with mode 1: mode 1 commits only when a
+        // word IS in progress (mid-word autocorrect-on-space), whereas mode 2
+        // fires only when NO word is in progress — the two conditions are
+        // mutually exclusive. After the prediction is inserted the buffer no
+        // longer ends in a space, so `super`'s double-space→". " path also
+        // can't misfire (it requires two trailing spaces). Guards below keep
+        // it out of URL/email/secure fields and off space-cursor drags.
+        if gesture == .release, action == .space, shouldInsertSpacePrediction(),
+            let prediction = spacePrediction()
+        {
+            keyboardContext.textDocumentProxy.insertText(prediction)
+        }
+
         // 3. Revert-on-continuation: before a letter/digit is inserted, the
         // session may order the last '.'-triggered auto-replacement undone
         // (it holds the (original, corrected) memo for exactly one
@@ -470,6 +507,50 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         let proxy = keyboardContext.textDocumentProxy
         for _ in 0..<edit.deleteCount { proxy.deleteBackward() }
         proxy.insertText(edit.text)
+    }
+
+    // MARK: - Spacebar mode 2 ("always insert a prediction")
+
+    /// Whether a `.space` release should inject the current prediction
+    /// (PLAN.md "Spacebar behavior" mode 2). All guards must pass:
+    ///
+    /// - The user selected mode 2 (read from the App Group suite via the
+    ///   service; defaults to mode 1 without Full Access).
+    /// - Not a space-cursor drag (long-press space to move the caret must
+    ///   stay a caret move, never a word insert).
+    /// - Standard field only — never URL/email/web-search/secure fields
+    ///   (same field-kind gate the correction pipeline uses; injecting a
+    ///   predicted word into a password or URL would be wrong and unsafe).
+    /// - "No word in progress": the buffer is empty or ends in a space, i.e.
+    ///   the space about to be typed would start a new word rather than
+    ///   commit a mid-word correction. Requiring a trailing *space* (not just
+    ///   any delimiter) keeps predictions from gluing onto a preceding
+    ///   "word." / "word," and mirrors "cursor after a completed word + space
+    ///   would insert".
+    private func shouldInsertSpacePrediction() -> Bool {
+        guard betterAutocompleteService?.spacebarMode == .alwaysInsertPrediction else { return false }
+        // Space-cursor drag in progress → this release is a caret move, not a
+        // space insert (same probe the deferred-'.' override uses; the
+        // `isSpaceCursorDrag` helper on `StandardActionHandler` is internal to
+        // KeyboardKit, so we read the gesture handler directly).
+        if spaceDragGestureHandler.currentDragTextPositionOffset != 0 { return false }
+        guard BetterKeyboardAutocompleteService.fieldKind(for: keyboardContext) == .standard else {
+            return false
+        }
+        let before = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+        return before.isEmpty || before.hasSuffix(" ")
+    }
+
+    /// The prediction to inject on space: the primary (top-ranked) bar
+    /// suggestion, skipping the quoted verbatim `.unknown` slot and any emoji
+    /// suggestion. With no word in progress there is nothing to autocorrect,
+    /// so this is simply the best next-word prediction the engine produced;
+    /// `nil` (empty bar) falls back to a plain space.
+    private func spacePrediction() -> String? {
+        let suggestion = autocompleteContext.suggestions.first {
+            !$0.isUnknown && $0.type != .emoji && !$0.text.isEmpty
+        }
+        return suggestion?.text
     }
 
     override func handle(_ suggestion: Autocomplete.Suggestion) {

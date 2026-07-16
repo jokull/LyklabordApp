@@ -75,6 +75,18 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     private var revertMemoArmed = false
     private var attachmentMemoArmed = false
 
+    /// Cached spacebar behavior mode (PLAN.md "Spacebar behavior — three
+    /// user-selectable modes"). Written from the controller on the main
+    /// thread (`viewWillAppear`, and once at init) and read from BOTH the
+    /// engine `queue` (the mode-3 autocorrect demotion in
+    /// `performAutocomplete`) and the main thread (the mode-2 space
+    /// interception in `BetterKeyboardActionHandler`), so it lives under the
+    /// same lightweight lock as the revert/attachment memos rather than being
+    /// confined to a single thread. Defaults to mode 1 — the M1 behavior —
+    /// until the first read of the App Group suite (which may be unavailable
+    /// without Full Access; see `SpacebarMode.current`).
+    private var _spacebarMode: SpacebarMode = .completeCurrentWord
+
     private func setRevertMemoArmed(_ armed: Bool) {
         revertMemoLock.lock()
         revertMemoArmed = armed
@@ -97,6 +109,27 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         revertMemoLock.lock()
         defer { revertMemoLock.unlock() }
         return attachmentMemoArmed
+    }
+
+    /// The user's current spacebar behavior (PLAN.md "Spacebar behavior").
+    /// Read by the mode-3 bridge on `queue` and by the mode-2 action handler
+    /// on the main thread.
+    var spacebarMode: SpacebarMode {
+        revertMemoLock.lock()
+        defer { revertMemoLock.unlock() }
+        return _spacebarMode
+    }
+
+    /// Re-read the spacebar mode from the App Group suite and cache it.
+    /// Called once at init and again on every `viewWillAppear` so a change
+    /// made in the containing app's settings screen (a different process)
+    /// takes effect the next time the keyboard is presented, without needing
+    /// KVO on a cross-process `UserDefaults`. Cheap (one suite read).
+    func refreshSpacebarMode() {
+        let mode = SpacebarMode.current(appGroupId: appGroupId)
+        revertMemoLock.lock()
+        _spacebarMode = mode
+        revertMemoLock.unlock()
     }
 
     // MARK: - Constants
@@ -122,6 +155,10 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     ///   nil disables personal learning entirely (tests).
     init(appGroupId: String? = nil) {
         self.appGroupId = appGroupId
+        // Seed the spacebar mode from the App Group suite before the first
+        // keystroke (cheap; independent of the engine bootstrap). Re-read on
+        // every viewWillAppear via `refreshSpacebarMode()`.
+        refreshSpacebarMode()
         // Kick the bootstrap immediately (but asynchronously, off-main) so
         // the engine is usually ready by the first keystroke. Until it is,
         // `autocomplete(_:)` just returns empty suggestions.
@@ -441,10 +478,19 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         // tap/revert) is the pass whose drain carries those events.
         flushLearningEventsOnQueue()
         let pendingToken = TypingSession.splitCurrentWord(of: text).currentWord
-        return .init(
-            inputText: text,
-            suggestions: suggestions.map { Self.bridge($0, pendingToken: pendingToken) }
-        )
+        let mapped = suggestions.map { Self.bridge($0, pendingToken: pendingToken) }
+        // Spacebar mode 3 ("always insert a space", PLAN.md "Spacebar
+        // behavior"): the bar still shows every suggestion, but nothing may
+        // auto-commit on space — so demote every `.autocorrect` to `.regular`
+        // (KeyboardKit's own `withAutocorrectEnabled(false)` helper). The
+        // action handler's space-commit path (which auto-applies the FIRST
+        // `.isAutocorrect` suggestion) then finds none and just inserts a
+        // space; corrections apply only when the user taps the bar. Verified
+        // against `StandardActionHandler.tryApplyAutocorrectSuggestion`,
+        // which keys off the suggestion TYPE — exactly how mode 1 works.
+        // Modes 1 and 2 keep the autocorrect type untouched.
+        let modeAdjusted = mapped.withAutocorrectEnabled(spacebarMode != .alwaysInsertSpace)
+        return .init(inputText: text, suggestions: modeAdjusted)
     }
 
     /// Map a TypeEngine suggestion onto KeyboardKit's model.
