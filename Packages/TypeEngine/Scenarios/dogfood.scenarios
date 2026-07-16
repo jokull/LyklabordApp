@@ -45,13 +45,18 @@ EXPECT_BUFFER "Lyklaborð sem er alveg fara lega hratt og giskar á allt fer sem
 #   eg → ég          (2-char restoration; minAutocorrectLength 3 → 2 with
 #                      the short-token typicality floor)
 #   vð → við         (2-char omission repair, extreme-common winner)
-# Deliberately NOT fixed: "hega" — "að hega talað" has no clean reading
-# ("hega" is attested nowhere and no candidate carries real evidence);
+# "hega": Jökull's ground truth = "geta" (h→g + g→t, both cheap subs).
+# The context-vouched double-sub tier now surfaces geta in the bar, but
+# auto-apply correctly refuses: "gefa" (equally cheap, equally blessed by
+# the "að" bigram) ties within margin — mid-word "að ge_a" is genuinely
+# ambiguous between give/be-able; offer-both is the honest outcome.
 # verbatim-led is the correct behavior there.
 # ============================================================
 
 SCENARIO dogfood line 2026-07-16 replayed raw
-T "Ef allir krakkarnir ery í simanum hverbjg á eg að hega talað vð þau "
+T "Ef allir krakkarnir ery í simanum hverbjg á eg að hega"
+EXPECT_CONTAINS geta
+T " talað vð þau "
 EXPECT_BUFFER "Ef allir krakkarnir eru í símanum hvernig á ég að hega talað við þau "
 
 SCENARIO dogfood line 2026-07-16 with dead-center taps keeps every restoration

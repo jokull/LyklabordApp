@@ -41,6 +41,7 @@ public enum ConfigOverrides {
         "autocorrectShortMinZ": { $0.autocorrectShortMinZ = $1 },
         "shortDoubleSubMaxEditCost": { $0.shortDoubleSubMaxEditCost = $1 },
         "shortDoubleSubMinZ": { $0.shortDoubleSubMinZ = $1 },
+        "shortDoubleSubContextMinZ": { $0.shortDoubleSubContextMinZ = $1 },
         "closeCandidateGate": { $0.closeCandidateGate = $1 },
         // Beam decoder
         "beamCostCap": { $0.beamCostCap = $1 },

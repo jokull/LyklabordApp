@@ -115,11 +115,19 @@ public struct EngineConfig: Sendable {
     /// Short double-substitution repairs (live-session "habb" → "hann",
     /// 2026-07-16): per-edit spatial-cost ceiling for the targeted 3-4 char
     /// two-substitution pass — ~adjacent keys only (adjacent ≈ 1.05 nats).
-    public var shortDoubleSubMaxEditCost: Double = 1.2
+    // 1.2 covered row-mates (b→n) but excluded vertical-diagonal
+    // neighbors (g→t ≈ 1.25 nats) — Jökull's real "hega"→"geta" miss.
+    // 1.4 admits the row-above class; corpus A/B flat (±0.03pp).
+    public var shortDoubleSubMaxEditCost: Double = 1.4
     /// Typicality floor for candidates admitted by that pass: only
     /// headline vocabulary may be reached through two edits on a short
     /// token ("hann" +2.7 clears it; junk neighbors of junk stay out).
     public var shortDoubleSubMinZ: Double = 2.0
+    /// Context-vouched admission tier for the short double-sub pass: a
+    /// candidate under the headline bar still enters when its exact bigram
+    /// with the previous word is attested and its own typicality clears
+    /// this (lower) floor. See Corrector's contextTypical.
+    public var shortDoubleSubContextMinZ: Double = 1.0
 
     /// Vacuum auto-apply (live-session "stökklrikanum" wave, 2026-07-16):
     /// when the typed token is unknown everywhere AND the candidate pool

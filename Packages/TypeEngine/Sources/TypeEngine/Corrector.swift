@@ -366,7 +366,27 @@ public struct Corrector {
                                 || (model.english.frequency(of: word) != nil
                                     && model.calibratedUnigramScore(of: word, language: .english)
                                         >= config.shortDoubleSubMinZ)
-                            if typical { admit(word) }
+                            // Context-vouched tier (Jökull's real
+                            // "hega"→"geta" miss: geta z +1.75 sits under
+                            // the headline bar, but "að geta" is one of
+                            // the strongest bigrams in the language).
+                            // Borderline-typicality candidates are
+                            // admitted when the EXACT bigram with the
+                            // previous word is attested — junk neighbors
+                            // essentially never are, so this stays
+                            // precise where blanket z-lowering measurably
+                            // regressed the corpus.
+                            let contextTypical =
+                                !typical
+                                && previousWord.map { prev in
+                                    (model.icelandic.bigramFrequency(prev, word) != nil
+                                        && model.calibratedUnigramScore(of: word, language: .icelandic)
+                                            >= config.shortDoubleSubContextMinZ)
+                                        || (model.english.bigramFrequency(prev, word) != nil
+                                            && model.calibratedUnigramScore(of: word, language: .english)
+                                                >= config.shortDoubleSubContextMinZ)
+                                } ?? false
+                            if typical || contextTypical { admit(word) }
                         }
                         variant[j] = typedChars[j]
                     }
