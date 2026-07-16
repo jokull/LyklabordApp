@@ -195,6 +195,137 @@ final class PersonalVocabularyTests: XCTestCase {
         XCTAssertEqual(e.personalSnapshotWords, ["annar"])
     }
 
+    // MARK: - Lazy-fold shadows (wave 26, session 2026-07-16T22-45-30)
+
+    /// Model-level harness: the fixtures' "hús" (400) is the dominant
+    /// acute-restoration twin of the is.lex-absent skeleton "hus".
+    private func blended(
+        personal: FakePersonal?,
+        config: EngineConfig = EngineConfig()
+    ) -> BlendedLanguageModel {
+        let store = PersonalStore()
+        if let personal { store.setSnapshot(personal) }
+        return BlendedLanguageModel(
+            icelandic: Fixtures.icelandic,
+            english: Fixtures.english,
+            morphology: nil,
+            config: config,
+            personal: store
+        )
+    }
+
+    func testImplicitAcuteFoldShadowLosesTheAutocorrectVeto() {
+        let m = blended(personal: FakePersonal(words: ["hus": 3]))
+        XCTAssertEqual(m.acuteFoldShadowTwin(of: "hus"), "hús")
+        XCTAssertTrue(m.isPersonalValid("hus"), "shadows stay valid vocabulary")
+        XCTAssertFalse(m.isPersonalProtected("hus"), "…but must not veto restoration")
+        XCTAssertFalse(m.isValidTypedWord("hus"))
+    }
+
+    func testExplicitlyAddedShadowKeepsFullVeto() {
+        let m = blended(personal: FakePersonal(words: ["hus": 3], explicit: ["hus"]))
+        XCTAssertTrue(m.isPersonalProtected("hus"))
+        XCTAssertTrue(m.isValidTypedWord("hus"))
+    }
+
+    func testSessionLearnedShadowKeepsFullVeto() {
+        // The session overlay is the verbatim-tap / explicit-learn path —
+        // a verbatim tap rejecting this very restoration must stick.
+        let m = blended(personal: nil)
+        m.personal.learnSession("hus")
+        XCTAssertTrue(m.isPersonalProtected("hus"))
+        XCTAssertTrue(m.isValidTypedWord("hus"))
+    }
+
+    func testShadowCountsBoostTheRestoredTwin() {
+        // The lazy commits were commits OF the twin: their evidence rides
+        // on "hús" (implicit skeleton only — explicit adds mean the user
+        // wants the skeleton itself).
+        let implicit = blended(personal: FakePersonal(words: ["hus": 3]))
+        XCTAssertGreaterThan(implicit.personalBoost(of: "hús", previous: nil), 0)
+        let explicitAdd = blended(
+            personal: FakePersonal(words: ["hus": 3], explicit: ["hus"]))
+        XCTAssertEqual(explicitAdd.personalBoost(of: "hús", previous: nil), 0)
+    }
+
+    func testTombstonedTwinGetsNoRedirectedBoost() {
+        let m = blended(
+            personal: FakePersonal(words: ["hus": 3], tombstones: ["hús"]))
+        XCTAssertEqual(m.personalBoost(of: "hús", previous: nil), 0)
+    }
+
+    func testNonDominantTwinLeavesProtectionIntact() {
+        // Both forms honestly attested at comparable frequency (the
+        // vist/víst shape): no 10x dominance, no shadow, full protection.
+        let icelandic = DictLexicon(
+            unigrams: ["og": 2000, "að": 1800, "vist": 300, "víst": 900],
+            bigrams: [:]
+        )
+        let store = PersonalStore()
+        store.setSnapshot(FakePersonal(words: ["vist": 3]))
+        let m = BlendedLanguageModel(
+            icelandic: icelandic,
+            english: Fixtures.english,
+            morphology: nil,
+            config: EngineConfig(),
+            personal: store
+        )
+        XCTAssertNil(m.acuteFoldShadowTwin(of: "vist"))
+        XCTAssertTrue(m.isPersonalProtected("vist"))
+    }
+
+    func testEnglishAttestedSkeletonStaysProtected() {
+        // "for" is headline English; its commits were plausibly English —
+        // the IS twin ("fór", middling) must not strip protection.
+        let icelandic = DictLexicon(
+            unigrams: ["og": 100_000, "að": 50_000, "fór": 500, "hús": 400],
+            bigrams: [:]
+        )
+        let english = DictLexicon(
+            unigrams: ["for": 100_000, "the": 90_000, "and": 50_000],
+            bigrams: [:]
+        )
+        let store = PersonalStore()
+        store.setSnapshot(FakePersonal(words: ["for": 5]))
+        let m = BlendedLanguageModel(
+            icelandic: icelandic,
+            english: english,
+            morphology: nil,
+            config: EngineConfig(),
+            personal: store
+        )
+        XCTAssertNil(m.acuteFoldShadowTwin(of: "for"))
+        XCTAssertTrue(m.isPersonalProtected("for"))
+    }
+
+    // MARK: - Autocap artifacts (wave 26, session 2026-07-16T22-45-30)
+
+    func testLeadingCapSurfaceOfCommonWordKeepsPipelineCasing() {
+        // "Hestur" learned via sentence-start autocaps must not title-case
+        // the mid-word completion of lowercase typing.
+        let e = engine(personal: FakePersonal(words: ["Hestur": 5]))
+        let bar = e.suggestions(context: "og er", currentWord: "hestu", limit: 5)
+        XCTAssertTrue(bar.contains { $0.text == "hestur" }, "bar: \(bar.map(\.text))")
+        XCTAssertFalse(bar.contains { $0.text == "Hestur" }, "bar: \(bar.map(\.text))")
+    }
+
+    func testLeadingCapSurfaceOfRareWordIsStillRestored() {
+        // Genuine proper nouns ("Miðeind": lowercase OOV in the fixtures)
+        // keep their learned capitalization.
+        let e = engine(personal: FakePersonal(words: ["Miðeind": 6]))
+        let bar = e.suggestions(context: "og er", currentWord: "miðein", limit: 5)
+        XCTAssertTrue(bar.contains { $0.text == "Miðeind" }, "bar: \(bar.map(\.text))")
+    }
+
+    func testAutocapArtifactLowercasedJudgments() {
+        let e = engine()
+        XCTAssertEqual(e.autocapArtifactLowercased("Hestur"), "hestur")
+        XCTAssertNil(e.autocapArtifactLowercased("Miðeind"), "rare/OOV lowercase")
+        XCTAssertNil(e.autocapArtifactLowercased("hestur"), "already lowercase")
+        XCTAssertNil(e.autocapArtifactLowercased("HESTUR"), "not leading-cap-only")
+        XCTAssertNil(e.autocapArtifactLowercased("I"), "single letters excluded")
+    }
+
     // MARK: - Lane posterior isolation
 
     func testPersonalWordsContributeNoLaneEvidence() {

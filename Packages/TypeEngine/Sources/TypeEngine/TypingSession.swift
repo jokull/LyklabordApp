@@ -1069,16 +1069,36 @@ public final class TypingSession {
         guard fieldKind.allowsLearning else { return }
         let word = Self.strippedEventToken(committed)
         guard Self.isEventWord(word) else { return }
+        // Autocap-artifact stripping at capture (wave 26, session
+        // 2026-07-16T22-45-30 — the learning-side half of the leading-cap
+        // guard): a SENTENCE-INITIAL commit (no previous word: field start
+        // or right after . ! ? — exactly where iOS autocapitalizes) whose
+        // leading cap is the only casing on a common base-vocabulary word
+        // carries no casing information, so it is learned lowercase and
+        // can never title-case future mid-sentence corrections. Genuine
+        // proper nouns keep their caps (rare/OOV lowercase fails the
+        // artifact test), as does everything mid-sentence.
+        let sentenceInitial = previousCommittedForEvents == nil
+        func neutralizedAutocap(_ token: String) -> String {
+            guard sentenceInitial else { return token }
+            return engine.autocapArtifactLowercased(token) ?? token
+        }
         if let typed, typed != word, Self.isEventWord(typed) {
             // An accepted suggestion means the typed keys were (by the
             // engine's own judgment) errors — their touch offsets must NOT
             // train the per-key model. No touchSample events here.
-            pendingEvents.append(.suggestionAccepted(typed: typed, accepted: word))
+            pendingEvents.append(
+                .suggestionAccepted(
+                    typed: neutralizedAutocap(typed),
+                    accepted: neutralizedAutocap(word)
+                )
+            )
         } else if word == tapLearnedWord {
             // Verbatim tap: wordTapped was already buffered by
             // learnWordImmediately; consuming the memo here keeps this a
             // single event per tap. The verbatim commit IS the literal
-            // typed token, so its taps are honest key-intent evidence.
+            // typed token, so its taps are honest key-intent evidence —
+            // and its casing is byte-exact by contract (never neutralized).
             tapLearnedWord = nil
             bufferTouchSamples(forCommittedTypedWord: word)
         } else {
@@ -1087,7 +1107,7 @@ public final class TypingSession {
                 .flatMap { Self.isEventWord($0) ? $0 : nil }
             pendingEvents.append(
                 .wordCommitted(
-                    word: word,
+                    word: neutralizedAutocap(word),
                     previousWord: previous,
                     languageHint: languageHint(for: word)
                 )

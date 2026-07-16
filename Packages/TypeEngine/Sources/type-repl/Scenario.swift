@@ -47,6 +47,12 @@ import TypeEngine
 ///   until the next SCENARIO resets to it):
 ///
 ///   PERSONAL <word> <count>            seed a learned personal word
+///                                      (IMPLICIT: organically threshold-
+///                                      learned — acute-fold shadows lose
+///                                      the autocorrect veto, wave 26)
+///   PERSONAL_EXPLICIT <word> [count]   seed a DELIBERATELY learned word
+///                                      (dictionary-editor add / verbatim
+///                                      tap class: full veto power)
 ///   PERSONAL_BIGRAM <a> <b> <count>    seed a personal bigram "a b"
 ///   TOMBSTONE <word>                   seed a deleted (tombstoned) word
 ///   LEARN <word>                       session-immediate explicit learn
@@ -265,6 +271,20 @@ struct ScenarioRunner {
                     applySeeds()
                 } else {
                     fail("usage: PERSONAL <word> <count>")
+                }
+
+            case "PERSONAL_EXPLICIT":
+                let parts = argument.split(separator: " ").map(String.init)
+                if parts.count == 1, !parts[0].isEmpty {
+                    seeds.words[parts[0]] = max(seeds.words[parts[0]] ?? 0, 1)
+                    seeds.explicit.insert(parts[0])
+                    applySeeds()
+                } else if parts.count == 2, let count = UInt32(parts[1]) {
+                    seeds.words[parts[0]] = count
+                    seeds.explicit.insert(parts[0])
+                    applySeeds()
+                } else {
+                    fail("usage: PERSONAL_EXPLICIT <word> [count]")
                 }
 
             case "PERSONAL_BIGRAM":

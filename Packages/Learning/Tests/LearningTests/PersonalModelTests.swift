@@ -52,6 +52,47 @@ final class PersonalModelTests: LearningTestCase {
         XCTAssertThrowsError(try model.addUserWord("two words"))
     }
 
+    // MARK: - Explicitness (wave 26: the autocorrect-veto distinction)
+
+    func testOrganicallyLearnedWordIsNotExplicit() throws {
+        // Threshold-learned words are IMPLICIT: the engine may deny them
+        // the autocorrect veto when they are lazy acute-fold skeletons
+        // (session 2026-07-16T22-45-30 "learning self-poisoning").
+        let (model, log) = try makeModelAndLog()
+        day = 100
+        try log.append(.wordCommitted(word: "þvi", previousWord: nil, languageHint: .icelandic))
+        try model.compact(applying: log)
+        day = 101
+        try log.append(.wordCommitted(word: "þvi", previousWord: nil, languageHint: .icelandic))
+        try model.compact(applying: log)
+        XCTAssertTrue(model.isLearned("þvi"))
+        XCTAssertFalse(model.isExplicit("þvi"), "organic learning is implicit")
+    }
+
+    func testVerbatimTapMakesWordExplicit() throws {
+        // The verbatim escape hatch is a deliberate act — including when it
+        // rejects a restoration autocorrect: full veto power sticks.
+        let (model, log) = try makeModelAndLog()
+        try log.append(.wordTapped(word: "þvi"))
+        try model.compact(applying: log)
+        XCTAssertTrue(model.isExplicit("þvi"))
+    }
+
+    func testUserAddedWordIsExplicit() throws {
+        let model = PersonalModel()
+        try model.addUserWord("þvi")
+        XCTAssertTrue(model.isExplicit("þvi"))
+    }
+
+    func testCorrectionRevertIsNotExplicit() throws {
+        // A single revert can still be a one-off (see the apply(_:) doc);
+        // it counts as an implicit commit, not a deliberate learn.
+        let (model, log) = try makeModelAndLog()
+        try log.append(.correctionReverted(original: "þvi", applied: "því"))
+        try model.compact(applying: log)
+        XCTAssertFalse(model.isExplicit("þvi"))
+    }
+
     func testSuggestionAcceptedCountsAsCommitOfAcceptedWordOnly() throws {
         let (model, log) = try makeModelAndLog()
         day = 100

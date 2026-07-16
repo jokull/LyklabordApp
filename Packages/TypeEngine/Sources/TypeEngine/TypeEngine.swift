@@ -182,6 +182,25 @@ public final class TypeEngine {
         model.personal.isValidWord(word)
     }
 
+    /// Autocap-artifact judgment for LEARNING-side capture (wave 26, the
+    /// belt-and-suspenders half of the leading-cap guard in
+    /// `restorePersonalSurfaces`): the lowercase form of `word` when the
+    /// word is a leading-cap-only casing of common base vocabulary — i.e.
+    /// a sentence-start autocap carrying no casing information — nil
+    /// otherwise (mixed case, all caps, rare/OOV lowercase, single
+    /// letters like "I"). `TypingSession` folds sentence-initial commits
+    /// through this before logging them, so "Fyrir …" is learned as
+    /// "fyrir" while a sentence-initial "Miðeind" keeps its cap.
+    func autocapArtifactLowercased(_ word: String) -> String? {
+        guard word.count >= 2, let first = word.first, first.isUppercase else { return nil }
+        let lowered = word.lowercased()
+        // Leading-cap ONLY: the rest of the word must already be lowercase
+        // ("HTML", "McDonald" carry deliberate casing).
+        guard word == lowered.prefix(1).uppercased() + lowered.dropFirst() else { return nil }
+        guard model.isCapArtifactBase(lowered) else { return nil }
+        return lowered
+    }
+
     /// Suggestions for the suggestion bar.
     ///
     /// - Parameters:
@@ -292,9 +311,20 @@ public final class TypeEngine {
     /// event, not the word's identity. When the word is also BASE-lexicon
     /// vocabulary (með, new, and) the caps carry no information — keep the
     /// pipeline casing. Genuine acronyms are OOV ("HTML", "ÍSÍ") and still
-    /// restore their learned caps; leading-cap surfaces ("Miðeind",
-    /// "Ísland") are untouched (the lowercased corpora cannot distinguish
-    /// proper nouns, and losing them would be the worse trade).
+    /// restore their learned caps.
+    ///
+    /// LEADING-CAP artifact guard (wave 26, session 2026-07-16T22-45-30:
+    /// mid-sentence corrections came out "Fyrir"/"Frábær"): iOS
+    /// autocapitalizes sentence starts, so base-vocabulary words routinely
+    /// get learned with a leading cap. A surface differing from the
+    /// pipeline candidate ONLY by its leading capital keeps the pipeline
+    /// casing when the lowercase form is common base vocabulary
+    /// (`isCapArtifactBase` — calibrated z, see `personalCapArtifactMinZ`);
+    /// genuine proper nouns ("Miðeind") restore their cap because their
+    /// lowercase reading is rare-or-absent in the corpora. Mixed-case
+    /// surfaces ("iPhone") are untouched. The typed token's own leading
+    /// cap is re-applied by the caller afterwards, so a user who TYPES
+    /// "Fyrir" still gets "Fyrir".
     private func restorePersonalSurfaces(_ suggestions: [Suggestion]) -> [Suggestion] {
         suggestions.map { suggestion in
             guard let surface = model.personal.displaySurface(of: suggestion.text) else {
@@ -310,6 +340,12 @@ public final class TypeEngine {
                     model.icelandic.frequency(of: lowered) != nil
                     || model.english.frequency(of: lowered) != nil
                 if baseAttested { return suggestion }
+            }
+            let isLeadingCapOnly =
+                !isAllCaps
+                && surface == suggestion.text.prefix(1).uppercased() + suggestion.text.dropFirst()
+            if isLeadingCapOnly, model.isCapArtifactBase(suggestion.text) {
+                return suggestion
             }
             return Suggestion(
                 text: surface,

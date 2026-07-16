@@ -61,6 +61,12 @@ public struct SpatialModel: Sendable {
         "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ý": "y",
     ]
 
+    /// Inverse of `accentBase`: base vowel → its long-press acute twin
+    /// (the lane-relaxation fold set — see `FoldPricing.isAcuteFold`).
+    static let acuteOfBase: [Character: Character] = Dictionary(
+        uniqueKeysWithValues: accentBase.map { ($1, $0) }
+    )
+
     /// Common Icelandic orthographic confusions that are NOT spatially
     /// close. v→ð added 2026-07-16 (session analyzer: "sivan" → "síðan"
     /// unreachable at the ~8-nat spatial price): ð is a voiced fricative

@@ -8,6 +8,10 @@ struct SeededPersonalVocabulary: PersonalVocabulary {
     var words: [String: UInt32] = [:]
     var bigrams: [String: UInt32] = [:]  // "first second" (single space)
     var tombstones: Set<String> = []
+    /// Deliberately learned words (`PERSONAL_EXPLICIT` — the dictionary
+    /// editor / verbatim-tap / import class); everything seeded via plain
+    /// `PERSONAL` is implicit, like organically threshold-learned commits.
+    var explicit: Set<String> = []
 
     var isEmpty: Bool { words.isEmpty && bigrams.isEmpty && tombstones.isEmpty }
 
@@ -38,5 +42,9 @@ struct SeededPersonalVocabulary: PersonalVocabulary {
 
     func isTombstoned(_ word: String) -> Bool {
         tombstones.contains(word)
+    }
+
+    func isExplicit(_ word: String) -> Bool {
+        explicit.contains(word)
     }
 }

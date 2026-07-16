@@ -243,6 +243,21 @@ public final class PersonalModel {
         userAdded.contains(word)
     }
 
+    /// Whether the word was learned through a DELIBERATE user act — a
+    /// dictionary-editor add (`addUserWord`), a verbatim-tap `wordTapped`
+    /// event, or a seeded import (`upsertExplicitEntry`) — as opposed to
+    /// organically crossing the distinct-day commit threshold.
+    ///
+    /// The engine narrows the autocorrect-protection contract on this
+    /// distinction (wave 26, session 2026-07-16T22-45-30 "learning
+    /// self-poisoning"): an IMPLICITLY learned word that is merely the
+    /// acute-fold skeleton of a dominant base word (þvi/því, eg/ég) must
+    /// not veto the restoration autocorrect the user relies on, while an
+    /// explicit signal ("this one, literally") keeps full veto power.
+    public func isExplicit(_ word: String) -> Bool {
+        userAdded.contains(word) || words[word]?.explicitlyAccepted == true
+    }
+
     /// Personal frequency of a LEARNED word; nil for unlearned/tombstoned
     /// words (pending words never leak into ranking). User-added words get
     /// a floor of 1 even with zero commits (always-valid contract).

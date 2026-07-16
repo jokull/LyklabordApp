@@ -19,6 +19,13 @@ import TypeEngine
 
 func runScorecardCommand(_ args: [String]) {
     let includeHeldout = args.contains("--heldout")
+    // `--note <text>`: a short human annotation carried in the committed
+    // history line (e.g. the wave the entry gates). Deterministic — the
+    // caller supplies it, nothing wall-clock enters the JSON.
+    var note: String?
+    if let index = args.firstIndex(of: "--note"), index + 1 < args.count {
+        note = args[index + 1]
+    }
 
     guard let repoRoot = ArtifactLoader.repoRoot() else {
         stderr("cannot locate repo root")
@@ -128,6 +135,9 @@ func runScorecardCommand(_ args: [String]) {
         var h = corpusJSON(heldout)
         h["reportOnly"] = true
         json["heldout"] = h
+    }
+    if let note {
+        json["note"] = note
     }
 
     let line = canonicalJSON(json)

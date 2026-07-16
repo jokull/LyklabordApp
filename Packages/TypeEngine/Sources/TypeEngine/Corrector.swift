@@ -1123,9 +1123,13 @@ public struct Corrector {
         // verbatim-tapped the skeleton (personal dict outranks restoration),
         // or tombstoned it (deletion means "stop suggesting", never "start
         // correcting what I type"). Tombstoned candidates never got here —
-        // admit() excludes them.
+        // admit() excludes them. PROTECTED personal validity, not raw
+        // (wave 26, session 2026-07-16T22-45-30): an implicitly learned
+        // acute-fold shadow of a dominant twin is lazy input, not a
+        // deliberateness signal — the remaining gates (lane, dominance,
+        // context, sletta) still judge the restoration on merit.
         let personalSkeleton =
-            model.isPersonalValid(typed) || model.isPersonalTombstoned(typed)
+            model.isPersonalProtected(typed) || model.isPersonalTombstoned(typed)
         gate(
             "no-personal-skeleton",
             "skeleton \"\(typed)\" is\(personalSkeleton ? "" : " not") personal/tombstoned",

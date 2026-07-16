@@ -54,6 +54,22 @@ public protocol PersonalVocabulary {
     /// Whether the user deleted this exact surface form in the dictionary
     /// editor (never suggest, never predict; typing it stays uncorrected).
     func isTombstoned(_ word: String) -> Bool
+
+    /// Whether this exact surface form was learned through a DELIBERATE
+    /// user act (dictionary-editor add, verbatim tap, import seed) rather
+    /// than organically via the commit-day threshold. Drives the wave-26
+    /// narrowing of the autocorrect veto: an implicitly learned acute-fold
+    /// skeleton of a dominant base word (þvi/því, eg/ég) may not veto the
+    /// restoration autocorrect; explicit words always keep full veto power
+    /// (see `BlendedLanguageModel.isPersonalProtected`). Defaults to false
+    /// (implicit) for conformers that predate the distinction.
+    func isExplicit(_ word: String) -> Bool
+}
+
+extension PersonalVocabulary {
+    /// Default: organic/implicit. Production adapters over
+    /// `Learning.PersonalModel` override with the model's explicit flag.
+    public func isExplicit(_ word: String) -> Bool { false }
 }
 
 /// Production adapter: an immutable engine-side view over a
@@ -95,6 +111,10 @@ public struct PersonalSnapshot: PersonalVocabulary {
     public func isTombstoned(_ word: String) -> Bool {
         model.isTombstoned(word)
     }
+
+    public func isExplicit(_ word: String) -> Bool {
+        model.isExplicit(word)
+    }
 }
 
 /// Engine-internal mutable holder for the personal vocabulary: the injected
@@ -116,6 +136,12 @@ final class PersonalStore {
     private struct Entry {
         var surface: String
         var count: UInt32
+        /// Learned through a deliberate user act (verbatim tap, editor add,
+        /// import) — keeps full autocorrect-veto power even for acute-fold
+        /// skeletons (see `PersonalVocabulary.isExplicit`). Session-overlay
+        /// entries are always explicit: `learnSession` is the verbatim-tap /
+        /// explicit-learn path by definition.
+        var explicit: Bool
     }
 
     private var snapshot: PersonalVocabulary?
@@ -139,21 +165,25 @@ final class PersonalStore {
         guard let snapshot else { return }
         for (word, count) in snapshot.allWords() {
             let key = word.lowercased()
+            let explicit = snapshot.isExplicit(word)
             if var existing = index[key] {
                 // Case variants of one word merge: counts sum, the
-                // higher-count variant becomes the canonical surface.
+                // higher-count variant becomes the canonical surface, and
+                // explicitness is sticky (any deliberately learned variant
+                // marks the folded key explicit).
                 if count > existing.count { existing.surface = word }
                 existing.count = existing.count &+ count
+                existing.explicit = existing.explicit || explicit
                 index[key] = existing
             } else {
-                index[key] = Entry(surface: word, count: max(count, 1))
+                index[key] = Entry(surface: word, count: max(count, 1), explicit: explicit)
             }
         }
     }
 
     func learnSession(_ word: String) {
         let key = word.lowercased()
-        var entry = session[key] ?? Entry(surface: word, count: 0)
+        var entry = session[key] ?? Entry(surface: word, count: 0, explicit: true)
         entry.count &+= 1
         session[key] = entry
     }
@@ -182,6 +212,15 @@ final class PersonalStore {
             return true
         }
         return false
+    }
+
+    /// Whether the word (lowercase pipeline form) was learned through a
+    /// deliberate user act — session learns (verbatim tap) always are; for
+    /// snapshot words the flag comes from the underlying model (editor
+    /// adds, verbatim-tapped commits, import seeds).
+    func isExplicitWord(_ word: String) -> Bool {
+        let key = word.lowercased()
+        return index[key]?.explicit == true || session[key]?.explicit == true
     }
 
     /// Combined snapshot + session count (0 when unknown).

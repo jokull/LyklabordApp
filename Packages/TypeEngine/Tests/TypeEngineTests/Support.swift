@@ -55,6 +55,9 @@ struct FakePersonal: PersonalVocabulary {
     var words: [String: UInt32] = [:]
     var bigrams: [String: UInt32] = [:]  // "first second"
     var tombstones: Set<String> = []
+    /// Deliberately learned words (editor add / verbatim tap / import
+    /// class); everything else is implicit (threshold-learned).
+    var explicit: Set<String> = []
 
     func allWords() -> [(word: String, count: UInt32)] {
         words
@@ -83,6 +86,10 @@ struct FakePersonal: PersonalVocabulary {
 
     func isTombstoned(_ word: String) -> Bool {
         tombstones.contains(word)
+    }
+
+    func isExplicit(_ word: String) -> Bool {
+        explicit.contains(word)
     }
 }
 

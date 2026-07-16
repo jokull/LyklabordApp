@@ -779,6 +779,43 @@ public struct EngineConfig: Sendable {
     /// How many personal bigram followers feed next-word prediction.
     public var personalContinuationPoolLimit: Int = 8
 
+    // --- Personal-learning self-poisoning guards (wave 26, real session
+    // 2026-07-16T22-45-30). Two leaks made personal learning eat the very
+    // behaviors it should personalize:
+    //  1. lazy acute-less commits (þvi, eg, gret — acute vowels are
+    //     long-press-only, so lazy typing IS the input method) get learned
+    //     and then, as "valid personal vocabulary", veto the restoration
+    //     autocorrect that produced/serves them — self-reinforcing death of
+    //     restoration;
+    //  2. iOS sentence-start autocapitalization gets learned into surfaces
+    //     ("Fyrir", "Frábær") that then title-case every mid-sentence
+    //     correction to those words.
+
+    /// An IMPLICITLY learned personal word is an acute-fold SHADOW (loses
+    /// the autocorrect veto, keeps ranking/prediction boosts) only when
+    /// some pure acute-restoration twin is attested in is.lex at at least
+    /// this ratio over the skeleton's own is.lex frequency (því ≫ þvi
+    /// passes; bíll vs bill does not). Explicit adds / verbatim taps /
+    /// tombstones are never shadows.
+    public var personalFoldShadowDominanceRatio: Double = 10
+    /// ... and the dominant twin must itself be attested at or above this
+    /// calibrated z (real vocabulary above the noise tier: grét −0.37
+    /// qualifies, junk twins do not) AND above the skeleton's ENGLISH
+    /// calibrated z (an EN-attested skeleton like "for"/"bill" keeps full
+    /// personal protection — its commits were plausibly English).
+    public var personalFoldShadowMinTwinZ: Double = -0.5
+    /// A learned personal surface differing from the pipeline candidate
+    /// ONLY by a leading capital is treated as an autocap artifact (keep
+    /// pipeline casing) when the lowercase form is attested in a base
+    /// lexicon at or above this calibrated z. Common vocabulary (fyrir
+    /// +2.80, frábær +0.71) folds back to lowercase; rare-or-OOV surfaces
+    /// (Miðeind: miðeind −2.49) keep their learned capitalization —
+    /// genuine proper nouns survive because their lowercase reading is
+    /// never headline vocabulary. BÍN validity deliberately does NOT count
+    /// as attestation here: lemma-is.bin lowercases its keys, so it cannot
+    /// distinguish Miðeind-the-name from miðeind-the-particle.
+    public var personalCapArtifactMinZ: Double = -1.0
+
     public init() {}
 }
 
@@ -942,9 +979,95 @@ struct BlendedLanguageModel {
     }
 
     /// Valid personal vocabulary: learned, user-added or session-learned —
-    /// suggestible and protected from autocorrect.
+    /// suggestible and boosted in ranking. NOTE: since wave 26 validity no
+    /// longer implies autocorrect protection — see `isPersonalProtected`.
     func isPersonalValid(_ word: String) -> Bool {
         personal.isValidWord(word)
+    }
+
+    // MARK: - Lazy-fold shadows (wave 26, session 2026-07-16T22-45-30)
+
+    /// The word with every acute vowel folded to its base (á→a … ý→y);
+    /// nil when the word contains no acute vowel. The candidate-side probe
+    /// of the shadow relationship (grét → gret).
+    func acuteFoldSkeleton(of word: String) -> String? {
+        let folded = String(word.map { SpatialModel.accentBase[$0] ?? $0 })
+        return folded != word ? folded : nil
+    }
+
+    /// The DOMINANT pure acute-restoration twin of `word` (lowercase
+    /// pipeline form), or nil when no twin dominates. A twin differs from
+    /// the word ONLY by restoring acute vowels (a→á … y→ý — the lane
+    /// relaxation fold set, nothing broader: surface forms stay ground
+    /// truth for every other relationship). Dominance is the three-part
+    /// gate documented on `personalFoldShadowDominanceRatio` /
+    /// `personalFoldShadowMinTwinZ`.
+    func acuteFoldShadowTwin(of word: String) -> String? {
+        let chars = Array(word)
+        let positions = chars.indices.filter { SpatialModel.acuteOfBase[chars[$0]] != nil }
+        // No foldable vowel = no twin; > 5 foldable positions (2^5 variants)
+        // = conservatively no shadow (long many-vowel words are never the
+        // þvi/eg/gret shape, and the veto must default to staying).
+        guard !positions.isEmpty, positions.count <= 5 else { return nil }
+        var best: (twin: String, frequency: UInt32)?
+        for mask in 1..<(1 << positions.count) {
+            var variant = chars
+            for (bit, position) in positions.enumerated() where mask & (1 << bit) != 0 {
+                variant[position] = SpatialModel.acuteOfBase[chars[position]]!
+            }
+            let twin = String(variant)
+            guard let frequency = icelandic.frequency(of: twin) else { continue }
+            if best == nil || frequency > best!.frequency {
+                best = (twin, frequency)
+            }
+        }
+        guard let best else { return nil }
+        // Gate 1: is.lex dominance over the skeleton's own attestation
+        // (absent skeletons use a denominator of 1 — any honestly attested
+        // twin past the ratio dominates nothing).
+        let ownIS = Double(icelandic.frequency(of: word) ?? 0)
+        guard
+            Double(best.frequency)
+                >= config.personalFoldShadowDominanceRatio * max(ownIS, 1)
+        else { return nil }
+        // Gate 2: the twin is real vocabulary above the noise tier.
+        let twinZ = calibratedUnigramScore(of: best.twin, language: .icelandic)
+        guard twinZ >= config.personalFoldShadowMinTwinZ else { return nil }
+        // Gate 3: the twin beats the skeleton's ENGLISH reading — an
+        // EN-attested skeleton ("for", "bill") was plausibly committed as
+        // English and keeps full personal protection.
+        guard twinZ > calibratedUnigramScore(of: word, language: .english) else { return nil }
+        return best.twin
+    }
+
+    /// Personal validity FOR THE AUTOCORRECT VETO (the conservatism
+    /// invariant's personal component). Wave-26 narrowing (session
+    /// 2026-07-16T22-45-30 "learning self-poisoning"): an IMPLICITLY
+    /// learned word that is a pure acute-fold shadow of a dominant base
+    /// word (þvi/því, eg/ég, gret/grét) is exactly the lazy input the
+    /// restoration autocorrect exists to serve — learning it must not kill
+    /// that restoration. Such shadows stay valid (suggestible, boosted)
+    /// but no longer veto. EXPLICIT signals — dictionary-editor adds,
+    /// verbatim-tap learns (including a verbatim tap rejecting this very
+    /// restoration), import seeds — keep full veto power: the user
+    /// literally pointed at the word.
+    func isPersonalProtected(_ word: String) -> Bool {
+        guard personal.isValidWord(word) else { return false }
+        if personal.isExplicitWord(word) { return true }
+        return acuteFoldShadowTwin(of: word) == nil
+    }
+
+    /// Autocap-artifact test (wave 26, bug 1): whether `lower` (a
+    /// lowercase pipeline word) is common base vocabulary — attested in
+    /// either frequency lexicon at or above `personalCapArtifactMinZ` — so
+    /// a learned leading-cap surface of it carries no casing information
+    /// (iOS autocapitalizes sentence starts). See the config doc for why
+    /// BÍN validity does not count.
+    func isCapArtifactBase(_ lower: String) -> Bool {
+        calibratedUnigramScore(of: lower, language: .icelandic)
+            >= config.personalCapArtifactMinZ
+            || calibratedUnigramScore(of: lower, language: .english)
+                >= config.personalCapArtifactMinZ
     }
 
     /// Deleted in the dictionary editor: never suggest, never predict.
@@ -953,11 +1076,14 @@ struct BlendedLanguageModel {
     }
 
     /// Validity for the TYPED word (autocorrect conservatism): base-known,
-    /// personal-valid, or tombstoned. Tombstoned words count as valid here
-    /// on purpose — deleting a word means "stop suggesting it", never
+    /// personal-PROTECTED, or tombstoned. Tombstoned words count as valid
+    /// here on purpose — deleting a word means "stop suggesting it", never
     /// "start correcting it when I type it" (PLAN.md learning semantics).
+    /// The personal component is `isPersonalProtected`, not raw validity:
+    /// implicitly learned acute-fold shadows (þvi, eg, gret) do not veto
+    /// the restoration autocorrect (wave 26 — see `isPersonalProtected`).
     func isValidTypedWord(_ word: String) -> Bool {
-        isKnownAnywhere(word) || personal.isValidWord(word) || personal.isTombstoned(word)
+        isKnownAnywhere(word) || isPersonalProtected(word) || personal.isTombstoned(word)
     }
 
     /// Additive personal-source prior for a candidate (see the
@@ -970,6 +1096,27 @@ struct BlendedLanguageModel {
         var boost = 0.0
         if personal.isValidWord(word), !personal.isTombstoned(word) {
             let count = Double(personal.count(of: word))
+            boost = min(
+                config.personalBoostCap,
+                config.personalBoostBase + config.personalBoostScale * log(1 + count)
+            )
+        } else if let skeleton = acuteFoldSkeleton(of: word),
+            personal.isValidWord(skeleton),
+            !personal.isTombstoned(skeleton),
+            !personal.isExplicitWord(skeleton),
+            !personal.isTombstoned(word),
+            acuteFoldShadowTwin(of: skeleton) == word
+        {
+            // Lazy-fold shadow redirection (wave 26, session
+            // 2026-07-16T22-45-30): the implicit skeleton's commits WERE
+            // lazy typings of this restored twin (acute vowels are
+            // long-press-only), so the personal evidence rides on the twin
+            // at full strength — the boost the skeleton's counts would
+            // have earned. This is what lets a habitual "gret" typist's
+            // grét outrank corpus rivals the way their own usage says it
+            // should, instead of the learned skeleton killing the
+            // restoration outright.
+            let count = Double(personal.count(of: skeleton))
             boost = min(
                 config.personalBoostCap,
                 config.personalBoostBase + config.personalBoostScale * log(1 + count)

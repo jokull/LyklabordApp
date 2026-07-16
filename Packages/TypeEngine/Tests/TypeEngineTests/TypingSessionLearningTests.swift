@@ -44,6 +44,45 @@ final class TypingSessionLearningTests: XCTestCase {
         XCTAssertEqual(p2, "hestur")
     }
 
+    func testSentenceInitialAutocapIsStrippedAtCapture() {
+        // Wave 26 (session 2026-07-16T22-45-30): a sentence-initial commit
+        // whose leading cap is the only casing on common base vocabulary is
+        // an iOS autocap artifact — learned lowercase, so it can never
+        // title-case future mid-sentence corrections.
+        let s = session()
+        typeThrough(s, "Hestur og ")
+        let events = s.drainLearningEvents()
+        guard case .wordCommitted(let w1, let p1, _) = events.first else {
+            return XCTFail("expected wordCommitted, got \(events)")
+        }
+        XCTAssertEqual(w1, "hestur")
+        XCTAssertNil(p1)
+    }
+
+    func testSentenceInitialProperNounKeepsItsCap() {
+        // "miðeind" is OOV in the fixtures: the artifact test fails and the
+        // byte-exact contract holds even at the autocap position.
+        let s = session()
+        typeThrough(s, "Miðeind ")
+        let events = s.drainLearningEvents()
+        guard case .wordCommitted(let word, _, _) = events.first else {
+            return XCTFail("expected wordCommitted, got \(events)")
+        }
+        XCTAssertEqual(word, "Miðeind")
+    }
+
+    func testMidSentenceCapitalizedCommitKeepsItsCap() {
+        // Mid-sentence caps are deliberate (proper nouns): never stripped.
+        let s = session()
+        typeThrough(s, "og Hestur ")
+        let events = s.drainLearningEvents()
+        guard case .wordCommitted(let word, let previous, _) = events.last else {
+            return XCTFail("expected wordCommitted, got \(events)")
+        }
+        XCTAssertEqual(word, "Hestur")
+        XCTAssertEqual(previous, "og")
+    }
+
     func testLanguageHintComesFromLaneEvidenceNotPosterior() {
         let s = session()
         // Drive the posterior strongly English first…

@@ -13,7 +13,8 @@ import TypeEngine
 //                                     + bench → one JSON, appended to
 //                                     scores/history.jsonl; non-zero exit on a
 //                                     failed hard gate. --heldout adds a
-//                                     REPORT-ONLY heldout section.
+//                                     REPORT-ONLY heldout section;
+//                                     --note <text> annotates the history line.
 //   type-eval ab --config <over.json> baseline vs EngineConfig-override diff on
 //                                     corpus dev + micro-eval
 //

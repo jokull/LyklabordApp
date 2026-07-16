@@ -351,8 +351,11 @@ final class LaneRelaxationTests: XCTestCase {
         XCTAssertFalse(vetoed.suggestions.contains { $0.isAutocorrect && !$0.text.contains("ó") })
     }
 
-    /// Deliberateness (c): personal-dict skeletons veto restoration of
-    /// themselves; tombstoned accented forms are never restored to.
+    /// Deliberateness (c): EXPLICITLY learned personal skeletons (editor
+    /// add / verbatim tap) veto restoration of themselves; an IMPLICITLY
+    /// threshold-learned acute-fold shadow does NOT (wave 26, session
+    /// 2026-07-16T22-45-30 — lazy commits must not kill the restoration
+    /// they came from). Tombstoned accented forms are never restored to.
     func testPersonalSkeletonAndTombstoneVetoes() {
         let morphology = FakeMorphology(["for"])
         var config = EngineConfig()
@@ -361,6 +364,7 @@ final class LaneRelaxationTests: XCTestCase {
 
         var personal = FakePersonal()
         personal.words = ["for": 4]
+        personal.explicit = ["for"]
         let model = BlendedLanguageModel(
             icelandic: DictLexicon(unigrams: icelandicWords, bigrams: icelandicBigrams),
             english: DictLexicon(unigrams: englishWords, bigrams: englishBigrams),
@@ -373,6 +377,17 @@ final class LaneRelaxationTests: XCTestCase {
         XCTAssertFalse(
             vetoed.suggestions.contains { $0.isAutocorrect },
             "explicitly learned skeleton outranks restoration")
+
+        // The same skeleton learned IMPLICITLY is a lazy-fold shadow here
+        // (this fixture's "fór" dominates an is.lex-absent "for" and the
+        // fixture EN lexicon does not out-attest it): restoration fires.
+        var implicit = FakePersonal()
+        implicit.words = ["for": 4]
+        model.personal.setSnapshot(implicit)
+        let restored = c.correct(typed: "for", previousWord: "ég", pIcelandic: 0.9)
+        XCTAssertEqual(
+            restored.suggestions.first?.text, "fór",
+            "implicit shadow must not veto restoration")
 
         var tombstones = FakePersonal()
         tombstones.tombstones = ["fór"]

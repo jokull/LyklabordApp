@@ -264,3 +264,67 @@ TAP u 0.11 0.01
 TAP t 0.05 0.08
 T " "
 EXPECT_LAST_COMMIT út
+
+# ============================================================================
+# Session 2026-07-16T22-45-30 — personal-learning self-poisoning (wave 26)
+# ============================================================================
+# Two systemic leaks: (1) lazy acute-less commits (þvi, gret) get learned
+# and then, as "valid personal vocabulary", veto the restoration autocorrect
+# they were produced by — the more you rely on restoration, the faster it
+# dies; (2) iOS sentence-start autocaps get learned into surfaces ("Fyrir",
+# "Frábær") that then title-case every mid-sentence correction. Fix: an
+# IMPLICITLY learned pure acute-fold shadow of a dominant base word loses
+# the autocorrect veto (keeps ranking/prediction boosts — its counts ride
+# on the restored twin); a leading-cap surface of common base vocabulary
+# keeps the pipeline casing. Explicit adds / verbatim taps / tombstones
+# keep full veto power; OOV surfaces stay byte-exact.
+
+SCENARIO learned lazy þvi must not veto its own restoration (2026-07-16T22-45-30)
+# "þvi" was committed lazily (í is long-press-only), got threshold-learned,
+# and then blocked þvi -> því forever. Implicit shadow: veto gone, and the
+# personal counts boost því itself.
+PERSONAL þvi 3
+T "Eg hef unun af þvi "
+EXPECT_LAST_COMMIT því
+
+SCENARIO learned autocapped Fyrir stays lowercase mid-sentence (2026-07-16T22-45-30)
+# "Fyrir …" commits at sentence starts learned the autocap into the
+# surface; restorePersonalSurfaces must not title-case the mid-sentence
+# repair of "furir" (fyrir is headline base vocabulary — the cap carries
+# no information).
+PERSONAL Fyrir 3
+T "og svo aftur furir "
+EXPECT_LAST_COMMIT fyrir
+
+SCENARIO learned autocapped Frábær stays lowercase on restoration (2026-07-16T22-45-30)
+PERSONAL Frábær 3
+T "ljónshjarta er frabær "
+EXPECT_LAST_COMMIT frábær
+
+SCENARIO learned lazy gret still restores grét (2026-07-16T22-45-30)
+# Implicit "gret" is a pure acute-fold shadow of grét (is.lex 1600 vs an
+# absent skeleton): no veto, and the lazy commits' counts transfer to the
+# restored twin — which is exactly what lifts grét past the margin its
+# corpus rank alone misses ("greta" runner-up).
+PERSONAL gret 3
+T "son minn eg gret "
+EXPECT_LAST_COMMIT grét
+
+SCENARIO OOV personal Miðeind keeps its learned capitalization (wave 26 guard)
+# The leading-cap artifact guard must not touch genuine proper nouns:
+# "miðeind" is rare in is.lex (z -2.49, far below the artifact bar), so
+# the learned surface restores byte-exactly — and the personal word stays
+# fully protected (no shadow: no acute twin exists).
+PERSONAL Miðeind 3
+T "vinn hjá miðein"
+EXPECT_CONTAINS Miðeind
+T "d "
+EXPECT_LAST_COMMIT miðeind
+
+SCENARIO explicitly added þvi keeps full autocorrect veto (wave 26 guard)
+# The dictionary-editor / verbatim-tap class: the user literally pointed
+# at "þvi" and said "this one" — restoration may be offered but never
+# auto-applied past it.
+PERSONAL_EXPLICIT þvi 3
+T "Eg hef unun af þvi "
+EXPECT_LAST_COMMIT þvi
