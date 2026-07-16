@@ -32,9 +32,28 @@ let package = Package(
                 .product(name: "Learning", package: "Learning"),
             ]
         ),
+        // Eval-studio shared library: the corpus (dev/heldout.jsonl) reader,
+        // the corpus replay runner over the REAL artifacts, the artifact
+        // loader, and the explicit EngineConfig override map. Kept as a
+        // library (not folded into the type-eval executable) so the JSONL
+        // parser and the config-override map are unit-testable — SwiftPM
+        // cannot share source files with a test target from an executable.
+        .target(
+            name: "EvalKit",
+            dependencies: [
+                "TypeEngine",
+                .product(name: "LemmaCore", package: "LemmaCore"),
+                .product(name: "Lexicon", package: "Lexicon"),
+            ]
+        ),
         .executableTarget(
             name: "type-eval",
-            dependencies: ["TypeEngine"],
+            dependencies: [
+                "TypeEngine",
+                "EvalKit",
+                .product(name: "LemmaCore", package: "LemmaCore"),
+                .product(name: "Lexicon", package: "Lexicon"),
+            ],
             resources: [
                 .copy("Resources/eval-fixture.tsv")
             ]
@@ -52,6 +71,10 @@ let package = Package(
         .testTarget(
             name: "TypeEngineTests",
             dependencies: ["TypeEngine"]
+        ),
+        .testTarget(
+            name: "EvalKitTests",
+            dependencies: ["EvalKit", "TypeEngine"]
         ),
     ],
     // swift-tools-version 6.0 is required to express `.iOS(.v18)` as a
