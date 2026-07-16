@@ -447,26 +447,52 @@ final class CorrectorTests: XCTestCase {
         XCTAssertTrue(corrector.bestSingleWordRepairCost(of: "zzqqxx").isInfinite)
     }
 
-    // MARK: edits2 budgets
+    // MARK: beam budgets
 
-    func testEdits2ExpansionCapFallsBackGracefully() {
+    func testBeamExpansionCapFallsBackGracefully() {
         var config = EngineConfig()
-        config.maxEdits2Expansions = 0  // edits2 fully disabled
+        config.beamMaxExpansions = 0  // beam fully disabled
         let corrector = Corrector(
             icelandic: Fixtures.icelandic, english: Fixtures.english, config: config
         )
-        // Still produces edits1/completion candidates without crashing.
+        // Still produces targeted-pass/completion candidates without
+        // crashing ("hestr" → "hestur" via prefix completions).
         let result = corrector.correct(typed: "hestr")
         XCTAssertTrue(result.suggestions.contains { $0.text == "hestur" })
     }
 
-    func testEdits2TimeBudgetFallsBackGracefully() {
+    func testBeamTimeBudgetFallsBackGracefully() {
         var config = EngineConfig()
-        config.edits2TimeBudget = 0  // immediate wall-clock abort
+        config.beamTimeBudget = 0  // immediate wall-clock abort
         let corrector = Corrector(
             icelandic: Fixtures.icelandic, english: Fixtures.english, config: config
         )
         let result = corrector.correct(typed: "qqqqqzz")
         XCTAssertFalse(result.typedWordIsValid)  // and no hang / crash
+    }
+
+    // MARK: beam decoder (multi-position adjacent-key noise)
+
+    func testBeamFindsDoubleAdjacentSubstitution() {
+        // "jestir" → "hestur": h→j and u→i are both adjacent-key slips —
+        // distance 2, unreachable by any single targeted pass; the beam
+        // must surface it.
+        let result = makeCorrector().correct(typed: "jestir")
+        XCTAssertTrue(
+            result.suggestions.contains { $0.text == "hestur" },
+            "got \(result.suggestions.map(\.text))"
+        )
+    }
+
+    func testBeamRespectsMaxEditsForShortTokens() {
+        // Short tokens (< beamLongMinLength) keep the single-edit budget:
+        // "hs" is 1 edit from "hús"... via insertion+accent it is 2, so it
+        // must NOT surface hús, while a genuine single edit ("hu s"-class
+        // aside) still works.
+        let result = makeCorrector().correct(typed: "veðu")
+        XCTAssertTrue(
+            result.suggestions.contains { $0.text == "veður" },
+            "single trailing omission on a short token stays reachable; got \(result.suggestions.map(\.text))"
+        )
     }
 }

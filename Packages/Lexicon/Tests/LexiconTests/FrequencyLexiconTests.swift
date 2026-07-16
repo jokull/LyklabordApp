@@ -370,4 +370,85 @@ final class FrequencyLexiconTests: XCTestCase {
         // straight ASCII apostrophe.
         XCTAssertEqual(en.frequency(of: "don\u{2019}t"), en.frequency(of: "don't"))
     }
+
+    // MARK: - Prefix cursors (PrefixSearchableLexicon)
+
+    func testPrefixRootCursorSpansWholeTable() {
+        let root = lexicon.prefixRootCursor()
+        XCTAssertEqual(root.lowerBound, 0)
+        XCTAssertEqual(root.upperBound, lexicon.unigramCount)
+        XCTAssertEqual(root.byteDepth, 0)
+        XCTAssertNil(lexicon.exactEntry(in: root), "empty prefix is never a word")
+    }
+
+    func testDescendMatchesCompletionsRange() {
+        // Walking þ (2-byte UTF-8) narrows to exactly the words completions
+        // enumerates for that prefix.
+        let root = lexicon.prefixRootCursor()
+        let cursor = lexicon.descend(root, appending: "þ")
+        XCTAssertEqual(cursor.count, 2)  // þetta, þeirra
+        XCTAssertEqual(cursor.byteDepth, 2)
+        XCTAssertNil(lexicon.exactEntry(in: cursor), "þ alone is not a fixture word")
+    }
+
+    func testDescendToExactWord() {
+        var cursor = lexicon.prefixRootCursor()
+        for ch in "þetta" { cursor = lexicon.descend(cursor, appending: ch) }
+        let entry = lexicon.exactEntry(in: cursor)
+        XCTAssertEqual(entry?.word, "þetta")
+        XCTAssertEqual(entry?.frequency, 900)
+    }
+
+    func testDescendExactWordThatIsAlsoAPrefix() {
+        // "the" is a word AND a prefix of "they"/"there"-class fixture words;
+        // exactEntry must find it at the head of the range.
+        var cursor = lexicon.prefixRootCursor()
+        for ch in "the" { cursor = lexicon.descend(cursor, appending: ch) }
+        XCTAssertEqual(lexicon.exactEntry(in: cursor)?.word, "the")
+        XCTAssertGreaterThanOrEqual(cursor.count, 1)
+    }
+
+    func testDescendUnknownBranchIsEmptyAndSticky() {
+        var cursor = lexicon.prefixRootCursor()
+        cursor = lexicon.descend(cursor, appending: "z")
+        XCTAssertTrue(cursor.isEmpty)
+        // Descending an empty cursor stays empty (and never traps).
+        let deeper = lexicon.descend(cursor, appending: "z")
+        XCTAssertTrue(deeper.isEmpty)
+        XCTAssertEqual(deeper.byteDepth, 2)
+        XCTAssertNil(lexicon.exactEntry(in: deeper))
+    }
+
+    func testDescendAsciiPrefixExcludesAccentedLookalikes() {
+        // Byte-order discipline: "a" (0x61) must not swallow "á" (0xC3 0xA1).
+        let a = lexicon.descend(lexicon.prefixRootCursor(), appending: "a")
+        XCTAssertEqual(a.count, 1)  // only "að"
+        let accented = lexicon.descend(lexicon.prefixRootCursor(), appending: "á")
+        XCTAssertGreaterThanOrEqual(accented.count, 1)  // ánægður
+        XCTAssertEqual(accented.byteDepth, 2)
+    }
+
+    func testCursorWalkAgreesWithCompletionsOnRealArtifact() throws {
+        let url = Self.repoRoot().appendingPathComponent("data/is/is.lex")
+        try XCTSkipUnless(
+            FileManager.default.fileExists(atPath: url.path),
+            "data/is/is.lex not built — run scripts/build-lexicon.py")
+        let is_ = try FrequencyLexicon(contentsOf: url)
+
+        // For a spread of prefixes: the cursor's exact entry must agree with
+        // frequency(of:), and the cursor count must cover every completion.
+        for prefix in ["hest", "kort", "ís", "þor", "already", "a"] {
+            var cursor = is_.prefixRootCursor()
+            for ch in prefix { cursor = is_.descend(cursor, appending: ch) }
+            let exact = is_.exactEntry(in: cursor)
+            XCTAssertEqual(exact?.frequency, is_.frequency(of: prefix), "prefix \(prefix)")
+            if let exact { XCTAssertEqual(exact.word, prefix) }
+            let completions = is_.completions(of: prefix, limit: 50)
+            XCTAssertGreaterThanOrEqual(
+                cursor.count, completions.count, "range must cover completions for \(prefix)")
+            for entry in completions where entry.word == prefix {
+                XCTAssertNotNil(exact)
+            }
+        }
+    }
 }

@@ -62,26 +62,95 @@ public struct EngineConfig: Sendable {
     /// Auto-replace never fires when the top candidate's spatial cost exceeds
     /// this (wild rewrites are suggestion-bar-only).
     public var autocorrectMaxSpatialCost: Double = 6.0
+    /// FAR-repair discipline (beam-decoder wave): a winner at unit edit
+    /// distance >= this from the typed token is a big intervention —
+    /// keyboard mash is often within 3 substitutions of some rare word
+    /// ("awgke" → "aegis"), which must never auto-apply.
+    public var autocorrectFarRepairEdits: Int = 3
+    /// Typicality floor for far repairs: a >= `autocorrectFarRepairEdits`
+    /// rewrite may auto-apply only when the winner is COMMON vocabulary
+    /// (calibrated z at/above this; personal words exempt as always).
+    /// Rare-but-attested words ("aegis" at −1.0) stay bar-only there,
+    /// while 2-edit repairs keep the ordinary `autocorrectMinZ` floor
+    /// ("koetip" → "kortið" at z −0.19 still fires).
+    public var autocorrectFarRepairMinZ: Double = 0.0
     /// Never auto-replace very short inputs.
     public var minAutocorrectLength: Int = 3
 
-    /// Edits-distance-2 candidates are generated only when the typed word has
-    /// at least 5 characters AND the best edits1 candidate's spatial cost is
-    /// above this gate (i.e. no good close hit exists).
-    public var edits2Gate: Double = 4.5
-    /// edits2 is skipped entirely for typed words longer than this (the
-    /// expansion count grows quadratically with length and long words are
-    /// served well enough by edits1 + completions).
-    public var edits2MaxLength: Int = 16
-    /// Hard cap on edits2 expansions (protects the extension's CPU budget;
-    /// on the real mmap-ed artifacts the wall-clock budget below binds long
-    /// before this does — the cap mainly bounds fast in-memory lexicons).
-    public var maxEdits2Expansions: Int = 120_000
-    /// Wall-clock budget for the edits2 expansion walk, in seconds. When it
-    /// runs out the corrector falls back to whatever edits1/completion
-    /// candidates it already has (worst-case latency gate; see PLAN.md
-    /// "edits2 latency landmine").
-    public var edits2TimeBudget: TimeInterval = 0.008
+    /// Fallback passes (shorter-prefix completions, splits, diacritic
+    /// completions) run only when the best candidate found by the cheap
+    /// passes has a spatial cost above this gate — i.e. no good close hit
+    /// exists. (Formerly `edits2Gate`; the gating philosophy survives the
+    /// generate-and-test edits2 walk it was named after.)
+    public var closeCandidateGate: Double = 4.5
+
+    // --- Beam-search spatial decoder (PRIMARY candidate source; replaced
+    // the edits1+edits2 generate-and-test walks). The decoder explores
+    // (lexicon prefix range, typed chars consumed, accumulated cost) states
+    // in uniform-cost order over both frequency lexicons — see BeamDecoder.
+
+    /// Prune any beam state whose accumulated channel cost exceeds this
+    /// (nats). 8 keeps edits1 parity: a single substitution between ANY two
+    /// keys (spatial cost capped at `maxSubstitution` = 8) stays
+    /// suggestible.
+    public var beamCostCap: Double = 8.0
+    /// Tighter cost cap for MULTI-edit states (2+ non-match ops): the
+    /// multi-edit shapes worth finding are substitution chains (~1 nat per
+    /// adjacent key, ≤ ~3 for triple noise), accent/orthographic
+    /// restorations (0.35–1.5 each) and one omission/extra combined with
+    /// accent-tier repairs (4 + ≤1) — all ≤ 5. Deliberately excluded: an
+    /// indel PLUS an ordinary adjacent-key sub (4 + ~1.05 ≈ 5.06) — those
+    /// "varlega/farþega from faralega" readings were unreachable under the
+    /// old pipeline too and only crowd honest repairs out of the bar — and
+    /// indel pairs (4+4), whose frontier explodes the uniform-cost walk
+    /// into thousands of states ranking would discard anyway (measured 3k
+    /// expansions/5 ms on "koetip" at cap 8).
+    public var beamMultiEditCostCap: Double = 5.0
+    /// Max non-match ops per word for the DEEP decode (unknown tokens of
+    /// length >= beamLongMinLength with no close candidate — see
+    /// `beamDeepGate`). 3 (vs the old edits2's 2) is what makes
+    /// triple-noise words reachable; the cost caps and neighbor sets keep
+    /// the fan-out honest.
+    public var beamMaxEdits: Int = 3
+    /// Edit budget of the ALWAYS-ON shallow decode (every keystroke, both
+    /// lexicons — a few hundred expansions): 1 reproduces the old edits1
+    /// coverage, and is also the ceiling for short (< beamLongMinLength)
+    /// tokens, where every word is within 2 edits of everything.
+    public var beamShortMaxEdits: Int = 1
+    /// Typed length at which the deep beamMaxEdits budget unlocks (same
+    /// threshold the old edits2 pass used).
+    public var beamLongMinLength: Int = 5
+    /// Static-geometry neighbor radius for SECOND and later substitutions,
+    /// in nats: keys within ~1.5 key widths (≈ 2.3 nats at σ = 0.7), accent
+    /// twins (0.35) and orthographic confusions (1.5) qualify. The FIRST
+    /// substitution may use the whole alphabet (edits1 parity for far-key
+    /// single-sub typos).
+    public var beamNeighborMaxCost: Double = 2.5
+    /// Hard cap on beam state expansions per (word, lexicon) — protects the
+    /// extension's CPU budget; uniform-cost order means overflow sheds only
+    /// the least plausible states.
+    public var beamMaxExpansions: Int = 6000
+    /// Stop after this many emitted candidate words per lexicon (they emit
+    /// cheapest-first).
+    public var beamMaxCandidates: Int = 40
+    /// Stop the search once the cost frontier exceeds the BEST emitted
+    /// candidate by this many nats: anything still reachable is too far
+    /// behind to win the language re-rank (λ·τ·Δz swings stay well under
+    /// this). Bounds the expensive tail of the uniform-cost walk.
+    public var beamEmitCostMargin: Double = 5.0
+    /// Wall-clock budget for one beam decode, in seconds.
+    public var beamTimeBudget: TimeInterval = 0.006
+    /// The DEEP (multi-edit) decode runs only when the typed token is not
+    /// valid anywhere and the best ATTESTED-or-personal candidate from the
+    /// cheap passes costs more than this. Deliberately BELOW the omitted/
+    /// extra-character constant (4.0): a lone single-indel reading
+    /// ("eirld" → "eiröld") must not suppress the multi-substitution decode
+    /// that is this decoder's reason to exist ("eirld" → "world" at ~2
+    /// nats) — while transpositions (2.0), cheap subs and short
+    /// completions (≤ ~3 × completionCharCost) still do, which is what
+    /// keeps words-in-progress off the deep path. BÍN-only forms never
+    /// suppress it (junk one edit from everything — the 4b rationale).
+    public var beamDeepGate: Double = 3.5
 
     // --- Space-miss split correction (PLAN.md "Space-miss correction"):
     // an unknown all-letter token may really be two words with a missed or
@@ -96,8 +165,20 @@ public struct EngineConfig: Sendable {
     public var splitMaxPositions: Int = 12
     /// Splits are generated only when the best single-word candidate's
     /// spatial cost is above this (i.e. no high-confidence one-word fix).
-    /// Same shape (and default) as `edits2Gate`.
+    /// Same shape (and default) as `closeCandidateGate`.
     public var splitGate: Double = 4.5
+    /// Saturated-lane split discipline (dogfood koetip: "joe tip" junk at
+    /// P(IS)=0.9): when the lane posterior is at/beyond this saturation
+    /// point, BOTH split halves must be attested in the LANE language (or
+    /// personal vocabulary) — no cherry-picking the other language for a
+    /// junk half. Below saturation the joint blendedPairScore alone prices
+    /// cross-language pairs.
+    public var splitSaturatedLanePosterior: Double = 0.8
+    /// Calibrated-z floor each half must clear IN THE LANE LANGUAGE when
+    /// the lane is saturated. Set just below genuine-but-modest vocabulary
+    /// ("smellir" sits at −1.33 in is.lex) and above the deep noise tier;
+    /// unattested-in-lane halves fail outright regardless.
+    public var splitSaturatedHalfMinZ: Double = -1.5
     /// Channel penalty for a pure space-insertion split (the user omitted a
     /// spacebar tap between the halves). The spatial model's omitted-
     /// character (deletion) constant plus one nat: the spacebar is the
@@ -206,7 +287,7 @@ public struct EngineConfig: Sendable {
 
     /// The pass runs only when no ATTESTED (or personal) candidate exists
     /// at spatial cost at or below this after the cheap passes — same
-    /// philosophy (and default) as `edits2Gate`; ordinary typos with a real
+    /// philosophy (and default) as `closeCandidateGate`; typos with a real
     /// close fix never pay for it. BÍN-only candidates don't suppress it.
     public var diacriticCompletionGate: Double = 4.5
     /// Cap on diacritic prefix variants expanded (each costs one bounded

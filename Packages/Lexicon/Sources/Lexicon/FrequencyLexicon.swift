@@ -379,6 +379,108 @@ public final class FrequencyLexicon: Lexicon {
         return lo
     }
 
+    // MARK: - Prefix-cursor support (see PrefixSearch.swift)
+    //
+    // Internal shims for the `PrefixSearchableLexicon` conformance, which
+    // lives in a separate file and therefore cannot reach the file-private
+    // helpers above.
+
+    /// Expose the mapped buffer to the prefix-cursor extension.
+    @inline(__always)
+    func withPrefixBuffer<R>(_ body: (UnsafeRawBufferPointer) -> R) -> R {
+        data.withUnsafeBytes(body)
+    }
+
+    @inline(__always)
+    func prefixWordLength(at index: Int, buf: UnsafeRawBufferPointer) -> Int {
+        Int(readU8(buf, at: wordLengthsOffset + index))
+    }
+
+    @inline(__always)
+    func prefixWordString(at index: Int, buf: UnsafeRawBufferPointer) -> String {
+        wordString(at: index, in: buf)
+    }
+
+    @inline(__always)
+    func prefixWordFrequency(at index: Int, buf: UnsafeRawBufferPointer) -> UInt32 {
+        readU32(buf, at: wordFreqsOffset + index * 4)
+    }
+
+    /// The UTF-8 bytes of the single Unicode scalar starting at byte
+    /// `depth` of word `index` (scalar length from the lead byte, clamped
+    /// to the word end for malformed data). Callers guarantee
+    /// `depth < length`.
+    @inline(__always)
+    func prefixScalarBytes(
+        at index: Int, depth: Int, length: Int, buf: UnsafeRawBufferPointer
+    ) -> [UInt8] {
+        let offset = Int(readU32(buf, at: wordOffsetsOffset + index * 4))
+        let base = stringPoolOffset + offset
+        let lead = buf[base + depth]
+        let scalarLength: Int
+        switch lead {
+        case ..<0x80: scalarLength = 1
+        case ..<0xE0: scalarLength = 2
+        case ..<0xF0: scalarLength = 3
+        default: scalarLength = 4
+        }
+        let end = min(depth + scalarLength, length)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(end - depth)
+        for i in depth..<end {
+            bytes.append(buf[base + i])
+        }
+        return bytes
+    }
+
+    /// Compare word `index`'s bytes at `[depth, depth + bytes.count)` against
+    /// `bytes`: -1 when the word (cut to that window) sorts before, 0 when
+    /// the window exists and matches exactly, 1 when it sorts after. A word
+    /// too short to cover the window sorts before it (-1) — in byte order a
+    /// proper prefix precedes every extension.
+    @inline(__always)
+    private func suffixCompare(
+        index: Int, bytes: [UInt8], depth: Int, buf: UnsafeRawBufferPointer
+    ) -> Int {
+        let offset = Int(readU32(buf, at: wordOffsetsOffset + index * 4))
+        let length = Int(readU8(buf, at: wordLengthsOffset + index))
+        let base = stringPoolOffset + offset
+        var i = 0
+        while i < bytes.count {
+            let wordIndex = depth + i
+            if wordIndex >= length { return -1 }
+            let a = buf[base + wordIndex]
+            let b = bytes[i]
+            if a != b { return a < b ? -1 : 1 }
+            i += 1
+        }
+        return 0
+    }
+
+    /// Binary search restricted to `cursor`'s range: leftmost index whose
+    /// suffix window compares `>= bytes` (`strict: false`, the narrowed
+    /// lower bound) or `> bytes` (`strict: true`, the narrowed upper bound).
+    func suffixBound(
+        _ bytes: [UInt8],
+        at depth: Int,
+        in cursor: LexiconPrefixCursor,
+        strict: Bool,
+        buf: UnsafeRawBufferPointer
+    ) -> Int {
+        var lo = cursor.lowerBound
+        var hi = cursor.upperBound
+        while lo < hi {
+            let mid = (lo + hi) >> 1
+            let c = suffixCompare(index: mid, bytes: bytes, depth: depth, buf: buf)
+            if strict ? c > 0 : c >= 0 {
+                hi = mid
+            } else {
+                lo = mid + 1
+            }
+        }
+        return lo
+    }
+
     /// Binary search over bigrams sorted by (firstWordId, secondWordId).
     private func findBigram(_ id1: UInt32, _ id2: UInt32, in buf: UnsafeRawBufferPointer) -> Int? {
         var left = 0

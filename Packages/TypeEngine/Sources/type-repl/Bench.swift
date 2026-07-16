@@ -25,6 +25,13 @@ struct Bench {
     /// is <30 ms/keystroke.
     static let edits2WorstCase = "brgha-þwkkt"
 
+    /// Beam-decoder line (dogfood 2026-07-15): "koetip" = kortið with two
+    /// adjacent-key substitutions (e→r, p→ð). Under generate-and-test
+    /// edits2 the final keystroke took ~31 ms and never found kortið; the
+    /// prefix-range beam must decode it inside the extension's per-
+    /// keystroke budget (<8 ms).
+    static let beamWorstCase = "Mávahlíð er komin á koetip"
+
     func run(limit: Int) {
         // Production-shaped warm-up: the extension calls engine.warmUp()
         // from its bootstrap. First-keystroke latencies below therefore
@@ -83,6 +90,17 @@ struct Bench {
         print(
             "  edits2 worst case  \(String(format: "%8.0f", worst)) us"
                 + "  (slowest keystroke while typing \"\(Self.edits2WorstCase)\")"
+        )
+
+        // Beam-decoder gate (see beamWorstCase docs above): the koetip
+        // dogfood sentence, slowest keystroke — the deep multi-edit decode
+        // fires on the unknown token's last keystrokes.
+        typist.reset()
+        typist.type(Self.beamWorstCase)
+        let beamWorst = typist.latenciesMicros.max() ?? 0
+        print(
+            "  beam worst case    \(String(format: "%8.0f", beamWorst)) us"
+                + "  (slowest keystroke while typing \"…á koetip\")"
         )
     }
 }

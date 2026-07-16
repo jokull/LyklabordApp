@@ -111,3 +111,20 @@ ik	ok	short
 # diacritic-restored prefix-completion pass; dogfood "fara lega" token)
 faralega	fáránlega	hard
 faranlega	fáránlega	hard
+# spatial2: multi-position adjacent-key noise on the Icelandic layout — the
+# beam-decoder class (dogfood "koetip" = kortið with e→r + p→ð). Two
+# adjacent-key substitutions per word, plus a couple of triple-noise cases;
+# unreachable by edits1/targeted passes, decoded by the multi-edit beam.
+koetip	kortið	spatial2
+msðir	maður	spatial2
+gsmsn	gaman	spatial2
+morhin	morgun	spatial2
+jestir	hestur	spatial2
+islensju	íslensku	spatial2
+gsmsm	gaman	spatial2
+tonorriw	tomorrow	spatial2
+goveennent	government	spatial2
+eirld	world	spatial2
+becsise	because	spatial2
+oeiple	people	spatial2
+tonirriw	tomorrow	spatial2

@@ -82,6 +82,9 @@ enum EvalWordlists {
         // dogfood wave (2026-07-15): under-firing repair targets
         "alveg": 260, "nóg": 160, "nógu": 140, "fáránlega": 40,
         "fáránlegur": 30,
+        // beam-decoder wave (2026-07-15): spatial2 target (dogfood
+        // "koetip" = kortið with e→r and p→ð adjacent-key noise)
+        "kortið": 60,
     ]
 
     static let icelandicBigrams: [String: UInt32] = [

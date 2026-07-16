@@ -55,6 +55,12 @@ public struct Corrector {
     let spatial: SpatialModel
     let model: BlendedLanguageModel
     let config: EngineConfig
+    let beam: BeamDecoder
+    /// Per-position substitution costs for the beam decoder. Static
+    /// keyboard geometry today; the coordinate-plumbing wave swaps in a
+    /// per-tap provider without touching the decoder (see
+    /// `PositionCostProvider`).
+    let positionCosts: PositionCostProvider
 
     public init(
         icelandic: Lexicon,
@@ -62,20 +68,24 @@ public struct Corrector {
         morphology: MorphologyProviding? = nil,
         config: EngineConfig = EngineConfig()
     ) {
-        self.config = config
-        self.spatial = SpatialModel(costs: config.spatialCosts)
-        self.model = BlendedLanguageModel(
-            icelandic: icelandic,
-            english: english,
-            morphology: morphology,
+        self.init(
+            model: BlendedLanguageModel(
+                icelandic: icelandic,
+                english: english,
+                morphology: morphology,
+                config: config
+            ),
             config: config
         )
     }
 
     init(model: BlendedLanguageModel, config: EngineConfig) {
         self.config = config
-        self.spatial = SpatialModel(costs: config.spatialCosts)
+        let spatial = SpatialModel(costs: config.spatialCosts)
+        self.spatial = spatial
         self.model = model
+        self.beam = BeamDecoder(config: config, spatial: spatial)
+        self.positionCosts = StaticSpatialCostProvider(spatial: spatial)
     }
 
     /// Ranked correction candidates for `typed` (assumed a single word).
@@ -137,13 +147,55 @@ public struct Corrector {
             candidates[word] = spatialCost(typedChars: typedChars, candidate: word)
         }
 
-        // 1. edits1, existence-checked against lexicons + BÍN. Generated
-        // with the spatial cost of the single edit attached (O(1) per
-        // string), which step 5 uses to order its walk without recomputing
-        // full edit-distance matrices.
-        let e1 = Self.edits1Costed(of: typedChars, spatial: spatial)
-        for word in e1.keys where isCandidateWord(word, checkMorphology: true) {
-            admit(word)
+        // 1. PRIMARY: beam-search spatial decode over both frequency
+        // lexicons (replaced the edits1+edits2 generate-and-test walks —
+        // see BeamDecoder). The beam only visits prefixes the lexicons
+        // contain, so multi-position adjacent-key noise ("koetip" →
+        // "kortið") is reachable inside the latency budget. Beam cost is a
+        // search currency only; admit() re-scores every candidate with the
+        // exact spatial DP, so ranking is identical to the old pipeline's
+        // for words both would find.
+        //
+        // Two phases, mirroring the old edits1 → gated-edits2 shape: the
+        // single-edit decode always runs (cheap — a few hundred
+        // expansions); the DEEP multi-edit decode (step 5) runs only when
+        // the cheap passes and completions leave no good close candidate,
+        // so words-in-progress (which always have a cheap completion)
+        // never pay for it on every keystroke.
+        var beamCoveredLexicons = true
+        func runBeam(maxEdits: Int) {
+            for (index, lexicon) in [model.icelandic, model.english].enumerated() {
+                guard let searchable = lexicon as? PrefixSearchableLexicon else {
+                    beamCoveredLexicons = false
+                    continue
+                }
+                for (word, _) in beam.decode(
+                    typed: typedChars,
+                    lexicon: searchable,
+                    lexiconIndex: index,
+                    costs: positionCosts,
+                    maxEdits: maxEdits
+                ) {
+                    admit(word)
+                }
+            }
+        }
+        runBeam(maxEdits: config.beamShortMaxEdits)
+
+        // 1b. edits1 residue: single-edit candidates the beam cannot see —
+        // personal vocabulary and BÍN-only forms (rare valid inflections
+        // absent from the frequency tables) live outside the sorted pools.
+        // When a lexicon doesn't support prefix search (exotic conformers
+        // only; every in-repo lexicon does), this also restores the full
+        // legacy edits1 existence check.
+        for word in Self.edits1Costed(of: typedChars, spatial: spatial).keys {
+            guard candidates[word] == nil else { continue }
+            if model.isPersonalValid(word)
+                || model.morphology?.isKnown(word) == true
+                || (!beamCoveredLexicons && isCandidateWord(word, checkMorphology: false))
+            {
+                admit(word)
+            }
         }
 
         // 2. Diacritic/orthographic restoration: all combinations of the
@@ -196,12 +248,14 @@ public struct Corrector {
         }
 
         // 4. Completions of slightly shorter prefixes — but only when no
-        // good close candidate exists yet (same gate as edits2): covers
-        // suffix-area typos that neither edits1 nor typed-prefix completions
-        // reach ("basicly"→"basically", "publically"→"publicly") far more
-        // cheaply than an edits2 walk. Spatial cost still judges the
-        // candidates, so junk from the wider buckets ranks on merit.
-        if typedChars.count >= 5, (candidates.values.min() ?? .infinity) > config.edits2Gate {
+        // good close candidate exists yet: covers suffix-area typos that
+        // neither the beam's bounded edits nor typed-prefix completions
+        // reach cheaply ("basicly"→"basically", "publically"→"publicly").
+        // Spatial cost still judges the candidates, so junk from the wider
+        // buckets ranks on merit.
+        if typedChars.count >= 5,
+            (candidates.values.min() ?? .infinity) > config.closeCandidateGate
+        {
             let shortestPrefix = max(3, typedChars.count - 4)
             for length in stride(from: typedChars.count - 1, through: shortestPrefix, by: -1) {
                 let prefix = String(typedChars.prefix(length))
@@ -224,7 +278,7 @@ public struct Corrector {
         // above (3 edits from the typed word). Completing diacritic
         // variants of typed prefixes ("fárá" → fáránlega…) covers exactly
         // that shape. Icelandic-only (accents are the IS phenomenon), and
-        // gated like edits2 — but on the best ATTESTED-or-personal
+        // gated like every fallback pass — but on the best ATTESTED-or-personal
         // candidate, so BÍN-floored junk ("garalega") cannot suppress the
         // honest repair it is junk relative to.
         if !typedIsValid, typedChars.count >= 5,
@@ -251,46 +305,24 @@ public struct Corrector {
             }
         }
 
-        // 5. edits2, only for words of length 5...edits2MaxLength with no
-        // good edits1 hit, under BOTH an expansion cap and a wall-clock
-        // budget (unknown long words otherwise walk hundreds of thousands
-        // of expansions — the 300–935 ms/keystroke landmine). On abort we
-        // simply keep the edits1/completion candidates found so far.
-        // Existence check skips BÍN here: a full morphology probe per edits2
-        // expansion is too expensive (~100µs each on the mmap-ed binary).
-        let bestSoFar = candidates.values.min() ?? .infinity
-        if typedChars.count >= 5, typedChars.count <= config.edits2MaxLength,
-            bestSoFar > config.edits2Gate
+        // 5. DEEP beam decode (multi-edit; replaced the generate-and-test
+        // edits2 walk): only for unknown tokens of length >=
+        // beamLongMinLength with no good close ATTESTED hit from the cheap
+        // passes — the same gate shape the old edits2 used, so a
+        // word-in-progress (which always has a cheap completion) never
+        // pays for the wide search on every keystroke. This is where
+        // multi-position adjacent-key noise gets decoded ("koetip" →
+        // "kortið", two 1-nat substitutions; triple-noise up to
+        // beamMaxEdits). See `beamDeepGate` for why the gate sits below
+        // the indel constant and ignores BÍN-only candidates.
+        if !typedIsValid,
+            typedChars.count >= config.beamLongMinLength,
+            config.beamMaxEdits > config.beamShortMaxEdits,
+            bestAttestedCost(in: candidates) > config.beamDeepGate
         {
-            // Walk the cheapest (most plausible) intermediate bases first:
-            // under the expansion/time budgets, the part of the space that
-            // gets explored is then the likeliest — and, unlike raw hash
-            // order, deterministic across runs. Costs were attached at
-            // edits1 generation, so ordering is just a sort.
-            var orderedBases = Array(e1)
-            orderedBases.sort { lhs, rhs in
-                lhs.value < rhs.value || (lhs.value == rhs.value && lhs.key < rhs.key)
-            }
-            let deadline = ContinuousClock.now + .seconds(config.edits2TimeBudget)
-            var expansions = 0
-            outer: for entry in orderedBases {
-                let base = entry.key
-                // Materializing a base's edits1 set is itself milliseconds
-                // for long words — check the budget per base, not just per
-                // expansion, so the abort can't overshoot by a whole base.
-                if ContinuousClock.now >= deadline { break }
-                for word in Self.edits1(of: Array(base)) {
-                    expansions += 1
-                    if expansions > config.maxEdits2Expansions { break outer }
-                    if expansions % 256 == 0, ContinuousClock.now >= deadline { break outer }
-                    if word != typed, candidates[word] == nil,
-                        isCandidateWord(word, checkMorphology: false)
-                    {
-                        admit(word)
-                    }
-                }
-            }
+            runBeam(maxEdits: config.beamMaxEdits)
         }
+        let bestSoFar = candidates.values.min() ?? .infinity
 
         // ---- Scoring ------------------------------------------------------
         // score = -spatialCost + λ·S_lang(candidate | context, posterior),
@@ -304,11 +336,12 @@ public struct Corrector {
 
         // 6. Space-miss splits (PLAN.md "Space-miss correction"): an unknown
         // all-letter token with no good single-word candidate may be two
-        // words around a missed/mis-hit spacebar tap. Gated exactly like
-        // edits2 (unknown + the cheap passes' best spatial cost above the
-        // gate — bestSoFar deliberately excludes edits2 junk), so ordinary
+        // words around a missed/mis-hit spacebar tap. Gated on the beam +
+        // cheap passes' best spatial cost being above the gate, so ordinary
         // typos and prefixes-in-progress (which always have a cheap
-        // completion) never pay for it. Split candidates join the same
+        // completion) never pay for it — and a genuine multi-substitution
+        // repair the beam found (koetip → kortið at ~2 nats) suppresses the
+        // split pass outright. Split candidates join the same
         // scored pool: the channel cost (penalty + half repairs) plays the
         // spatial-cost role in ranking, conservatism and confidence.
         if !typedIsValid,
@@ -354,13 +387,23 @@ public struct Corrector {
                 // Single-word auto-apply additionally requires the winner to
                 // be typical vocabulary (attested at z ≥ autocorrectMinZ;
                 // personal words are exempt): BÍN-floored junk like
-                // "garalega" may be suggested but never auto-applied.
+                // "garalega" may be suggested but never auto-applied. FAR
+                // repairs (unit edit distance ≥ autocorrectFarRepairEdits —
+                // now reachable at all thanks to the multi-edit beam) raise
+                // the bar to COMMON vocabulary: keyboard mash sits within 3
+                // substitutions of some rare word ("awgke" → "aegis"), and
+                // replacing mash with rarities is worse than leaving it.
                 let typicality =
                     model.isPersonalValid(best.word)
                     ? Double.infinity
                     : (attestedTypicality(of: best.word) ?? -.infinity)
+                let minZ =
+                    Self.rewriteDistance(typedChars, Array(best.word))
+                        >= config.autocorrectFarRepairEdits
+                    ? max(config.autocorrectMinZ, config.autocorrectFarRepairMinZ)
+                    : config.autocorrectMinZ
                 autocorrect = margin >= config.autocorrectMargin
-                    && typicality >= config.autocorrectMinZ
+                    && typicality >= minZ
             }
         }
 
@@ -456,12 +499,35 @@ public struct Corrector {
             )
         }
 
+        // Saturated-lane discipline (dogfood koetip: "joe tip" junk at
+        // P(IS)=0.9): when the lane posterior is saturated, both halves
+        // must clear the calibrated-z bar IN THE LANE LANGUAGE (personal
+        // words exempt) — a junk split may not cherry-pick the other
+        // language for one half. Below saturation, blendedPairScore's joint
+        // pricing is the only cross-language discipline (unchanged).
+        let saturatedLane: Language? =
+            pIcelandic >= config.splitSaturatedLanePosterior
+            ? .icelandic
+            : (pIcelandic <= 1 - config.splitSaturatedLanePosterior ? .english : nil)
+        var laneCache: [String: Bool] = [:]
+        func clearsLaneBar(_ word: String) -> Bool {
+            guard let lane = saturatedLane else { return true }
+            if let cached = laneCache[word] { return cached }
+            let admitted =
+                model.isPersonalValid(word)
+                || (model.lexicon(for: lane).frequency(of: word) != nil
+                    && model.calibratedUnigramScore(of: word, language: lane)
+                        >= config.splitSaturatedHalfMinZ)
+            laneCache[word] = admitted
+            return admitted
+        }
+
         var best: [String: (spatialCost: Double, score: Double)] = [:]
         var halfCache: [String: [(word: String, cost: Double)]] = [:]
         func resolvedHalves(for half: [Character]) -> [(word: String, cost: Double)] {
             let key = String(half)
             if let cached = halfCache[key] { return cached }
-            let fresh = halfHypotheses(half)
+            let fresh = halfHypotheses(half).filter { clearsLaneBar($0.word) }
             halfCache[key] = fresh
             return fresh
         }
@@ -784,6 +850,52 @@ public struct Corrector {
         return false
     }
 
+    /// Diacritic/orthographic restoration pairs count as FREE in the
+    /// rewrite-size measure: typing the base letter for an accent-twin
+    /// (a→á lives behind long-press) or a classic orthographic slip (d→ð,
+    /// t→þ, o→ö) is not a rewrite of intent — the tapped key IS (or shares)
+    /// the intended key.
+    static func isRestorationPair(_ x: Character, _ y: Character) -> Bool {
+        SpatialModel.accentBase[x] == y
+            || SpatialModel.accentBase[y] == x
+            || SpatialModel.confusionPairs.contains(String(x) + String(y))
+    }
+
+    /// Restricted Damerau-Levenshtein REWRITE distance: unit costs, except
+    /// restoration substitutions (see `isRestorationPair`) are free. The
+    /// intervention-size measure for the far-repair auto-apply rule — the
+    /// spatial DP can't play this role (one omitted letter costs 4.0 nats
+    /// while three adjacent-key substitutions cost ~3, yet the latter is
+    /// the bigger, mash-shaped rewrite), and raw unit distance would count
+    /// accent restorations ("godann" → "góðan") as if they were rewrites.
+    static func rewriteDistance(_ a: [Character], _ b: [Character]) -> Int {
+        let n = a.count
+        let m = b.count
+        if n == 0 { return m }
+        if m == 0 { return n }
+        let width = m + 1
+        var dp = [Int](repeating: 0, count: (n + 1) * width)
+        for i in 0...n { dp[i * width] = i }
+        for j in 0...m { dp[j] = j }
+        for i in 1...n {
+            for j in 1...m {
+                let subCost: Int
+                if a[i - 1] == b[j - 1] || isRestorationPair(a[i - 1], b[j - 1]) {
+                    subCost = 0
+                } else {
+                    subCost = 1
+                }
+                let sub = dp[(i - 1) * width + (j - 1)] + subCost
+                var best = min(sub, dp[(i - 1) * width + j] + 1, dp[i * width + (j - 1)] + 1)
+                if i >= 2, j >= 2, a[i - 1] == b[j - 2], a[i - 2] == b[j - 1], a[i - 1] != a[i - 2] {
+                    best = min(best, dp[(i - 2) * width + (j - 2)] + 1)
+                }
+                dp[i * width + j] = best
+            }
+        }
+        return dp[n * width + m]
+    }
+
     /// Spatial cost of a candidate; strict-prefix completions are charged
     /// per not-yet-typed character instead of per "insertion error".
     func spatialCost(typedChars: [Character], candidate: String) -> Double {
@@ -868,8 +980,10 @@ public struct Corrector {
 
     /// All strings at Damerau-Levenshtein distance 1 from `chars`, each with
     /// the spatial cost of the single edit that produced it (minimum across
-    /// generation paths). O(1) cost per string — used to priority-order the
-    /// budgeted edits2 walk without recomputing edit-distance matrices.
+    /// generation paths), O(1) cost per string. Used where candidates must
+    /// be tested against NON-enumerable vocabularies the beam cannot walk:
+    /// personal words and BÍN morphology (step 1b), split-half repairs,
+    /// and the single-word-repair probe.
     static func edits1Costed(
         of chars: [Character], spatial: SpatialModel
     ) -> [String: Double] {
@@ -917,40 +1031,4 @@ public struct Corrector {
         return out
     }
 
-    /// All strings at Damerau-Levenshtein distance 1 from `chars`.
-    static func edits1(of chars: [Character]) -> Set<String> {
-        var out = Set<String>()
-        let n = chars.count
-        // deletions
-        for i in 0..<n {
-            var copy = chars
-            copy.remove(at: i)
-            out.insert(String(copy))
-        }
-        // transpositions
-        if n >= 2 {
-            for i in 0..<(n - 1) where chars[i] != chars[i + 1] {
-                var copy = chars
-                copy.swapAt(i, i + 1)
-                out.insert(String(copy))
-            }
-        }
-        // substitutions
-        for i in 0..<n {
-            for ch in alphabet where ch != chars[i] {
-                var copy = chars
-                copy[i] = ch
-                out.insert(String(copy))
-            }
-        }
-        // insertions
-        for i in 0...n {
-            for ch in alphabet {
-                var copy = chars
-                copy.insert(ch, at: i)
-                out.insert(String(copy))
-            }
-        }
-        return out
-    }
 }

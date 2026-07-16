@@ -898,3 +898,47 @@ EXPECT_VERBATIM awgke
 EXPECT_NO_AUTOCORRECT
 T ". "
 EXPECT_BUFFER "sem awgke. "
+
+# ---------------------------------------------------------------------------
+# Beam decoder: multi-position adjacent-key noise
+# (dogfood 2026-07-15: "Mávahlíð er komin á koetip" intending "kortið" —
+# e→r and p→ð, two adjacent-key substitutions. The old generate-and-test
+# edits2 died inside its budget before reaching it and the bar filled with
+# junk splits; the prefix-range beam decodes it in ~2 nats.)
+# ---------------------------------------------------------------------------
+
+SCENARIO koetip decodes kortið in icelandic context and auto-applies
+T "Mávahlíð er komin á "
+EXPECT_POSTERIOR_GT 0.8
+T koetip
+EXPECT_VERBATIM koetip
+# Margins clear organically: kortið (z −0.19, DP cost ~2.05) leads the
+# "kost*"-tier runners-up past the ordinary margin, and rewrite distance 2
+# keeps it under the far-repair discipline.
+EXPECT_AUTOCORRECT kortið
+# Saturated-lane split discipline + the beam's cheap repair suppressing the
+# split pass: the old "joe tip"/"moe tip" cherry-picked-English junk splits
+# are gone at P(IS) = 0.9.
+EXPECT_NOT_CONTAINS "joe tip"
+EXPECT_NOT_CONTAINS "moe tip"
+
+SCENARIO koetip commits kortið through space
+T "Mávahlíð er komin á koetip "
+EXPECT_BUFFER "Mávahlíð er komin á kortið "
+EXPECT_LAST_COMMIT kortið
+
+SCENARIO eirld decodes world in english context
+# Same class, English lane: e→w and i→o. A lone single-indel reading
+# ("eiröld") must not suppress the multi-substitution decode (beamDeepGate
+# sits below the indel constant).
+T "the weather is "
+T eirld
+EXPECT_AUTOCORRECT world
+
+SCENARIO tonirriw triple noise decodes tomorrow
+# Three adjacent-key substitutions (n→m, i→o, i→o) — beyond the old edits2
+# entirely. Far-repair discipline allows auto-apply only because tomorrow
+# is COMMON vocabulary (z ≥ autocorrectFarRepairMinZ); the awgke scenario
+# above locks the mash side of the same rule (rare "aegis" stays bar-only).
+T "see you tonirriw"
+EXPECT_AUTOCORRECT tomorrow
