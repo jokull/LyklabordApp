@@ -25,3 +25,5 @@ tools/session-analyzer/sessions/
 # Personal eval corpus — quotes real typed text (typo/intended/context), so it
 # is gitignored even though it lives outside sessions/. Feeds tuning locally.
 tools/session-analyzer/personal-eval.jsonl
+# User-confirmed typo intents — derived from personal typing, same rule.
+tools/session-analyzer/confirmed-intents.jsonl

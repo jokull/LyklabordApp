@@ -298,7 +298,38 @@ def _seed_for(sid: str) -> int:
     return int(digits) if digits else 0
 
 
-def update_personal_eval(corpus_path: str, sessions: list) -> dict:
+def load_confirmed_intents(path: str = None) -> dict:
+    """User-confirmed intents for tokens the scan can't resolve on its own
+    (contested SILENT_MISS guesses, UNRESOLVABLE mashes). One JSON object per
+    line in confirmed-intents.jsonl (gitignored — personal typing):
+
+        {"typo": "dlmk", "intended": "dæmi"}
+        {"typo": "kozy", "intentional": true}   # not a typo — suppress
+
+    Keyed by lowercased typo. Confirmed rows are promoted straight into the
+    corpus with source "user-confirmed"; intentional rows are dropped from
+    both the corpus and PENDING-REVIEW."""
+    if path is None:
+        path = os.path.join(os.path.dirname(__file__), "confirmed-intents.jsonl")
+    intents = {}
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                typo = rec.get("typo", "")
+                if typo:
+                    intents[typo.lower()] = rec
+    return intents
+
+
+def update_personal_eval(corpus_path: str, sessions: list,
+                         intents: dict = None) -> dict:
     """Append confirmed, unambiguous candidates to the personal eval corpus.
 
     Eligible (unambiguous intended word):
@@ -306,10 +337,14 @@ def update_personal_eval(corpus_path: str, sessions: list) -> dict:
         typo->correction pair (the user themselves produced the intended word).
       * SILENT_MISS — only when the top guess is UNCONTESTED (see
         `_uncontested_silent`); the synthesized intended is that guess.
+      * any silent token with a user-confirmed intent (confirmed-intents.jsonl)
+        — including UNRESOLVABLE mashes the candidate scan gave up on.
     Held back to PENDING-REVIEW (returned, not written):
       * INFLECTION_MISS — belongs in the inflection backlog, not the corrector.
-      * SILENT_MISS with a contested/absent top guess.
+      * SILENT_MISS with a contested/absent top guess and no confirmed intent.
     """
+    if intents is None:
+        intents = load_confirmed_intents()
     existing = {}
     if os.path.exists(corpus_path):
         with open(corpus_path, "r", encoding="utf-8") as fh:
@@ -356,6 +391,31 @@ def update_personal_eval(corpus_path: str, sessions: list) -> dict:
                     "session": s["sid"],
                 })
         for m in s["silent"]:
+            override = intents.get(m.token.lower())
+            if override is not None:
+                if override.get("intentional"):
+                    continue
+                intended = override.get("intended", "")
+                if not intended or intended.lower() == m.token.lower():
+                    continue
+                key = _corpus_key(m.token, intended)
+                if key in existing:
+                    continue
+                rec = {
+                    "typo": m.token,
+                    "intended": intended,
+                    "context": list(m.context),
+                    "lang": analyze.guess_lang(intended),
+                    "category": categorize(m.token, intended),
+                    "seed": _seed_for(s["sid"]),
+                    "class": m.cls,
+                    "source": "user-confirmed",
+                    "session": s["sid"],
+                    "engine_commit": s["build"],
+                }
+                existing[key] = rec
+                added.append(rec)
+                continue
             if m.cls != "SILENT_MISS":
                 continue
             top = m.candidates[0]
