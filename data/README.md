@@ -249,6 +249,112 @@ almost entirely the materialized `String`/tuple results, not resident file
 pages. Footprint stayed flat vs. the pre-rebuild bench (+0.97 MB / +2.63 MB)
 — if anything slightly better, since is.lex itself shrank.
 
+## Inflection intelligence artifacts (is/) — Stage A data (2026-07-16)
+
+PLAN.md "Inflection intelligence": use BÍN morphology to suggest the
+grammatically-correct inflected form ("frá hest|" → hesti, not hestur/hestum).
+This is the Stage A data pipeline (Python, offline builders); Stage B (Swift
+consumption in the engine) is a later wave and is not built yet — the two
+artifacts below are its input contract.
+
+### paradigms.bin (22.81 MB)
+
+Generation direction: lemma → every inflected surface form + its feature
+bundle (case/number/definiteness for nouns; case/number/gender/degree/
+strength for adjectives). The mirror image of lemma-is.bin v2's analysis
+direction (surface form → lemma + tag). Full binary layout, join-key
+contract with lemma-is.bin, and worked examples: `data/is/PARADIGMS_FORMAT.md`.
+
+- **Scope (v1)**: nouns + adjectives only (verbs are a later wave); lemma
+  must have unigram frequency ≥ 10 in `unigrams.json.gz` (39,826 lemma
+  groups, 775,858 (form, feature-bundle) entries, 377,688 distinct surface
+  forms kept out of BÍN's full 5,560,075 noun/adjective rows).
+- **Regenerate**:
+  ```
+  python3 scripts/build-paradigms.py \
+      --src /path/to/lemma-is/data/SHsnid.csv \
+      --unigrams data/is/unigrams.json.gz \
+      --output data/is/paradigms.bin
+  ```
+  `--verify` (also run automatically at the end of a build) mmaps the file
+  back and checks `hestur` has exactly its 16 forms, `góður` has all 120
+  adjective forms, and both access patterns (lemma→forms, form→features)
+  resolve correctly.
+- **Determinism**: byte-identical across re-builds from the same inputs
+  (verified via `cmp`).
+- **License**: derived from BÍN, same conditions as lemma-is.bin — see
+  `data/ATTRIBUTION.md` ("No publishing of inflection paradigms": this file
+  stores per-form data for on-device ranking, same class of use as
+  lemma-is.bin's existing morph section; it is not user-facing raw paradigm
+  export).
+
+### governors.json.gz (1.4 MB)
+
+Statistical case-government model: for each "governor" word (prepositions,
+verbs, or anything else with enough evidence — no hand-written POS filter,
+see build-governors.py docstring "Why no POS filter on word1"), the observed
+distribution of feature bundles carried by the nouns/adjectives that follow
+it in `data/is/bigrams.json.gz`, i.e. `P(case, number, definiteness | prev
+word)` per PLAN.md. No grammar rules — "frá takes dative" falls out of
+counting BÍN-tagged bigram followers.
+
+- **Fractional credit**: when a followed word (word2) is grammatically
+  ambiguous (multiple BÍN analyses), its bigram count is split evenly across
+  every distinct noun/adjective analysis rather than guessing the single
+  "correct" one (the wordform-overlap principle — never resolve ambiguity
+  by fiat).
+- **Filters**: `--min-mass` (default 50, weighted-occurrence floor — in
+  practice this filtered 0 of 30,619 candidates, since `bigrams.json.gz` is
+  already frequency-filtered upstream; the entropy filter does the real
+  work here) and `--max-case-entropy-ratio` (default 0.9 — drops governors
+  whose *case-only* marginal distribution is close to uniform, i.e. carries
+  no case-government signal; dropped 16,870 of 30,619 candidates).
+- **Regenerate**:
+  ```
+  python3 scripts/build-governors.py \
+      --src /path/to/lemma-is/data/SHsnid.csv \
+      --bigrams data/is/bigrams.json.gz \
+      --output data/is/governors.json.gz
+  ```
+- **Validation** (`--verify`, asserted against known Icelandic grammar —
+  built 2026-07-16, 13,749 governors kept):
+  ```
+  P(case | frá): dominant=þgf (0.675)  expected=þgf  [OK]
+  P(case | til): dominant=ef  (0.703)  expected=ef   [OK]
+  P(case | um):  dominant=þf  (0.464)  expected=þf   [OK]
+
+  á:   mass=5,353,425  þgf=0.522 þf=0.257 nf=0.172 ef=0.049  (split confirmed)
+  með: mass=1,014,074  þgf=0.482 þf=0.242 nf=0.196 ef=0.080  (split confirmed)
+  ```
+  Top governors by mass: í (8.9M), á (5.4M), er (3.0M), sem (2.6M), til (2.0M),
+  ekki (2.0M), við (1.9M), það (1.8M), um (1.8M) — see script output for the
+  full top-20 with distributions.
+- **Determinism**: JSON content and the gzip wrapper itself (pinned
+  `mtime=0`) are byte-identical across re-builds from the same inputs/output
+  path.
+- **License**: same conditions as above — derived counts/distributions only,
+  no raw BÍN paradigm export.
+
+### Open questions for Stage B
+
+1. Join key is the lemma **string** (lowercased), not a numeric id shared
+   with lemma-is.bin (whose ids are that file's internal implementation
+   detail) — see PARADIGMS_FORMAT.md "Join key / lemma-group identity".
+2. Homonym noun lemmas with identical spelling *and* identical gender
+   collapse into one paradigm group (BÍN's `bin_id`, which would
+   disambiguate them, is not threaded through) — believed harmless since
+   Icelandic declension is phonology/gender-driven, not meaning-driven, but
+   flagged in case a future use case needs word-sense-level distinction.
+3. Verb paradigms/government (tense/mood/person/voice) don't fit the
+   case/number/gender/degree bundle shape used here — a later wave needs a
+   genuinely different bundle encoding or sibling file, not a bit-squeeze.
+4. `governors.json`'s `bundle_distribution` (full case+number+definiteness/
+   gender+degree breakdown, not just the case marginal) is included per
+   PLAN.md's literal wording but is unvalidated/unused so far — Stage B
+   should confirm whether the extra granularity is actually useful before
+   building ranking logic against it, or whether the case-only marginal is
+   sufficient in practice.
+
 ## CI Checks (Future)
 
 - [ ] Verify total binary sizes on each tier ≤ 35 MB in app bundle (ipa)
