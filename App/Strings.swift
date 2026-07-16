@@ -8,6 +8,17 @@
 //  for now: gathering everything in one enum keeps a future localization
 //  pass a single-file diff instead of a scavenger hunt.
 //
+//  COPY RULE — iOS UI labels are ALWAYS verbatim English. iOS is not
+//  localized to Icelandic, so every Icelandic user's Settings/Files app is
+//  in English. When copy quotes a system menu or toggle, name it exactly as
+//  iOS shows it: "Settings", "General", "Keyboard", "Keyboards",
+//  "Add New Keyboard…", "Allow Full Access", "Files", etc. Keep the
+//  surrounding prose Icelandic. The same applies to other un-localized
+//  third-party apps we reference (e.g. SwiftKey). The keyboard's own name,
+//  "Lyklaborð", is a brand name and stays as-is. (These strings render
+//  through SwiftUI's `Text(String)` overload, which does NOT parse markdown
+//  — do not use `**` for emphasis here; it shows as literal asterisks.)
+//
 
 import Foundation
 
@@ -34,12 +45,12 @@ enum Strings {
         static let subtitle = "Íslenskt og enskt lyklaborð sem hugsar um friðhelgi. Ekkert netkóði er í lyklaborðsviðbótinni sjálfri — allt gerist á tækinu þínu."
 
         static let setupHeading = "Setja upp lyklaborðið"
-        static let step1 = "Opnaðu Stillingar → Almennt → Lyklaborð → Lyklaborð"
-        static let step2 = "Ýttu á „Bæta við lyklaborði…“ og veldu Lyklaborð"
-        static let step3 = "Ýttu aftur á Lyklaborð og virkjaðu „Leyfa fullan aðgang“"
+        static let step1 = "Opnaðu Settings → General → Keyboard → Keyboards"
+        static let step2 = "Ýttu á „Add New Keyboard…“ og veldu Lyklaborð"
+        static let step3 = "Ýttu aftur á Lyklaborð og virkjaðu „Allow Full Access“"
         static let step3Detail = "Valfrjálst. Lyklaborðið skrifar, leiðréttir sjálfkrafa og kemur með orðauppástungur að fullu án hans. Fullur aðgangur kveikir aðeins á samstillingu orðabókarinnar þinnar við þitt eigið iCloud og snertiviðbragði (iOS lokar á titring lyklaborðs án hans). Viðbótin inniheldur engan netkóða hvort sem er."
         static let fullAccessMoreLink = "Meira um fullan aðgang og persónuvernd"
-        static let openSettingsButton = "Opna Stillingar"
+        static let openSettingsButton = "Opna Settings"
 
         static let tryHeading = "Prófaðu það"
         static let tryBody = "Skiptu yfir í Lyklaborð með hnettinum (🌐) og skrifaðu hér:"
@@ -77,7 +88,7 @@ enum Strings {
     enum SwiftKeyImport {
         static let actionTitle = "Flytja inn úr SwiftKey"
         static let sheetTitle = "Flytja inn úr SwiftKey"
-        static let explainer = "Þú getur flutt orðasafnið þitt úr SwiftKey yfir í Lyklaborð. Sæktu gögnin þín í SwiftKey (Stillingar → Account → „Download your data“) og veldu síðan skrána „vocabulary.txt“ úr möppunni „SwiftKey Keyboard/Dictionary“ í útflutningnum."
+        static let explainer = "Þú getur flutt orðasafnið þitt úr SwiftKey yfir í Lyklaborð. Sæktu gögnin þín í SwiftKey (Settings → Account → „Download your data“) og veldu síðan skrána „vocabulary.txt“ úr möppunni „SwiftKey Keyboard/Dictionary“ í útflutningnum."
         static let explainerNote = "Innflutt orð verða strax gild lærð orð. Orð sem þú hefur áður eytt hér verða ekki flutt inn aftur — þín eyðing gildir."
         static let chooseFileButton = "Velja skrá"
         static let cancelButton = "Hætta við"
@@ -90,7 +101,7 @@ enum Strings {
 
         static let errorTitle = "Innflutningur mistókst"
         static let errorUnreadable = "Ekki tókst að lesa skrána. Athugaðu að þetta sé „vocabulary.txt“ úr SwiftKey-útflutningnum (SwiftKey Keyboard/Dictionary/vocabulary.txt)."
-        static let errorNoAccess = "Ekki fékkst aðgangur að skránni. Prófaðu að afrita hana fyrst í Skrár (Files) og velja hana þaðan."
+        static let errorNoAccess = "Ekki fékkst aðgangur að skránni. Prófaðu að afrita hana fyrst í Files og velja hana þaðan."
     }
 
     enum Settings {
@@ -132,7 +143,7 @@ enum Strings {
         static let syncOutcomePushed = "Sent í iCloud"
         static let syncOutcomePulled = "Sótt úr iCloud"
         static let syncOutcomeMerged = "Sameinað við iCloud"
-        static let syncErrorNoAccount = "Ekki skráð inn í iCloud — skráðu þig inn í Stillingum kerfisins"
+        static let syncErrorNoAccount = "Ekki skráð inn í iCloud — skráðu þig inn í Settings"
         static let syncErrorNetwork = "Ekkert netsamband — reynt verður aftur síðar"
         static let syncErrorQuota = "iCloud-geymslan þín er full"
         static let syncErrorConflict = "Árekstur við annað tæki — reynt verður aftur síðar"

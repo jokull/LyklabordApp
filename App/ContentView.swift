@@ -16,12 +16,11 @@ struct ContentView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(Strings.Onboarding.title)
-                            .font(.largeTitle.bold())
-                        Text(Strings.Onboarding.subtitle)
-                            .foregroundStyle(.secondary)
-                    }
+                    // Title comes from `.navigationTitle` (large nav title),
+                    // matching the Orðasafn/Stillingar tabs. No in-view title
+                    // Text here — that would duplicate the nav title.
+                    Text(Strings.Onboarding.subtitle)
+                        .foregroundStyle(.secondary)
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text(Strings.Onboarding.setupHeading)
