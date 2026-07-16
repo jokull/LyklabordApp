@@ -29,6 +29,19 @@ struct SettingsView: View {
     @State private var isDeletingAll = false
     @State private var deleteAllMessage: String?
 
+    // Þróunarhamur: shown unconditionally in DEBUG; in a dev-signed release
+    // build it stays hidden until the version row is long-pressed (see
+    // `aboutSection`). Trivial, zero end-user surface.
+    @State private var devModeRevealed = false
+    private var isDebugBuild: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+    private var showsDeveloperSection: Bool { isDebugBuild || devModeRevealed }
+
     /// Backed by the App Group's shared `UserDefaults` suite (not the
     /// standard suite) so the keyboard extension can read the same value in
     /// a later wave. See `AppModel.spacebarModeDefaultsKey` for the key and
@@ -58,6 +71,9 @@ struct SettingsView: View {
                 dataSection
                 fullAccessSection
                 aboutSection
+                if showsDeveloperSection {
+                    developerSection
+                }
             }
             .navigationTitle(Strings.Settings.navigationTitle)
             .fileExporter(
@@ -293,6 +309,55 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            versionRow
+        }
+    }
+
+    /// App version row. Doubles as the hidden affordance that reveals
+    /// Þróunarhamur on dev-signed release builds (long-press) — in DEBUG the
+    /// section is already visible, so this is a no-op there.
+    private var versionRow: some View {
+        HStack {
+            Text("Útgáfa")
+            Spacer()
+            Text(appVersion)
+                .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+        .onLongPressGesture(minimumDuration: 1.5) {
+            devModeRevealed = true
+        }
+    }
+
+    private var appVersion: String {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "\(v) (\(b))"
+    }
+
+    // MARK: - Þróunarhamur (dev-mode session recorder)
+
+    private var developerSection: some View {
+        Section {
+            NavigationLink {
+                RecordingPadView()
+            } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Strings.Developer.recorderRow)
+                        Text(Strings.Developer.recorderRowDetail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "waveform.badge.mic")
+                }
+            }
+        } header: {
+            Text(Strings.Developer.sectionTitle)
+        } footer: {
+            Text(Strings.Developer.sectionFooter)
         }
     }
 

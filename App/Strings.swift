@@ -228,4 +228,29 @@ enum Strings {
         static let uninstallTitle = "Ef þú eyðir smáforritinu"
         static let uninstallBody = "Að eyða Lyklaborði fjarlægir öll gögn þess af þessu tæki tafarlaust. Ef þú notar iCloud-samstillingu verður afrit af orðabókinni þinni eftir í þínu eigin iCloud þar til þú eyðir því — ef þú setur smáforritið upp aftur endurheimtist það. Til að hreinsa allt, þar með talið iCloud, notaðu „Eyða öllum gögnum“ áður en þú fjarlægir smáforritið."
     }
+
+    /// DEV-MODE ("Þróunarhamur") copy — the typing-session recorder. Only
+    /// surfaced in DEBUG builds (or dev-signed release via the hidden version
+    /// long-press). Not shown to end users.
+    enum Developer {
+        static let sectionTitle = "Þróunarhamur"
+        static let sectionFooter = "Innsláttarupptaka fyrir þróun. Tekur aðeins upp á upptökusvæðinu hér að neðan — aldrei í öðrum forritum. Slökkt sjálfkrafa eftir 10 mínútur og um leið og þú ferð úr forritinu."
+        static let recorderRow = "Innsláttarupptaka"
+        static let recorderRowDetail = "Taka upp innslátt á upptökusvæði til greiningar."
+
+        static let padTitle = "Upptökusvæði"
+        static let startButton = "Hefja upptöku"
+        static let stopButton = "Stöðva"
+        static let recordingActive = "Tek upp"
+        static let recordingIdle = "Tilbúið að taka upp"
+
+        static let sessionsButton = "Upptökur"
+        static let sessionsTitle = "Upptökur"
+        static let doneButton = "Lokið"
+        static let sessionsEmptyTitle = "Engar upptökur"
+        static let sessionsEmptyBody = "Hefðu upptöku og skrifaðu á svæðinu til að búa til upptöku."
+
+        static let unavailableTitle = "App Group ekki tiltækt"
+        static let unavailableBody = "Upptaka þarf sameiginlega App Group gagnageymslu. Þetta virkar á tæki með réttum heimildum."
+    }
 }

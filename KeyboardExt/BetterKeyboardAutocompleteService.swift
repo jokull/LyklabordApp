@@ -60,6 +60,13 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     private var engine: TypeEngine?
     private var personalModelURL: URL?
     private var eventLogURL: URL?
+
+    /// DEV-MODE typing-session recorder (see `SessionRecorder`). Confined to
+    /// this `queue` exactly like `session`. OFF by default: a single App Group
+    /// flag check per pass gates everything; the learning event log and the
+    /// personal model are completely unaffected by it. nil-safe when there is
+    /// no App Group container.
+    private let recorder: SessionRecorder
     /// mtime of the personal-model file at the last (re)load, so the
     /// viewWillAppear re-stat only re-reads a genuinely changed file.
     private var personalModelDate: Date?
@@ -155,6 +162,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     ///   nil disables personal learning entirely (tests).
     init(appGroupId: String? = nil) {
         self.appGroupId = appGroupId
+        self.recorder = SessionRecorder(appGroupId: appGroupId)
         // Seed the spacebar mode from the App Group suite before the first
         // keystroke (cheap; independent of the engine bootstrap). Re-read on
         // every viewWillAppear via `refreshSpacebarMode()`.
@@ -245,6 +253,32 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     func noteKeyTap(_ character: Character, dx: Double, dy: Double) {
         queue.async { [weak self] in
             self?.session?.noteTap(char: character, dx: dx, dy: dy)
+            // DEV-MODE recorder: no-op unless a session is armed (cached bool).
+            self?.recorder.captureTap(char: character, dx: dx, dy: dy)
+        }
+    }
+
+    /// DEV-MODE recorder: buffer a backspace (forwarded from the action
+    /// handler's `.backspace` release). No-op unless a session is armed.
+    func noteRecordedBackspace() {
+        queue.async { [weak self] in
+            self?.recorder.captureBackspace()
+        }
+    }
+
+    /// DEV-MODE recorder: an autocorrect suggestion is about to be applied by
+    /// the action handler (space-commit / deferred-dot). No-op unless armed.
+    func noteRecordedAutocorrectApplied(_ text: String) {
+        queue.async { [weak self] in
+            self?.recorder.captureApplied(.autocorrect(text))
+        }
+    }
+
+    /// DEV-MODE recorder: the user tapped a suggestion in the bar. No-op
+    /// unless a session is armed.
+    func noteRecordedSuggestionTap(_ text: String) {
+        queue.async { [weak self] in
+            self?.recorder.captureApplied(.suggestionTap(text))
         }
     }
 
@@ -605,6 +639,10 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             return .init(inputText: text, suggestions: [])
         }
         let suggestions = session.suggestions(for: text, limit: 3)
+        // DEV-MODE recorder: one flag check; writes a JSONL line ONLY when a
+        // session is armed and the field is standard. Off by default, and
+        // entirely independent of the learning event log below.
+        recorder.recordPass(window: text, fieldKind: fieldKind, suggestions: suggestions)
         setRevertMemoArmed(session.hasPendingContinuationRevert)
         setAttachmentMemoArmed(session.hasPendingPunctuationAttachment)
         // Word-commit boundary flush: the pass that detected a commit (or a

@@ -58,6 +58,10 @@ Lyklaborð's App Store privacy label is **"Data Not Collected"**. The iCloud syn
 - **Delete individual words**: swipe to delete in Orðasafn; deletions stick.
 - **Delete everything**: "Eyða öllum gögnum" in Settings wipes the on-device data and the iCloud copy, immediately.
 
+### Developer mode
+
+Debug and developer-signed builds include a hidden "Þróunarhamur" (developer mode) with a typing-session recorder, used to improve autocorrect quality against real typing. It is **off by default** and never present in App Store builds. When switched on, it records **only what you type into the app's own recording pad ("Upptökusvæði") inside this app** — never anything you type in any other app. Recordings (the pad text over time, plus what the keyboard offered and applied) are stored **locally** in the app's own container and leave the device only if the developer explicitly exports or pulls them. Recording arms the keyboard for the recording pad only; it turns itself off automatically after 10 minutes and the instant the app leaves the foreground, and a red indicator is shown the whole time it is active. Secure, URL, email, and search fields are never recorded even in developer mode, and your learned dictionary is completely unaffected.
+
 ### Contact
 
 Questions or concerns: open an issue at https://github.com/jokull/LyklabordApp or email jokull@triptojapan.com.
@@ -106,6 +110,10 @@ Persónuverndarmerki Lyklaborðs í App Store er **„Data Not Collected“**. S
 - **Flytja út**: „Flytja út gögnin mín“ í stillingum eða Orðasafni vistar allt sem lyklaborðið hefur lært í eina læsilega JSON-skrá sem þú getur geymt eða fært.
 - **Eyða stökum orðum**: strjúktu til að eyða í Orðasafni; eyðingarnar haldast.
 - **Eyða öllu**: „Eyða öllum gögnum“ í stillingum hreinsar gögnin í tækinu og iCloud-afritið samstundis.
+
+### Þróunarhamur
+
+Þróunar- og villuleitarútgáfur (debug) innihalda falinn „Þróunarham“ með innsláttarupptöku sem er notuð til að bæta sjálfvirka leiðréttingu út frá raunverulegum innslætti. Hann er **sjálfgefið óvirkur** og er aldrei til staðar í App Store-útgáfum. Þegar kveikt er á honum tekur hann aðeins upp það sem þú skrifar á upptökusvæði appsins sjálfs („Upptökusvæði“) — aldrei neitt sem þú skrifar í öðrum forritum. Upptökur (texti svæðisins yfir tíma, ásamt því sem lyklaborðið bauð og beitti) eru geymdar **staðbundið** í gagnasvæði appsins og fara af tækinu einungis ef þróandi flytur þær út eða sækir þær sérstaklega. Upptaka virkjar lyklaborðið aðeins fyrir upptökusvæðið; hún slekkur sjálfkrafa á sér eftir 10 mínútur og um leið og appið fer úr forgrunni, og rautt merki er sýnt allan tímann sem hún er virk. Öruggir reitir, vefslóðir, netföng og leitarreitir eru aldrei teknir upp, jafnvel í þróunarham, og lærða orðabókin þín verður fyrir engum áhrifum.
 
 ### Hafa samband
 

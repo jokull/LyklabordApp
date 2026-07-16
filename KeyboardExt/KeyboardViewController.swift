@@ -484,6 +484,14 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
             keyboardContext.textDocumentProxy.insertText(prediction)
         }
 
+        // DEV-MODE session recorder: forward a backspace so the analyzer can
+        // reconstruct backspace-retype "miss" sequences. No-op unless the
+        // containing app has armed a recording session (single flag check on
+        // the engine queue); never records anything itself.
+        if gesture == .release, action == .backspace {
+            betterAutocompleteService?.noteRecordedBackspace()
+        }
+
         // 3. Revert-on-continuation: before a letter/digit is inserted, the
         // session may order the last '.'-triggered auto-replacement undone
         // (it holds the (original, corrected) memo for exactly one
@@ -582,7 +590,28 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         if suggestion.isUnknown {
             betterAutocompleteService?.noteVerbatimChoice(suggestion.text)
         }
+        // DEV-MODE recorder: log the tapped candidate as the applied action of
+        // the next pass. No-op unless a recording session is armed.
+        betterAutocompleteService?.noteRecordedSuggestionTap(suggestion.text)
         super.handle(suggestion)
+    }
+
+    /// DEV-MODE recorder hook: `tryApplyAutocorrectSuggestion` is the exact
+    /// point KeyboardKit auto-applies the pending `.autocorrect` on a delimiter
+    /// (space-commit / our deferred-'.'). We note the applied text BEFORE super
+    /// mutates the document, so the following autocomplete pass attributes it.
+    /// No-op unless a recording session is armed. Behaviourally transparent —
+    /// it only observes, then defers to super unchanged.
+    override func tryApplyAutocorrectSuggestion(
+        before gesture: Keyboard.Gesture,
+        on action: KeyboardAction
+    ) {
+        if shouldApplyAutocorrectSuggestion(before: gesture, on: action),
+            let applied = autocompleteContext.suggestions.first(where: { $0.isAutocorrect })
+        {
+            betterAutocompleteService?.noteRecordedAutocorrectApplied(applied.text)
+        }
+        super.tryApplyAutocorrectSuggestion(before: gesture, on: action)
     }
 }
 
