@@ -107,8 +107,26 @@ public struct Predictor {
         // Tombstoned words are never predicted, base-lexicon presence
         // notwithstanding (PLAN.md learning semantics).
         let pool = pool.filter { !model.isPersonalTombstoned($0) }
+        // Inflection-aware prediction (PLAN.md Stage B #3): after a governor
+        // with a strong case signature, candidates matching the expected
+        // case earn the same λ_morph backoff the corrector uses — and under
+        // the same backoff rule: bigram-attested continuations already
+        // carry the case signal (that's how the governors table was built),
+        // so only bigram-SILENT pool members (personal words, unigram
+        // fallback, cross-lexicon candidates) are re-ranked by it.
+        let governorFit = model.inflection.governorFit(
+            previousWord: previousWord,
+            pIcelandic: pIcelandic,
+            morphology: model.morphology,
+            config: config
+        )
         var scored: [(word: String, score: Double)] = pool.map { word in
-            let s = model.blendedScore(of: word, previous: previousWord, pIcelandic: pIcelandic)
+            var s = model.blendedScore(of: word, previous: previousWord, pIcelandic: pIcelandic)
+            if let fit = governorFit,
+                model.icelandic.bigramFrequency(fit.previousWord, word) == nil
+            {
+                s += fit.fitNats(for: word)
+            }
             return (word, s)
         }
         scored.sort { $0.score > $1.score || ($0.score == $1.score && $0.word < $1.word) }

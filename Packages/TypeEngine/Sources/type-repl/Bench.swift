@@ -125,5 +125,46 @@ struct Bench {
                 + "  (slowest; p50 \(String(format: "%.0f", nakedP50)) us"
                 + " while typing \"flytjum i bud …\" at P(IS)≈0.9)"
         )
+
+        // Inflection-intelligence gate (PLAN.md "Inflection intelligence"):
+        // every mid-word keystroke here runs with a governor as the
+        // previous word ("frá"/"til"/"um" all clear the mass gate), so the
+        // per-keystroke cost of the morph backoff (O(1) governor lookup +
+        // one paradigms/bigram probe per candidate) is fully exercised.
+        typist.reset()
+        typist.type("við komum frá húsinu og fórum til borgarinnar um miðnætti. ")
+        let inflectStart = typist.latenciesMicros.count
+        typist.type("ég fer frá hestinum til kirkjunnar um helgina")
+        let inflectLatencies = typist.latenciesMicros[inflectStart...].sorted()
+        let inflectWorst = inflectLatencies.last ?? 0
+        let inflectP50 = inflectLatencies.isEmpty ? 0 : inflectLatencies[inflectLatencies.count / 2]
+        print(
+            "  governor-context   \(String(format: "%8.0f", inflectWorst)) us"
+                + "  (slowest; p50 \(String(format: "%.0f", inflectP50)) us"
+                + " while typing after frá/til/um governors)"
+        )
+
+        // Memory footprint after everything above (mmap discipline gate:
+        // paradigms.bin/lemma-is.bin resident cost is touched pages only;
+        // the governors table is the one deliberate dirty allocation).
+        let memory = Self.memoryFootprint()
+        print(
+            "  phys_footprint     \(String(format: "%8.1f", Double(memory.footprint) / 1024 / 1024)) MB"
+                + "  (resident \(String(format: "%.1f", Double(memory.resident) / 1024 / 1024)) MB"
+                + " after bench, all artifacts loaded)"
+        )
+    }
+
+    static func memoryFootprint() -> (resident: UInt64, footprint: UInt64) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return (0, 0) }
+        return (info.resident_size, UInt64(info.phys_footprint))
     }
 }

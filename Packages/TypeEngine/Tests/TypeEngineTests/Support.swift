@@ -1,10 +1,52 @@
+import LemmaCore
 import TypeEngine
 
 /// Dictionary-backed morphology fake (stands in for BÍN's BinaryLemmatizer).
 final class FakeMorphology: MorphologyProviding {
     private let words: Set<String>
+    /// word -> grammatical cases (the lemmatizeWithMorph fallback seam).
+    var cases: [String: [String]] = [:]
+    /// word -> lemma candidates (the personal-lemma-lift unambiguity seam).
+    var lemmas: [String: [String]] = [:]
+
     init(_ words: Set<String>) { self.words = words }
     func isKnown(_ word: String) -> Bool { words.contains(word) }
+    func nounAdjectiveCases(of word: String) -> [String] { cases[word] ?? [] }
+    func lemmaCandidates(of word: String) -> [String] { lemmas[word] ?? [] }
+}
+
+/// Dictionary-backed paradigms fake (stands in for LemmaCore's
+/// ParadigmsReader over paradigms.bin).
+final class FakeParadigms: ParadigmsProviding {
+    var groupsByLemma: [String: [ParadigmGroup]] = [:]
+    var analysesByForm: [String: [ParadigmAnalysis]] = [:]
+
+    func groups(ofLemma lemma: String) -> [ParadigmGroup] {
+        groupsByLemma[lemma.lowercased()] ?? []
+    }
+    func analyses(ofForm form: String) -> [ParadigmAnalysis] {
+        analysesByForm[form.lowercased()] ?? []
+    }
+
+    /// Register a noun paradigm: lemma + (form, caseCode, plural, definite)
+    /// rows; fills both directions.
+    func addNoun(lemma: String, genderCode: UInt8 = 0, forms: [(String, Int, Bool, Bool)]) {
+        let paradigmForms = forms.map {
+            ParadigmForm(
+                form: $0.0,
+                bundle: .noun(caseCode: $0.1, plural: $0.2, definite: $0.3)
+            )
+        }
+        groupsByLemma[lemma, default: []].append(
+            ParadigmGroup(lemma: lemma, pos: .noun, genderCode: genderCode, forms: paradigmForms)
+        )
+        for form in paradigmForms {
+            analysesByForm[form.form, default: []].append(
+                ParadigmAnalysis(
+                    lemma: lemma, pos: .noun, genderCode: genderCode, bundle: form.bundle)
+            )
+        }
+    }
 }
 
 /// In-memory personal vocabulary (stands in for the production

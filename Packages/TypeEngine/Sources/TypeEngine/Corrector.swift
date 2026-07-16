@@ -183,6 +183,24 @@ public struct Corrector {
             )
         }
 
+        // Inflection backoff context (PLAN.md "Inflection intelligence"
+        // Stage B #1): non-nil when the previous word is a known Icelandic
+        // case governor (mass + lane gates in InflectionStore.governorFit).
+        // Candidates that are strict-prefix COMPLETIONS of the typed word
+        // additionally earn λ_morph·log(P(case|governor)/uniform) at
+        // scoring — but ONLY when the exact (governor, candidate) bigram is
+        // NOT attested in is.lex: attested bigram evidence already carries
+        // the case signal at corpus strength through the contextual score
+        // and must keep dominating; the morph term is the backoff for
+        // unseen noun-governor pairs. Computed up front because the
+        // completions pass below also widens its pool under a governor.
+        let governorFit = model.inflection.governorFit(
+            previousWord: previousWord,
+            pIcelandic: pIcelandic,
+            morphology: model.morphology,
+            config: config
+        )
+
         // ---- Candidate generation ----------------------------------------
         // word -> lane-priced channel cost (total + restoration/error split)
         var candidates: [String: ChannelCost] = [:]
@@ -285,8 +303,16 @@ public struct Corrector {
         }
 
         // 3. Prefix completions of the typed word (completion-as-suggestion).
+        // Under a governor context the pool WIDENS
+        // (morphCompletionPoolLimit): the governed oblique form is often
+        // simply absent from the frequency-ranked top-8 — the backoff can
+        // only reorder what is pooled.
+        let completionLimit =
+            governorFit != nil
+            ? max(config.completionPoolLimit, config.morphCompletionPoolLimit)
+            : config.completionPoolLimit
         for lexicon in [model.icelandic, model.english] {
-            for completion in lexicon.completions(of: typed, limit: config.completionPoolLimit) {
+            for completion in lexicon.completions(of: typed, limit: completionLimit) {
                 admit(completion.word)
             }
         }
@@ -383,10 +409,25 @@ public struct Corrector {
         // (see BlendedLanguageModel.blendedScore). The channel cost is the
         // lane-priced total, so restoration-class edits cost ~ε inside a
         // saturated lane while error-class edits keep their full prices.
+        //
         var scored: [(word: String, cost: ChannelCost, score: Double)] = candidates.map {
             word, cost in
             let s = model.blendedScore(of: word, previous: previousWord, pIcelandic: pIcelandic)
-            return (word, cost, -cost.total + config.languageWeight * s)
+            var score = -cost.total + config.languageWeight * s
+            // The morph term applies to strict-prefix COMPLETIONS of the
+            // typed word only (the Stage-B #1 shape: "typed frá hest| →
+            // candidate forms get + λ_morph·log P(features | governor)").
+            // Error-class repairs stay pure noisy-channel: boosting them by
+            // case fit lifts right-case junk ("á rit|" pulling "rut" above
+            // honest completions) without any grammatical justification —
+            // the typed keys, not the governor, are the evidence there.
+            if let fit = governorFit,
+                word.hasPrefix(typed),
+                model.icelandic.bigramFrequency(fit.previousWord, word) == nil
+            {
+                score += fit.fitNats(for: word)
+            }
+            return (word, cost, score)
         }
 
         // 6. Space-miss splits (PLAN.md "Space-miss correction"): an unknown
@@ -512,7 +553,7 @@ public struct Corrector {
         let maxScore = confidencePool.first?.score ?? 0
         let z = confidencePool.reduce(0.0) { $0 + exp($1.score - maxScore) }
 
-        let suggestions = scored.prefix(limit).enumerated().map { index, entry in
+        var suggestions = scored.prefix(limit).enumerated().map { index, entry in
             Suggestion(
                 text: entry.word,
                 isAutocorrect: index == 0 && autocorrect,
@@ -520,7 +561,62 @@ public struct Corrector {
                 isRestoration: entry.cost.isRestorationOnly
             )
         }
-        return CorrectionResult(suggestions: Array(suggestions), typedWordIsValid: typedIsValid)
+
+        // Wrong-form offer (PLAN.md Stage B #2, offer-only — HARD): the
+        // typed word is VALID but a paradigm sibling of the same lemma fits
+        // the governor dramatically better ("frá hestur" → "hesti"). The
+        // sibling is surfaced in the bar and NEVER auto-applied — one valid
+        // form of a lemma is never auto-replaced by another (grammar
+        // assistance, not autocorrect). Suppressed outright when the typed
+        // (governor, word) bigram is itself corpus-attested: attested usage
+        // must never trigger a "correction" offer (grammar-offer precision).
+        if typedIsValid, let fit = governorFit,
+            model.icelandic.bigramFrequency(fit.previousWord, typed) == nil,
+            let offer = wrongFormOffer(typed: typed, fit: fit)
+        {
+            suggestions.removeAll { $0.text == offer }
+            // Never displace an auto-apply winner (the skeleton-collision
+            // restoration path can legitimately hold slot 0 here), and never
+            // displace a top candidate the corpus attests WITH this governor
+            // ("til bak|" → bigram-attested "baka" stays on top, the
+            // genitive offer rides second): exact bigram evidence dominates
+            // the grammar generalization here exactly as it does in scoring.
+            let topHasBigramEvidence =
+                suggestions.first.map {
+                    model.icelandic.bigramFrequency(fit.previousWord, $0.text) != nil
+                } ?? false
+            let slot = (suggestions.first?.isAutocorrect == true || topHasBigramEvidence) ? 1 : 0
+            suggestions.insert(
+                Suggestion(
+                    text: offer,
+                    isAutocorrect: false,
+                    confidence: fit.governor.caseProbabilities[fit.dominantCaseCode]
+                ),
+                at: min(slot, suggestions.count)
+            )
+            suggestions = Array(suggestions.prefix(limit))
+        }
+
+        return CorrectionResult(suggestions: suggestions, typedWordIsValid: typedIsValid)
+    }
+
+    /// The single best wrong-form sibling to offer for a VALID typed word
+    /// under a governor: `GovernorFit.wrongFormSiblings` (same lemma, same
+    /// agreement axes, case swapped to the governor's dominant case, past
+    /// the advantage threshold), tombstones excluded, ranked by is.lex
+    /// frequency (BÍN alternate spellings for one slot: the attested one
+    /// wins; wholly unattested siblings still qualify — the paradigm is the
+    /// authority on existence, frequency only breaks ties).
+    private func wrongFormOffer(typed: String, fit: GovernorFit) -> String? {
+        let siblings = fit.wrongFormSiblings(
+            ofValidTyped: typed,
+            minAdvantage: config.morphWrongFormMinAdvantage
+        ).filter { !model.isPersonalTombstoned($0) }
+        return siblings.max { lhs, rhs in
+            let l = model.icelandic.frequency(of: lhs) ?? 0
+            let r = model.icelandic.frequency(of: rhs) ?? 0
+            return l < r || (l == r && lhs > rhs)
+        }
     }
 
     // MARK: - Coordinate margin veto (PLAN.md "Touch decoding")

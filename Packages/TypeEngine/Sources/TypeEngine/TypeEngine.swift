@@ -2,7 +2,33 @@ import Foundation
 import LemmaCore
 import Lexicon
 
-extension BinaryLemmatizer: MorphologyProviding {}
+extension BinaryLemmatizer: MorphologyProviding {
+    /// Inflection-backoff fallback (PLAN.md Stage B #1): cases of the
+    /// word's noun/adjective analyses via `lemmatizeWithMorph` (v2 morph
+    /// section; empty on v1 binaries, which simply disables the fallback).
+    public func nounAdjectiveCases(of word: String) -> [String] {
+        lemmatizeWithMorph(word).compactMap { analysis in
+            guard analysis.pos == "no" || analysis.pos == "lo" else { return nil }
+            return analysis.morph?.grammaticalCase
+        }
+    }
+
+    /// Distinct lemma candidates (`lemmatize` semantics without the
+    /// unknown-word echo): the personal lemma lift's unambiguity gate.
+    public func lemmaCandidates(of word: String) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for entry in lemmatizeWithPOS(word) where seen.insert(entry.lemma).inserted {
+            result.append(entry.lemma)
+        }
+        return result
+    }
+}
+
+/// Production paradigms conformance: the mmap reader over
+/// `data/is/paradigms.bin` (LemmaCore) already exposes exactly the two
+/// lookups the engine seam needs.
+extension ParadigmsReader: ParadigmsProviding {}
 
 /// Facade over the corrector and predictor with a running bilingual language
 /// posterior. Pure synchronous API — no dispatch/async inside; the caller
@@ -69,6 +95,7 @@ public final class TypeEngine {
     /// those words — double counting is bounded and harmless for a boost).
     public func setPersonalVocabulary(_ vocabulary: PersonalVocabulary?) {
         model.personal.setSnapshot(vocabulary)
+        rebuildLemmaLift()
     }
 
     /// Session-immediate learning: make `word` valid + suggestible RIGHT NOW
@@ -76,11 +103,52 @@ public final class TypeEngine {
     /// compaction). The overlay lives until `clearSessionVocabulary()`.
     public func learnSessionWord(_ word: String) {
         model.personal.learnSession(word)
+        rebuildLemmaLift()
     }
 
     /// Drop the in-session learned overlay (session reset).
     public func clearSessionVocabulary() {
         model.personal.clearSession()
+        rebuildLemmaLift()
+    }
+
+    // MARK: - Inflection intelligence (PLAN.md "Inflection intelligence")
+
+    /// Inject (or clear) the Stage-B inflection artifacts (paradigms.bin
+    /// reader + governors model). Absent by default: every inflection seam
+    /// is inert and the engine is byte-identical to the pre-inflection one.
+    /// Same queue-confinement contract as every other engine call.
+    public func setInflection(_ inflection: InflectionModel?) {
+        model.inflection.setModel(inflection)
+        rebuildLemmaLift()
+    }
+
+    /// Rebuild the personal lemma lift (paradigm-sibling boost) from the
+    /// current personal vocabulary. Runs on snapshot/model swaps and
+    /// explicit learns — personal scale × paradigm size, never per
+    /// keystroke.
+    private func rebuildLemmaLift() {
+        model.inflection.rebuildLift(
+            words: model.personal.allValidKeys,
+            morphology: model.morphology,
+            liftNats: config.lemmaLiftBoost
+        )
+    }
+
+    /// Case-government diagnostics for a word acting as a GOVERNOR (REPL
+    /// `:gov`): (mass, P(case | word) sorted descending); nil when no
+    /// inflection model is loaded or the word is not a governor.
+    public func governorDiagnostics(for word: String)
+        -> (mass: Double, entropyRatio: Double, cases: [(name: String, p: Double)])?
+    {
+        guard
+            let governor = model.inflection.model?.governors.governor(of: word.lowercased())
+        else { return nil }
+        let cases = ParadigmBundle.caseNames.enumerated()
+            .map { (name: $1, p: governor.caseProbabilities[$0]) }
+            .filter { $0.p > 0 }
+            .sorted { $0.p > $1.p }
+        return (mass: governor.mass, entropyRatio: governor.caseEntropyRatio, cases: cases)
     }
 
     /// Diagnostics (REPL `:learned`, tests): canonical surfaces of the

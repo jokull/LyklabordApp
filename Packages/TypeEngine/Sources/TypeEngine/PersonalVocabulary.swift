@@ -259,6 +259,13 @@ final class PersonalStore {
         return best
     }
 
+    /// All valid personal words as lowercased pipeline keys (snapshot +
+    /// session overlay), sorted for determinism. Input to the personal
+    /// lemma lift rebuild (see `InflectionStore.rebuildLift`).
+    var allValidKeys: [String] {
+        Set(index.keys).union(session.keys).sorted()
+    }
+
     // MARK: - Diagnostics (REPL `:learned`, tests)
 
     /// Canonical surfaces of all snapshot words, sorted.

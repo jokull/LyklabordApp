@@ -1,0 +1,108 @@
+# inflect.scenarios — Inflection intelligence, Stage B (PLAN.md
+# "Inflection intelligence"): case-government completion re-ranking,
+# wrong-form offers (offer-only, HARD), exact-bigram override, EN sletta
+# protection, and the personal lemma lift — against the REAL artifacts
+# (is.lex + lemma-is.bin + paradigms.bin + governors.json.gz).
+#
+# Run:  swift run -c release type-repl run Scenarios/inflect.scenarios
+#
+# The statistical case-government model (nothing hand-written): P(þgf|frá)
+# = 0.675, P(ef|til) = 0.703, P(þf|um) = 0.464 in the shipped
+# governors.json.gz — hestur declines hestur/hest/hesti/hests, so the same
+# masked prefix "hest" must complete differently per governor.
+
+LIMIT 5
+
+# ---------------------------------------------------------------------------
+# Completion re-ranking (the headline)
+# ---------------------------------------------------------------------------
+
+SCENARIO fra hest completes to dative hesti
+T "ég fer frá hest"
+EXPECT_VERBATIM hest
+# Dative leads on the morph backoff (freq-only ranking put hestur first);
+# the runner-up is the dative PLURAL — both readings the governor licenses.
+EXPECT_TOP hesti
+EXPECT_CONTAINS hestum
+# Typed word is valid vocabulary — nothing may auto-apply.
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO til hest completes to genitive hests
+T "ég fer til hest"
+EXPECT_VERBATIM hest
+EXPECT_TOP hests
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO um hest keeps the accusative untouched
+T "við tölum um hest"
+EXPECT_VERBATIM hest
+# hest IS the accusative um wants: the top completion stays accusative
+# (hesta, þf plural), no wrong-form offer fires, nothing auto-applies.
+EXPECT_TOP hesta
+EXPECT_NOT_CONTAINS hests
+EXPECT_NO_AUTOCORRECT
+
+# ---------------------------------------------------------------------------
+# Wrong-form offers (offer-only, HARD): valid -> valid of one lemma is
+# NEVER auto-applied
+# ---------------------------------------------------------------------------
+
+SCENARIO fra hestur offers the dative sibling
+T "ég fer frá hestur"
+EXPECT_VERBATIM hestur
+# The paradigm sibling in the governed case is offered in the bar...
+EXPECT_TOP hesti
+# ...but the typed word is a valid form of the same lemma: absolute rule,
+# no auto-apply, and the delimiter commits the token exactly as typed.
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT hestur
+EXPECT_BUFFER "ég fer frá hestur "
+
+SCENARIO exact bigram override keeps til baka on top
+# "til" governs the genitive (P(ef|til)=0.70), but "til baka" is a
+# corpus-attested bigram (62k): the attested reading skips the morph
+# backoff and keeps the top slot; the genitive offer (baks) rides behind
+# it, never ahead.
+T "komdu til bak"
+EXPECT_VERBATIM bak
+EXPECT_TOP baka
+EXPECT_CONTAINS baks
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO en sletta after a governor stays untouched
+# An English loanword right after an Icelandic governor has no
+# noun/adjective analysis: zero morph term, no decoration, no correction.
+T "ég er að tala um weekend"
+EXPECT_VERBATIM weekend
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT weekend
+
+# ---------------------------------------------------------------------------
+# Personal lemma lift (unambiguous lemma only)
+# ---------------------------------------------------------------------------
+
+SCENARIO learned jokull lifts paradigm siblings after fra
+LEARN jökull
+T "ég fer frá jök"
+# The learned form leads (full personal boost beats the lift by design);
+# the dative sibling rides right behind it (morph backoff + lemma lift),
+# and lifted oblique siblings (jöklum þgf ft) enter a bar they were
+# nowhere near before the learn (unlifted: jökli, jökulsá, jöklinum,
+# jökuldal).
+EXPECT_TOP jökull
+EXPECT_CONTAINS jökli
+EXPECT_CONTAINS jöklum
+EXPECT_NO_AUTOCORRECT
+
+# ---------------------------------------------------------------------------
+# Prediction after a governor
+# ---------------------------------------------------------------------------
+
+SCENARIO prediction after fra stays bigram-led
+T "ég fer frá "
+# Attested continuations of frá keep their bigram ranking (the backoff
+# only reorders bigram-silent candidates): "frá því" is the corpus king.
+EXPECT_TOP því
+EXPECT_NO_AUTOCORRECT

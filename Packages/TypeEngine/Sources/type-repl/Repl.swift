@@ -20,6 +20,8 @@ struct Repl {
               :reset            fresh field (document, session, posterior)
               :posterior        print P(Icelandic)
               :word <w>         per-lexicon attestation, calibrated z, lane evidence
+              :gov <w>          case-government distribution when <w> is a governor
+                                (inflection intelligence: P(case | w) from governors.json.gz)
               :learn <w>        session-immediate explicit learn (verbatim-tap path)
               :longpress <c>    type <c> as LONG-PRESS callout characters
                                 (deliberateness signal: folding vetoed for the word)
@@ -91,6 +93,26 @@ struct Repl {
                 "  lane evidence log(e_IS/e_EN) = \(String(format: "%+.3f", d.evidence)) nats"
                     + (d.evidence == 0 ? " (uniform — does not move the lane)" : "")
             )
+        case ":gov":
+            guard !argument.isEmpty else {
+                print("usage: :gov <word>")
+                break
+            }
+            if let d = engine.governorDiagnostics(for: argument) {
+                let distribution = d.cases
+                    .map { "\($0.name)=\(String(format: "%.3f", $0.p))" }
+                    .joined(separator: "  ")
+                print(
+                    "  governor \"\(argument)\": mass=\(String(format: "%.0f", d.mass))"
+                        + "  entropy_ratio=\(String(format: "%.3f", d.entropyRatio))"
+                )
+                print("  P(case | \(argument)): \(distribution)")
+            } else {
+                print(
+                    "  \"\(argument)\" is not a known governor"
+                        + " (no inflection model loaded, or below the artifact's mass/entropy filters)"
+                )
+            }
         case ":longpress":
             guard !argument.isEmpty else {
                 print("usage: :longpress <characters>")

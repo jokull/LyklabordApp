@@ -15,11 +15,16 @@ import TypeEngine
 //   --is <path>      is.lex override        (default <repo>/data/is/is.lex)
 //   --lemma <path>   lemma-is.bin override  (default <repo>/data/is/lemma-is.bin)
 //   --no-morph       skip BÍN morphology
+//   --no-inflect     skip the Stage-B inflection artifacts (paradigms.bin +
+//                    governors.json.gz) — the frequency-only baseline engine
 //   --limit <n>      suggestion bar size    (default 5; bench default 3 = extension)
 //   --personal <p>   personal-model JSON (Learning.PersonalModel file, the
 //                    same personal-model.json the app writes to the App
 //                    Group container) injected as the engine's personal
 //                    vocabulary snapshot
+//
+// Subcommand `inflect`: the auto-harvested inflection eval (PLAN.md
+// "Inflection intelligence" testability) — see Inflect.swift.
 
 var arguments = Array(CommandLine.arguments.dropFirst())
 
@@ -42,8 +47,12 @@ let enOverride = takeOption("--en")
 let isOverride = takeOption("--is")
 let lemmaOverride = takeOption("--lemma")
 let noMorph = takeFlag("--no-morph")
+let noInflect = takeFlag("--no-inflect")
 let limitOverride = takeOption("--limit").flatMap(Int.init)
 let personalOverride = takeOption("--personal")
+// The `inflect` subcommand builds its own engine pair (morph vs baseline)
+// from `paths`, so peek before the engine below is constructed.
+let isInflectEval = arguments.first == "inflect"
 
 var resolvedPaths = Artifacts.defaultPaths()
 if resolvedPaths == nil, let en = enOverride, let is_ = isOverride {
@@ -63,9 +72,15 @@ if let en = enOverride { paths.english = URL(fileURLWithPath: en) }
 if let is_ = isOverride { paths.icelandic = URL(fileURLWithPath: is_) }
 if let lemma = lemmaOverride { paths.morphology = URL(fileURLWithPath: lemma) }
 
+if isInflectEval {
+    // Dedicated eval mode: loads its own engine pair, never the shared one.
+    exit(Int32(InflectEval(paths: paths, arguments: Array(arguments.dropFirst())).run()))
+}
+
 let engine: TypeEngine
 do {
-    engine = try Artifacts.loadEngine(paths: paths, morphologyEnabled: !noMorph)
+    engine = try Artifacts.loadEngine(
+        paths: paths, morphologyEnabled: !noMorph, inflectionEnabled: !noInflect)
 } catch {
     warn("failed to load artifacts: \(error)")
     exit(2)

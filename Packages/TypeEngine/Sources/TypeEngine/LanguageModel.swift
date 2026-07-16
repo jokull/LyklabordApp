@@ -5,6 +5,24 @@ import Lexicon
 /// BinaryLemmatizer in production; a fake in tests).
 public protocol MorphologyProviding: AnyObject {
     func isKnown(_ word: String) -> Bool
+
+    /// Grammatical cases ("nf"/"þf"/"þgf"/"ef") of the word's noun/adjective
+    /// analyses — the inflection backoff's FALLBACK when a form is absent
+    /// from the frequency-filtered paradigms.bin (PLAN.md "Inflection
+    /// intelligence" Stage B #1: "fall back to lemmatizeWithMorph where
+    /// absent"). Default: none (validation-only conformers stay valid).
+    func nounAdjectiveCases(of word: String) -> [String]
+
+    /// Distinct lemma candidates of a surface form (`lemmatize` semantics;
+    /// [] for unknown words). The personal lemma lift's unambiguity gate —
+    /// exactly one candidate — runs on this (PLAN.md "Lemma-level learning
+    /// constraint"). Default: none (no form ever lifts).
+    func lemmaCandidates(of word: String) -> [String]
+}
+
+public extension MorphologyProviding {
+    func nounAdjectiveCases(of word: String) -> [String] { [] }
+    func lemmaCandidates(of word: String) -> [String] { [] }
 }
 
 /// All engine tunables in one place. Defaults documented inline; every value
@@ -474,6 +492,58 @@ public struct EngineConfig: Sendable {
     /// stickiness prior. Evidence is graded above the dead zone, not binary.
     public var laneEvidenceDeadZone: Double = 1.0
 
+    // --- Inflection intelligence (PLAN.md "Inflection intelligence",
+    // Stage B). All inert unless an InflectionModel (paradigms.bin +
+    // governors.json.gz) is injected via TypeEngine.setInflection. The
+    // morph term is a BACKOFF:
+    //   score += λ_morph · log(P(case(candidate) | governor) / 0.25)
+    // added only when the exact (governor, candidate) bigram is NOT
+    // attested in is.lex — attested bigram evidence must keep dominating
+    // (see GovernorFit docs). Gated to the Icelandic lane: governors are an
+    // Icelandic phenomenon.
+
+    /// λ_morph: weight of the case-government backoff term. 0 disables the
+    /// whole inflection scoring path (baseline A/B switch). Tuned on the
+    /// DEV region of the `inflect` eval (sweep 0.5–2.0): 0.6 maximizes the
+    /// top-1 delta with the fewest morph-caused regressions; ≥1.5 lets the
+    /// case prior steamroll frequency and goes net-negative.
+    public var morphBackoffWeight: Double = 0.6
+    /// Minimum bigram mass a governor needs before its case distribution is
+    /// trusted for scoring — the artifact's own floor is 50; the engine
+    /// demands more (thin governors carry noisy marginals).
+    public var morphMinGovernorMass: Double = 200
+    /// Lane gate: the backoff (and the wrong-form offers) apply only at
+    /// P(IS) at or above this. At the neutral prior and below, English
+    /// typing is byte-identical to the pre-inflection engine.
+    public var morphBackoffMinPosterior: Double = 0.5
+    /// Floor of the per-case log-likelihood ratio log(P(case|gov)/0.25),
+    /// in nats — also the price of a case the governor was never observed
+    /// with (P = 0). Bounds how hard a wrong-case form can be pushed down
+    /// (the positive side is naturally capped at log(4) ≈ +1.39).
+    public var morphCaseFitFloor: Double = -2.0
+    /// Wrong-form offer threshold (offer-only machinery): the governor's
+    /// dominant case must beat the typed word's best reading by at least
+    /// this many nats of case log-ratio before a sibling form is offered
+    /// ("dramatically better" — ~e^1.5 ≈ 4.5× in probability ratio).
+    /// The offer is NEVER auto-applied (valid→valid of one lemma: absolute
+    /// rule), and never fires when the typed (governor, word) bigram is
+    /// itself corpus-attested (grammar-offer precision: attested usage is
+    /// never "corrected").
+    public var morphWrongFormMinAdvantage: Double = 1.5
+    /// Prefix-completion pool width while a governor context is active
+    /// (replaces `completionPoolLimit` for the base lexicons there). The
+    /// frequency-ranked top-8 often simply does not CONTAIN the governed
+    /// form (rare oblique forms sit below the nominative flood) — the
+    /// backoff can only reorder what is pooled, so the pool widens exactly
+    /// where frequency-only ranking fails.
+    public var morphCompletionPoolLimit: Int = 24
+    /// Personal lemma lift, in nats: paradigm siblings of a learned surface
+    /// form with UNAMBIGUOUS lemma attribution get this additive prior
+    /// (consumed as a multiplicative LemmaBoostProviding — see
+    /// PersonalLemmaLift). MUST stay below `personalBoostBase` so a sibling
+    /// never outranks the learned form itself; ambiguous forms never lift.
+    public var lemmaLiftBoost: Double = 1.0
+
     // --- Personal vocabulary (M2 learning; PLAN.md "Learning" +
     // "Lemma-level learning constraint"). Personal words get an ADDITIVE
     // score prior, never a probability blend: `PersonalLexicon
@@ -602,19 +672,25 @@ struct BlendedLanguageModel {
     /// every corrector/predictor copy of this struct — a snapshot swap on
     /// the engine queue is visible everywhere without any rebuild.
     let personal: PersonalStore
+    /// Inflection-intelligence holder (paradigms + governors + personal
+    /// lemma lift), shared by reference exactly like `personal` — inert
+    /// (nil model) unless the embedder injects one.
+    let inflection: InflectionStore
 
     init(
         icelandic: Lexicon,
         english: Lexicon,
         morphology: MorphologyProviding?,
         config: EngineConfig,
-        personal: PersonalStore = PersonalStore()
+        personal: PersonalStore = PersonalStore(),
+        inflection: InflectionStore = InflectionStore()
     ) {
         self.icelandic = icelandic
         self.english = english
         self.morphology = morphology
         self.config = config
         self.personal = personal
+        self.inflection = inflection
         self.icelandicCalibration = LexiconCalibration.measure(icelandic, addK: config.addK)
         self.englishCalibration = LexiconCalibration.measure(english, addK: config.addK)
     }
@@ -667,6 +743,15 @@ struct BlendedLanguageModel {
                 config.personalBoostCap,
                 config.personalBoostBase + config.personalBoostScale * log(1 + count)
             )
+        } else if let lift = inflection.lift, !personal.isTombstoned(word) {
+            // Personal lemma lift (PLAN.md "Inflection intelligence" Stage B
+            // #4 + the lemma-level learning constraint): a paradigm sibling
+            // of a learned form with UNAMBIGUOUS lemma attribution gets a
+            // small additive prior — strictly smaller than any learned
+            // form's own boost (lemmaLiftBoost < personalBoostBase), never
+            // a merge of counts. The LemmaBoostProviding seam is
+            // multiplicative (1.0 = neutral); consumed here as log-nats.
+            boost = log(lift.lemmaBoost(forCandidate: word))
         }
         if let previous, let pairCount = personal.bigramCount(previous, word),
             !personal.isTombstoned(word)
@@ -847,6 +932,24 @@ struct BlendedLanguageModel {
                     _ = lexicon.continuations(of: word, limit: 2)
                 }
                 previous = word
+            }
+        }
+        // Inflection artifacts: one governor probe (O(1) dict) plus
+        // paradigm case-code probes across the sampled words — faults in
+        // the form-table/permutation/entries index pages every future
+        // per-candidate lookup shares (same rationale as the morphology
+        // spread below).
+        if let paradigms = inflection.model?.paradigms {
+            for word in icelandicCalibration.sampleWords {
+                _ = paradigms.bundles(ofForm: word)
+            }
+            // Two-letter spread over the form table's binary-search paths,
+            // same rationale as the morphology spread below.
+            let alphabet = Array("aábcdðeéfghiíjklmnoópqrstuúvwxyýzþæö")
+            for first in alphabet {
+                for second in alphabet {
+                    _ = paradigms.bundles(ofForm: String([first, second]))
+                }
             }
         }
         if let morphology {
