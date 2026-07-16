@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/icon.png" width="160" alt="Lyklaborð — a keycap bearing the Icelandic letter Ð" />
+</p>
+
 # Lyklaborð
 
 **A privacy-first iOS keyboard for Icelandic — that also types excellent English.**
