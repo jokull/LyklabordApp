@@ -27,6 +27,12 @@ tools/session-analyzer/sessions/
 tools/session-analyzer/personal-eval.jsonl
 # User-confirmed typo intents — derived from personal typing, same rule.
 tools/session-analyzer/confirmed-intents.jsonl
+# Dedicated venv for the OPTIONAL Greynir grammar-parse enrichment (reynir +
+# islenska/BÍN data, downloaded on first use) — see README.md's Setup section.
+tools/session-analyzer/.venv/
+# Greynir parse-result cache — quotes real typed sentences, same rule as
+# sessions/.
+tools/session-analyzer/.greynir-cache.json
 # Personal-eval baseline — derived from personal-eval.jsonl's real typed
 # text (typo|intended row keys), so it is gitignored just like the corpus it
 # summarizes. Local-only; `type-eval personal --update-baseline` rewrites it.

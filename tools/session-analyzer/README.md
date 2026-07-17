@@ -205,6 +205,67 @@ any recurring `fixed:*` class sort first; `slangur-intentional` and
 ranking and reported as a separate visible count instead. This table is the
 next-wave roadmap input.
 
+### Greynir grammar-parse enrichment (v4, OPTIONAL)
+
+**Setup** (one-time, local): install [reynir](https://pypi.org/project/reynir/)
+into a dedicated venv so it never touches the ambient interpreter or the
+`~/Forks/GreynirEngine` reference checkout:
+
+```sh
+cd tools/session-analyzer
+uv venv .venv            # plain `python3 -m venv` can fail with uv-managed
+                          # pythons — use uv if venv creation errors out
+uv pip install --python .venv/bin/python reynir
+```
+
+reynir bundles/downloads its own BÍN data (via `islenska`) on first use —
+that's expected, local-only tooling data. `.venv/` and the parse cache
+`.greynir-cache.json` are gitignored (same rule as `sessions/`: the cache
+quotes real typed sentences).
+
+This is entirely **optional and additive** — every feature below degrades to
+today's behaviour (a one-line `_greynir: unavailable_` note, never an
+exception) if the venv or `reynir` import is missing. `analyze.py` stays
+stdlib-importable: the actual `reynir`/`islenska` calls live in
+`greynir_worker.py`, which only ever runs inside `.venv` via a subprocess
+`greynir_enrich.py` shells out to — one batched invocation per session,
+covering every sentence/word that session needs, with results cached on disk
+per sentence-hash / lowercase word so re-ingests of an unchanged corpus
+dispatch no subprocess at all.
+
+Four report additions, all advisory (never change engine behavior):
+
+- **Grammar review** (new report section): every sentence of the session's
+  FINAL text is parsed; a failed or very-low-score parse is listed with the
+  sentence and a `grammar` (genuine residual typo/structure the engine
+  couldn't untangle) vs. `foreign-token` (a tokenizer-`UNKNOWN` chunk, or a
+  token confirmed-intents.jsonl marks `intentional` — e.g. `kozy`) reason.
+  Deliberately NOT keyed on "lacks Icelandic diacritics" — that would
+  mislabel ordinary accent-drop typos (`þvi`, `Eg`) as foreign.
+- **`grammar-vouched-overlap`** (new taxonomy class, status `watch`): an
+  UPGRADE applied to `valid-word-overlap` findings — the sentence is parsed
+  once with the typed word, once with the intended word substituted; if
+  Greynir genuinely prefers the intended version (it parses cleanly and
+  either the typed version doesn't parse at all, or its score clearly loses
+  by a margin), the tag upgrades and the finding — unlike plain
+  `valid-word-overlap` — ranks in the **Top gaps** table (candidate for
+  future context-aware margin work, measured not yet acted on). Excludes
+  `TAP_USED` and any typo that's a strict prefix of intended (a mid-word tap
+  fragment "not parsing" as a complete word is an artifact, not grammar
+  evidence).
+- **Case government audit** (new report section): for `INFLECTION_MISS`
+  findings, an independent BÍN case-form lookup on typed vs. intended; for
+  the final text, every preposition Greynir's own parse resolves a governed
+  case for, cross-checked against the following word's independent BÍN case
+  set. One line per disagreement; `_none found_` is the expected steady
+  state once a sentence already parses (case agreement is enforced by the
+  grammar for a successful parse) — it earns its keep on partial/failed
+  parses and un-BÍN-attested inflection fragments.
+- **Candidate disambiguation** (PENDING-REVIEW, `AGGREGATE.md`): for
+  `SILENT_MISS` findings, each of the top-3 candidates is substituted into
+  the sentence and annotated `[parses]`/`[fails]` — sharpens the list for
+  Jökull's own confirmation; never auto-promotes anything to the corpus.
+
 ## Test
 
 ```sh
@@ -213,6 +274,11 @@ python3 test_analyze.py   # exit 0 = pass
 
 Runs the classifier on `fixtures/fixture-*.jsonl`, a hand-built session with
 exactly one event of each class (living documentation of the wire format), plus
-the v2 alignment/inflection/silent-miss behaviours and the v3 taxonomy
+the v2 alignment/inflection/silent-miss behaviours, the v3 taxonomy
 classifier (`test_taxonomy_*`, `test_stale_apply_detection`) against real
-cases and small fabricated fixtures.
+cases and small fabricated fixtures, and the v4 Greynir enrichment
+(`test_greynir_*`, in `greynir_enrich.py`): pure-logic tests with fabricated
+parse results (no venv needed), a monkeypatched graceful-degradation check,
+a stubbed end-to-end vouch-upgrade check, and one real integration check
+(`test_greynir_real_integration`) that actually shells out to reynir on a
+known sentence — skipped cleanly, not failed, when `.venv` isn't set up.

@@ -60,6 +60,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
+import greynir_enrich
 import taxonomy
 
 
@@ -956,6 +957,216 @@ def tag_findings(events: list, kb: list, silent: list, repo_root: str,
 
 
 # --------------------------------------------------------------------------
+# Greynir grammar-parse enrichment (v4, OPTIONAL — see greynir_enrich.py)
+# --------------------------------------------------------------------------
+#
+# Every call below degrades to an empty/no-op result with a one-line note if
+# the dedicated venv (tools/session-analyzer/.venv) or `reynir` is
+# unavailable — this section NEVER raises and NEVER changes engine behavior;
+# it only annotates findings the base pipeline already produced. All parses
+# a session needs (residual-error pass, grammar-vouched-overlap upgrade,
+# case-government audit, SILENT_MISS candidate disambiguation) are gathered
+# up front and resolved in exactly ONE `greynir_enrich.batch_parse` call
+# (itself cache-backed, so repeat ingests of an unchanged corpus dispatch no
+# subprocess at all).
+
+_WORD_CHARS = "A-Za-zÁÉÍÓÚÝÐÞÆÖáéíóúýðþæö"
+
+
+def _substitute_first_word(text: str, old: str, new: str) -> Optional[str]:
+    """Replace the first whole-word (case-insensitive) occurrence of `old` in
+    `text` with `new`. None if `old` isn't literally present (e.g. the
+    finding's token was already normalized away) — caller falls back to a
+    synthetic context sentence."""
+    if not old:
+        return None
+    pattern = re.compile(
+        f"(?<![{_WORD_CHARS}]){re.escape(old)}(?![{_WORD_CHARS}])",
+        re.IGNORECASE,
+    )
+    new_text, n = pattern.subn(lambda m: new, text, count=1)
+    return new_text if n else None
+
+
+def _finding_typo_intended_context(finding, confirmed_intents: dict) -> tuple:
+    """(typo, intended, context_words) uniformly for an Event or a SilentMiss."""
+    if isinstance(finding, Event):
+        return finding.typo, finding.intended, list(finding.context)
+    intended = silent_intended(finding, confirmed_intents)
+    return finding.token, intended, list(finding.context)
+
+
+def _vouch_eligible(typo: str, intended: str, event_cls: str = "") -> bool:
+    """Is this valid-word-overlap finding even a fair grammar-vouch candidate?
+    Excludes TAP_USED (its "typo" is the on-screen PREFIX at tap time, not a
+    complete alternate word — substituting a bare prefix into the sentence
+    and finding it "doesn't parse" is an artifact of it not being a whole
+    word, not genuine grammar evidence) and any other case where typo is a
+    strict prefix of intended (same reason, for events recovered the same
+    way)."""
+    if event_cls == "TAP_USED":
+        return False
+    tl, il = typo.lower(), intended.lower()
+    if il.startswith(tl) and len(tl) < len(il):
+        return False
+    return True
+
+
+def _vouch_sentences(typo: str, intended: str, context: list, final_text: str) -> tuple:
+    """(typo_sentence, intended_sentence) to parse-compare for a
+    valid-word-overlap finding. Prefers substituting directly into the
+    session's FINAL text (the real grammatical sentence the word sat in);
+    falls back to a synthetic `context + word.` clause when the token isn't
+    literally findable there (e.g. an Event whose typo was corrected away
+    mid-episode and never reached the final text)."""
+    if final_text and typo in final_text:
+        typo_sentence = final_text
+        intended_sentence = _substitute_first_word(final_text, typo, intended)
+        if intended_sentence is not None:
+            return typo_sentence, intended_sentence
+    ctx = " ".join(context)
+    return (f"{ctx} {typo}.".strip(), f"{ctx} {intended}.".strip())
+
+
+def greynir_enrich_session(app: list, events: list, silent: list,
+                           event_tags: dict, silent_tags: dict,
+                           confirmed_intents: dict = None,
+                           cache_path: str = None) -> dict:
+    """Optional Greynir enrichment for one session. Returns:
+
+        {"available": bool, "note": str,
+         "grammar_review": [{"sentence", "score", "reason"}],
+         "vouched_ids": {id(finding), ...},   # upgraded in event_tags/silent_tags IN PLACE
+         "case_disagreements": [str, ...],
+         "candidate_parses": {id(silent_miss): [(word, parses_bool), ...]}}
+
+    `event_tags`/`silent_tags` are mutated in place: any finding tagged
+    valid-word-overlap that Greynir genuinely vouches for gets upgraded to
+    (grammar-vouched-overlap, watch) — so callers that already hold those
+    dicts (analyze.py's report, aggregate.py's top-gaps rollup) see the
+    upgrade for free without re-deriving anything."""
+    confirmed_intents = confirmed_intents or {}
+    result = {
+        "available": False, "note": "", "grammar_review": [],
+        "vouched_ids": set(), "case_disagreements": [], "candidate_parses": {},
+    }
+    if not greynir_enrich.available():
+        result["note"] = greynir_enrich.UNAVAILABLE_NOTE
+        return result
+
+    final_text = _final_text(app)
+
+    # ---- Gather every sentence/word this session needs, up front. --------
+    sentences_needed = []
+    if final_text.strip():
+        sentences_needed.append(final_text)
+
+    vouch_jobs = []   # (finding_kind, finding, typo_sentence, intended_sentence)
+    for e in events:
+        if event_tags.get(id(e), (None,))[0] != "valid-word-overlap":
+            continue
+        typo, intended, ctx = _finding_typo_intended_context(e, confirmed_intents)
+        if not typo or not intended or not _vouch_eligible(typo, intended, e.cls):
+            continue
+        ts, is_ = _vouch_sentences(typo, intended, ctx, final_text)
+        sentences_needed += [ts, is_]
+        vouch_jobs.append(("event", e, ts, is_))
+    for m in silent:
+        if silent_tags.get(id(m), (None,))[0] != "valid-word-overlap":
+            continue
+        typo, intended, ctx = _finding_typo_intended_context(m, confirmed_intents)
+        if not typo or not intended or not _vouch_eligible(typo, intended, m.cls):
+            continue
+        ts, is_ = _vouch_sentences(typo, intended, ctx, final_text)
+        sentences_needed += [ts, is_]
+        vouch_jobs.append(("silent", m, ts, is_))
+
+    # SILENT_MISS candidate disambiguation (top-3 candidates, contested or not
+    # — annotating an uncontested one too is harmless and still informative).
+    cand_jobs = []   # (m, [(word, sentence), ...])
+    for m in silent:
+        if m.cls != "SILENT_MISS" or len(m.candidates) < 1:
+            continue
+        pairs = []
+        for word, _freq, _pen in m.candidates[:3]:
+            sub = None
+            if final_text and m.token in final_text:
+                sub = _substitute_first_word(final_text, m.token, word)
+            if sub is None:
+                ctx = " ".join(m.context)
+                sub = f"{ctx} {word}.".strip()
+            sentences_needed.append(sub)
+            pairs.append((word, sub))
+        cand_jobs.append((m, pairs))
+
+    # Case-government audit: INFLECTION_MISS typo/intended BÍN case compare,
+    # plus a BÍN case lookup for every final-text token (cheap; lets the
+    # preposition-object cross-check below run entirely off THIS ONE batch's
+    # results, no follow-up call needed).
+    words_needed = set()
+    for e in events:
+        if e.cls == "INFLECTION_MISS":
+            words_needed.add(e.typo)
+            words_needed.add(e.intended)
+    words_needed.update(words(final_text.replace(".", " ").replace(",", " ")))
+
+    sent_results, word_results, note = greynir_enrich.batch_parse(
+        sentences=sentences_needed, words=words_needed, cache_path=cache_path)
+    result["available"] = True
+    result["note"] = note
+
+    # ---- Grammar review (residual-error pass over the final text). -------
+    if final_text.strip():
+        for sent in sent_results.get(final_text, []):
+            summary = greynir_enrich.sentence_best([sent])
+            if greynir_enrich.is_low_confidence(summary):
+                reason = greynir_enrich.grammar_review_reason(
+                    sent.get("tokens", []), confirmed_intents)
+                result["grammar_review"].append({
+                    "sentence": sent.get("text", ""),
+                    "score": summary.get("score"),
+                    "reason": reason,
+                })
+
+    # ---- Grammar-vouched-overlap upgrade (mutates event_tags/silent_tags). -
+    for kind, finding, ts, is_ in vouch_jobs:
+        typo_summary = greynir_enrich.sentence_best(sent_results.get(ts, []))
+        intended_summary = greynir_enrich.sentence_best(sent_results.get(is_, []))
+        if greynir_enrich.vouch_decision(typo_summary, intended_summary):
+            status = taxonomy.status_of(taxonomy.GRAMMAR_VOUCHED_ID)
+            tags = event_tags if kind == "event" else silent_tags
+            tags[id(finding)] = (taxonomy.GRAMMAR_VOUCHED_ID, status)
+            result["vouched_ids"].add(id(finding))
+
+    # ---- Case-government audit. ------------------------------------------
+    for e in events:
+        if e.cls != "INFLECTION_MISS":
+            continue
+        tcases = word_results.get(e.typo, [])
+        icases = word_results.get(e.intended, [])
+        if tcases and icases and set(tcases) != set(icases):
+            result["case_disagreements"].append(
+                f"`{e.typo}` (BÍN case {'/'.join(tcases)}) vs. intended "
+                f"`{e.intended}` (BÍN case {'/'.join(icases)})"
+            )
+    if final_text.strip():
+        for sent in sent_results.get(final_text, []):
+            result["case_disagreements"].extend(
+                greynir_enrich.prep_case_disagreements([sent], word_results))
+
+    # ---- Candidate disambiguation. ----------------------------------------
+    for m, pairs in cand_jobs:
+        annotated = []
+        for word, sub in pairs:
+            summary = greynir_enrich.sentence_best(sent_results.get(sub, []))
+            parses = bool(summary.get("parsed")) if not summary.get("unavailable") else False
+            annotated.append((word, parses))
+        result["candidate_parses"][id(m)] = annotated
+
+    return result
+
+
+# --------------------------------------------------------------------------
 # Lane posterior timeline — per-word IS-lane posterior via type-repl replay
 # --------------------------------------------------------------------------
 
@@ -1022,11 +1233,14 @@ def render_report(sid: str, app: list, kb: list, events: list,
                   event_tags: dict = None, silent_tags: dict = None,
                   stale_applies: list = None,
                   lane: list = None, lane_source: str = "",
-                  confirmed_intents: dict = None) -> str:
+                  confirmed_intents: dict = None,
+                  greynir: dict = None) -> str:
     event_tags = event_tags or {}
     silent_tags = silent_tags or {}
     stale_applies = stale_applies or []
     confirmed_intents = confirmed_intents or {}
+    greynir = greynir or {}
+    candidate_parses = greynir.get("candidate_parses", {})
 
     def tag_of(finding):
         return (event_tags.get(id(finding)) or silent_tags.get(id(finding))
@@ -1133,10 +1347,42 @@ def render_report(sid: str, app: list, kb: list, events: list,
                     f"`{w}` (f={f}, p{p})" for w, f, p in m.candidates
                 )
                 lines.append(f"- candidates: {guesses}")
+                parses = candidate_parses.get(id(m))
+                if parses:
+                    ann = ", ".join(
+                        f"`{w}` {'parses' if ok else 'fails'}" for w, ok in parses
+                    )
+                    lines.append(f"- greynir: {ann}")
             else:
                 lines.append("- candidates: _none within 2 cheap edits — "
                              "likely keyboard mash or an out-of-lexicon compound_")
             lines.append("")
+
+    lines.append("## Grammar review (Greynir residual-error pass)")
+    lines.append("")
+    if not greynir.get("available"):
+        lines.append(f"_{greynir.get('note') or greynir_enrich.UNAVAILABLE_NOTE}_")
+    elif not greynir.get("grammar_review"):
+        lines.append("_none — every final-text sentence parsed cleanly_")
+    else:
+        for gr in greynir["grammar_review"]:
+            lines.append(f"- [{gr['reason']}] (score {gr['score']}) "
+                         f"`{gr['sentence']}`")
+    if greynir.get("note") and greynir.get("available"):
+        lines.append("")
+        lines.append(f"_{greynir['note']}_")
+    lines.append("")
+
+    lines.append("## Case government audit")
+    lines.append("")
+    if not greynir.get("available"):
+        lines.append(f"_{greynir.get('note') or greynir_enrich.UNAVAILABLE_NOTE}_")
+    elif not greynir.get("case_disagreements"):
+        lines.append("_none found_")
+    else:
+        for line in greynir["case_disagreements"]:
+            lines.append(f"- {line}")
+    lines.append("")
 
     lines.append("## Lane posterior timeline (per word, IS-lane P)")
     lines.append("")
@@ -1220,9 +1466,11 @@ def analyze_one(directory: str, sid: str, repo_root: Optional[str] = None) -> di
         events, kb, silent, repo_root, confirmed_intents)
     stale_applies = detect_stale_applies(kb)
     lane, lane_source = lane_timeline(app, repo_root)
+    greynir = greynir_enrich_session(app, events, silent, event_tags,
+                                     silent_tags, confirmed_intents)
     report = render_report(sid, app, kb, events, silent, silent_source,
                            event_tags, silent_tags, stale_applies,
-                           lane, lane_source, confirmed_intents)
+                           lane, lane_source, confirmed_intents, greynir)
     with open(os.path.join(directory, f"{sid}-report.md"), "w", encoding="utf-8") as fh:
         fh.write(report)
     with open(os.path.join(directory, f"{sid}-candidates.jsonl"), "w", encoding="utf-8") as fh:
@@ -1235,7 +1483,10 @@ def analyze_one(directory: str, sid: str, repo_root: Optional[str] = None) -> di
     return {"sid": sid, "events": len(events), "silent_miss": sm,
             "unresolvable": ur, "silent_source": silent_source,
             "novel": novel_n, "whiplash": whiplash_n,
-            "stale_applies": len(stale_applies)}
+            "stale_applies": len(stale_applies),
+            "greynir_available": greynir.get("available", False),
+            "grammar_review": len(greynir.get("grammar_review", [])),
+            "vouched": len(greynir.get("vouched_ids", ()))}
 
 
 def analyze_dir(directory: str) -> int:
@@ -1246,9 +1497,11 @@ def analyze_dir(directory: str) -> int:
     repo_root = _repo_root()
     for sid in ids:
         s = analyze_one(directory, sid, repo_root)
+        greynir_note = (f"{s['grammar_review']} grammar-review, {s['vouched']} vouched"
+                       if s["greynir_available"] else "greynir unavailable")
         print(f"{s['sid']}: {s['events']} events, {s['silent_miss']} silent-miss / "
               f"{s['unresolvable']} unresolvable ({s['silent_source']}), "
-              f"{s['novel']} NOVEL, {s['whiplash']} whiplash → "
+              f"{s['novel']} NOVEL, {s['whiplash']} whiplash, {greynir_note} → "
               f"{sid}-report.md, {sid}-candidates.jsonl")
     return 0
 

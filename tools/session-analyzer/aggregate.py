@@ -139,6 +139,13 @@ def analyze_session(directory: str, sid: str, repo_root: str,
     stale_applies = analyze.detect_stale_applies(kb)
     lane, lane_source = analyze.lane_timeline(app, repo_root)
     whiplash = sum(1 for e in lane if e["whiplash"])
+    # Greynir enrichment (optional — degrades gracefully): upgrades
+    # valid-word-overlap -> grammar-vouched-overlap IN PLACE in event_tags/
+    # silent_tags, so the top-gaps rollup below sees it for free. Cache-backed
+    # (see greynir_enrich.py), so this is a no-op subprocess-wise once
+    # analyze.py's own per-session pass has already populated the cache.
+    greynir = analyze.greynir_enrich_session(
+        app, events, silent, event_tags, silent_tags, confirmed_intents)
 
     counts = defaultdict(int)
     for e in events:
@@ -180,6 +187,7 @@ def analyze_session(directory: str, sid: str, repo_root: str,
         "stale_applies": stale_applies,
         "whiplash": whiplash,
         "lane_source": lane_source,
+        "greynir": greynir,
     }
 
 
@@ -428,7 +436,15 @@ def update_personal_eval(corpus_path: str, sessions: list,
                 existing[key] = rec
                 added.append(rec)
             else:
-                guesses = ", ".join(f"{w}(p{p})" for w, _f, p in m.candidates[:3])
+                parses = s.get("greynir", {}).get("candidate_parses", {}).get(id(m))
+                parse_map = dict(parses) if parses else {}
+                guesses = ", ".join(
+                    f"{w}(p{p})" + (
+                        "[parses]" if parse_map.get(w) else "[fails]"
+                        if w in parse_map else ""
+                    )
+                    for w, _f, p in m.candidates[:3]
+                )
                 pending.append({
                     "typo": m.token, "intended": (top[0] if m.candidates else "?"),
                     "reason": f"SILENT_MISS contested top guess ({guesses})",

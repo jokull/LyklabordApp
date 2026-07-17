@@ -132,6 +132,30 @@ NOVEL = dict(
 CLASSES_BY_ID = {c["id"]: c for c in CLASSES}
 CLASSES_BY_ID[NOVEL_ID] = NOVEL
 
+# grammar-vouched-overlap (phase 1.5, Greynir enrichment): NOT a
+# `classify_finding` precedence entry — it is an UPGRADE analyze.py/
+# aggregate.py apply AFTER the base classifier tags something
+# valid-word-overlap, when a Greynir parse of the sentence genuinely prefers
+# `intended` over `typo` (intended parses cleanly and either typo doesn't
+# parse at all, or intended's score clearly beats it — see
+# greynir_enrich.vouch_decision). Registered directly in CLASSES_BY_ID (like
+# NOVEL) rather than CLASSES so it never accidentally gets matched by the
+# precedence cascade.
+GRAMMAR_VOUCHED_ID = "grammar-vouched-overlap"
+GRAMMAR_VOUCHED = dict(
+    id=GRAMMAR_VOUCHED_ID,
+    title="Grammar-vouched valid-word overlap",
+    detect="upgrade of valid-word-overlap: Greynir parses the sentence with "
+           "`intended` substituted for `typo` and genuinely prefers it "
+           "(see greynir_enrich.vouch_decision)",
+    status="watch",
+    notes="candidate for context-aware margin work — measured, not yet "
+          "acted on. Unlike plain valid-word-overlap this ranks in the "
+          "top-gaps table (it is evidence the corrector COULD safely have "
+          "fired, not a doctrine non-fire).",
+)
+CLASSES_BY_ID[GRAMMAR_VOUCHED_ID] = GRAMMAR_VOUCHED
+
 # Precedence order — first matching detector wins. NOVEL is the fallback and
 # deliberately excluded (it is never "matched", only defaulted to).
 PRECEDENCE = [c["id"] for c in CLASSES]

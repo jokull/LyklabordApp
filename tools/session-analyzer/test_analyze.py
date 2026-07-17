@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analyze import (  # noqa: E402
     AppRecord,
     KBRecord,
+    SilentMiss,
     classify,
     load_session,
     reconstruct_pairs,
@@ -23,7 +24,10 @@ from analyze import (  # noqa: E402
     _silent_candidates,
     _is_junk_tier,
     detect_stale_applies,
+    _substitute_first_word,
+    greynir_enrich_session,
 )
+import greynir_enrich  # noqa: E402
 import taxonomy  # noqa: E402
 from taxonomy import FindingContext, classify_finding  # noqa: E402
 
@@ -367,6 +371,212 @@ def test_taxonomy_precedence_order():
           "slangur-intentional > stale-apply")
 
 
+# --------------------------------------------------------------------------
+# v4 — Greynir grammar-parse enrichment (see greynir_enrich.py). Pure logic
+# is tested directly (fabricated parse-result dicts, no venv/reynir needed);
+# the graceful-degradation path is exercised by monkeypatching
+# `greynir_enrich.available`; the real reynir integration check is skipped
+# cleanly when the dedicated venv isn't present.
+# --------------------------------------------------------------------------
+
+def test_greynir_vouch_decision():
+    """The grammar-vouched-overlap upgrade must be conservative: intended
+    must parse, and either typo fails outright or intended clearly
+    outscores it (>= VOUCH_SCORE_MARGIN). A few points' difference when both
+    parse cleanly must NOT vouch (this is the real syndur/sýndur case before
+    the margin was calibrated: too small a gap must stay a non-fire)."""
+    parsed = lambda score: {"parsed": True, "score": score, "skipped": False, "unavailable": False}
+    failed = {"parsed": False, "score": 0, "skipped": False, "unavailable": False}
+    unavail = {"parsed": False, "score": None, "skipped": False, "unavailable": True}
+
+    assert greynir_enrich.vouch_decision(failed, parsed(5)) is True, \
+        "intended parses, typo doesn't -> vouch"
+    assert greynir_enrich.vouch_decision(parsed(4), parsed(23)) is True, \
+        "clear margin (real syndur->sýndur scores: 4 vs 23) -> vouch"
+    assert greynir_enrich.vouch_decision(parsed(77), parsed(80)) is False, \
+        "3-point gap when both parse cleanly -> NOT a clear preference"
+    assert greynir_enrich.vouch_decision(parsed(10), failed) is False, \
+        "intended doesn't parse -> never vouch"
+    assert greynir_enrich.vouch_decision(unavail, parsed(50)) is False, \
+        "unavailable summary -> never vouch"
+    print("  OK  greynir  vouch_decision  clear-margin/fail-vs-parse vouch; "
+          "small-gap and unavailable don't")
+
+
+def test_greynir_is_low_confidence_and_sentence_best():
+    """sentence_best reduces possibly-multiple Greynir-detected sentences to
+    one summary (parsed iff ALL parsed, score = the weakest link); a failed
+    parse or score <= 0 is low-confidence, a healthy positive score isn't,
+    and an empty/unavailable result is neither (nothing to flag)."""
+    ok_a = {"text": "a", "parsed": True, "score": 60, "skipped": False}
+    ok_b = {"text": "b", "parsed": True, "score": 10, "skipped": False}
+    bad = {"text": "c", "parsed": False, "score": 0, "skipped": False}
+
+    both_ok = greynir_enrich.sentence_best([ok_a, ok_b])
+    assert both_ok == {"parsed": True, "score": 10, "skipped": False, "unavailable": False}
+    assert greynir_enrich.is_low_confidence(both_ok) is False
+
+    with_failure = greynir_enrich.sentence_best([ok_a, bad])
+    assert with_failure["parsed"] is False
+    assert greynir_enrich.is_low_confidence(with_failure) is True
+
+    unavailable = greynir_enrich.sentence_best([])
+    assert unavailable["unavailable"] is True
+    assert greynir_enrich.is_low_confidence(unavailable) is False
+    print("  OK  greynir  sentence_best/is_low_confidence  weakest-link "
+          "reduction, failed/low-score flagged, unavailable never flagged")
+
+
+def test_greynir_grammar_review_reason():
+    """'foreign-token' only for a tokenizer-UNKNOWN chunk or a
+    confirmed-intents `intentional` token (e.g. kozy) — NOT merely an
+    accent-dropped Icelandic typo (Eg, þvi), which the tokenizer still
+    classifies as an ordinary word. This is a regression test for the real
+    bug this module almost shipped with (an ascii-only heuristic mislabeled
+    every accent-drop typo in this repo's corpus as 'foreign-token')."""
+    confirmed = {"kozy": {"typo": "kozy", "intentional": True}}
+    assert greynir_enrich.grammar_review_reason(
+        [{"text": "Eg", "unknown": False}, {"text": "lss", "unknown": False}],
+        confirmed,
+    ) == "grammar"
+    assert greynir_enrich.grammar_review_reason(
+        [{"text": "Eg", "unknown": False}, {"text": "kozy", "unknown": False}],
+        confirmed,
+    ) == "foreign-token"
+    assert greynir_enrich.grammar_review_reason(
+        [{"text": "Xqzwy", "unknown": True}], {},
+    ) == "foreign-token"
+    print("  OK  greynir  grammar_review_reason  accent-drop typo -> grammar; "
+          "confirmed-intentional/UNKNOWN-token -> foreign-token")
+
+
+def test_greynir_prep_case_disagreements():
+    """A preposition's governed case (from Greynir's own terminal) crossed
+    against the following word's INDEPENDENT BÍN case set (bin_cases) — a
+    real disagreement (word attested only in a different case) is one line;
+    a BÍN-unknown following word is silently skipped (not this audit's
+    concern); a matching case produces nothing."""
+    parsed_sentence = {
+        "parsed": True,
+        "terminals": [
+            {"text": "á", "cat": "fs", "variants": ["þgf"]},
+            {"text": "Sjónvarp", "cat": "hk", "variants": ["nf"]},
+        ],
+    }
+    disagree = greynir_enrich.prep_case_disagreements(
+        [parsed_sentence], {"Sjónvarp": ["NF", "ÞF"]})
+    assert len(disagree) == 1 and "ÞGF" in disagree[0] and "Sjónvarp" in disagree[0], disagree
+
+    agree = greynir_enrich.prep_case_disagreements(
+        [parsed_sentence], {"Sjónvarp": ["ÞGF"]})
+    assert agree == []
+
+    unknown_word = greynir_enrich.prep_case_disagreements(
+        [parsed_sentence], {"Sjónvarp": []})
+    assert unknown_word == []
+    print("  OK  greynir  prep_case_disagreements  mismatch flagged, "
+          "matching/BÍN-unknown silent")
+
+
+def test_greynir_substitute_first_word():
+    """Word-boundary, case-insensitive, first-occurrence substitution — the
+    primitive the vouch/candidate-disambiguation features use to build a
+    sentence variant without needing reynir's own tokenization."""
+    assert (_substitute_first_word("Þátturinn er syndur á sjónvarpi.", "syndur", "sýndur")
+            == "Þátturinn er sýndur á sjónvarpi.")
+    # Word-boundary: must not match "syndur" inside a longer word.
+    assert _substitute_first_word("ósyndur maður", "syndur", "sýndur") is None
+    # Not present at all -> None (caller falls back to a synthetic sentence).
+    assert _substitute_first_word("allt annað", "syndur", "sýndur") is None
+    print("  OK  greynir  _substitute_first_word  word-boundary substitution")
+
+
+def test_greynir_graceful_degradation():
+    """The entire enrichment must no-op cleanly (no exception, a one-line
+    note) when the venv/reynir is unavailable — analyze_one's report/tags
+    must be byte-identical in shape to a build with the module absent
+    entirely. Monkeypatches `greynir_enrich.available` (no venv needed)."""
+    real_available = greynir_enrich.available
+    greynir_enrich._availability_cache.clear()
+    greynir_enrich.available = lambda *a, **k: False
+    try:
+        app = [AppRecord(t=0.0, sid="s", kind="stop", text="syndur.")]
+        m = SilentMiss(token="syndur", cls="SILENT_MISS",
+                       candidates=[("sýndur", 100, 0)], context=[])
+        event_tags, silent_tags = {}, {id(m): ("valid-word-overlap", "accepted-gap")}
+        bundle = greynir_enrich_session(app, [], [m], event_tags, silent_tags, {})
+        assert bundle["available"] is False
+        assert bundle["note"] == greynir_enrich.UNAVAILABLE_NOTE
+        assert bundle["grammar_review"] == []
+        assert bundle["case_disagreements"] == []
+        assert bundle["candidate_parses"] == {}
+        # Tag must be left untouched — no upgrade possible without greynir.
+        assert silent_tags[id(m)] == ("valid-word-overlap", "accepted-gap")
+        print("  OK  greynir  graceful degradation  unavailable -> empty "
+              "bundle + note, tags untouched, no exception")
+    finally:
+        greynir_enrich.available = real_available
+        greynir_enrich._availability_cache.clear()
+
+
+def test_greynir_vouch_upgrade_with_stubbed_batch_parse():
+    """End-to-end (analyze.py's own orchestration), with `batch_parse`
+    stubbed so no real reynir is needed: a valid-word-overlap SilentMiss
+    whose intended-substituted sentence parses clearly better than the
+    original gets upgraded to grammar-vouched-overlap IN PLACE."""
+    real_available = greynir_enrich.available
+    real_batch = greynir_enrich.batch_parse
+    greynir_enrich._availability_cache.clear()
+    greynir_enrich.available = lambda *a, **k: True
+
+    def fake_batch_parse(sentences=(), words=(), cache_path=None,
+                         venv_python=None, subprocess_timeout=60.0):
+        sent_out = {}
+        for s in sentences:
+            score = 80 if "sýndur" in s else 4
+            sent_out[s] = [{"text": s, "parsed": True, "score": score,
+                            "skipped": False, "terminals": [], "tokens": []}]
+        return sent_out, {w: [] for w in words}, ""
+
+    greynir_enrich.batch_parse = fake_batch_parse
+    try:
+        final = "Þátturinn er syndur á sjónvarpi."
+        app = [AppRecord(t=0.0, sid="s", kind="stop", text=final)]
+        m = SilentMiss(token="syndur", cls="SILENT_MISS",
+                       candidates=[("sýndur", 100, 0)], context=["er"])
+        silent_tags = {id(m): ("valid-word-overlap", "accepted-gap")}
+        bundle = greynir_enrich_session(app, [], [m], {}, silent_tags, {})
+        assert bundle["available"] is True
+        assert id(m) in bundle["vouched_ids"], bundle
+        assert silent_tags[id(m)] == (taxonomy.GRAMMAR_VOUCHED_ID,
+                                      taxonomy.status_of(taxonomy.GRAMMAR_VOUCHED_ID))
+        print("  OK  greynir  vouch upgrade (stubbed batch_parse)  "
+              "syndur -> sýndur  =>  grammar-vouched-overlap · watch")
+    finally:
+        greynir_enrich.available = real_available
+        greynir_enrich.batch_parse = real_batch
+        greynir_enrich._availability_cache.clear()
+
+
+def test_greynir_real_integration():
+    """Skipped cleanly when the dedicated venv (tools/session-analyzer/.venv)
+    isn't present — otherwise actually shells out to reynir and asserts a
+    known-good Icelandic sentence parses."""
+    if not greynir_enrich.available():
+        print("  SKIP  greynir  real integration (venv/reynir not installed "
+              "— see README.md's Setup section)")
+        return
+    sent_out, _words, note = greynir_enrich.batch_parse(
+        sentences=["Ég hef unun af því að forrita."])
+    assert note == "", f"unexpected note: {note}"
+    parses = sent_out.get("Ég hef unun af því að forrita.")
+    assert parses, "no result for the known-good sentence"
+    summary = greynir_enrich.sentence_best(parses)
+    assert summary["parsed"] is True, f"expected a clean parse: {parses}"
+    print(f"  OK  greynir  real integration  'Ég hef unun af því að forrita.' "
+          f"parses (score {summary['score']})")
+
+
 if __name__ == "__main__":
     run()
     print("\nv2 behaviours:")
@@ -387,3 +597,16 @@ if __name__ == "__main__":
     test_stale_apply_detection()
     print("\nPASS — v2 + v3 behaviours (alignment, inflection, silent-miss, "
           "taxonomy) verified.")
+
+    print("\nv4 behaviours (Greynir enrichment, greynir_enrich.py):")
+    test_greynir_vouch_decision()
+    test_greynir_is_low_confidence_and_sentence_best()
+    test_greynir_grammar_review_reason()
+    test_greynir_prep_case_disagreements()
+    test_greynir_substitute_first_word()
+    test_greynir_graceful_degradation()
+    test_greynir_vouch_upgrade_with_stubbed_batch_parse()
+    test_greynir_real_integration()
+    print("\nPASS — v4 Greynir enrichment (vouch decision, low-confidence, "
+          "grammar-review reason, case audit, substitution, graceful "
+          "degradation, stubbed upgrade, real integration) verified.")
