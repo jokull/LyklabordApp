@@ -1,0 +1,33 @@
+name: Feature request
+description: An idea for Lyklaborð
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Icelandic or English — both welcome. Before filing, a quick scan of
+        existing issues and the FAQ (https://lyklabord.solberg.is/hjalp)
+        saves everyone a round-trip.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: |
+        Describe the situation, not (only) the solution — "when I type X in
+        app Y, I want Z" beats "add a setting". Real typing frustrations,
+        SwiftKey habits you miss, Icelandic-specific behavior — all fair game.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: How could it work?
+      description: Optional — a sketch of the behavior you'd expect.
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+    validations:
+      required: false

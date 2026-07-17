@@ -1,0 +1,254 @@
+---
+// Hjálp / FAQ — the support surface linked from the app, the footer, and
+// the GitHub issue templates. Icelandic-first, same warm register as the
+// landing page. iOS UI labels are quoted VERBATIM in English (iOS has no
+// Icelandic system language — same COPY RULE as App/Strings.swift).
+import Base from "../layouts/Base.astro";
+const title = "Lyklaborð — hjálp og algengar spurningar";
+const description =
+  "Hjálp við Lyklaborð: að virkja lyklaborðið, hvað „Allow Full Access“ þýðir, SwiftKey-innflutningur, áskrift á fleiri tækjum, endurgreiðslur og kóðar.";
+---
+
+<Base title={title} description={description}>
+  <header class="site">
+    <a href="/">Lyklaborð <span>· hjálp</span></a>
+  </header>
+  <main>
+    <h1>Hjálp og algengar spurningar</h1>
+    <p class="lede">
+      Svör við því sem oftast er spurt um. iOS er á ensku á íslenskum símum,
+      svo heiti valmynda og stillinga hér eru ensku heitin sem þú sérð á
+      skjánum — með íslenskum skýringum í kring. Ef svarið þitt er ekki hér
+      máttu senda okkur línu á
+      <a href="https://github.com/jokull/LyklabordApp/issues">GitHub</a>.
+    </p>
+
+    <h2 id="virkja">Að virkja lyklaborðið</h2>
+    <p>
+      Eftir að þú sækir Lyklaborð úr App Store þarf að kveikja á því í
+      stillingum símans — appið getur ekki gert það fyrir þig, iOS krefst
+      þess að þú gerir það sjálf(ur):
+    </p>
+    <ol>
+      <li>Opnaðu <strong>“Settings”</strong> á símanum.</li>
+      <li>
+        Veldu <strong>“General”</strong> → <strong>“Keyboard”</strong> →
+        <strong>“Keyboards”</strong>.
+      </li>
+      <li>
+        Ýttu á <strong>“Add New Keyboard…”</strong> og veldu
+        <strong>Lyklaborð</strong> í listanum.
+      </li>
+      <li>
+        Ýttu svo aftur á <strong>Lyklaborð</strong> í listanum og kveiktu á
+        <strong>“Allow Full Access”</strong> — það er valfrjálst, sjá næsta
+        kafla.
+      </li>
+    </ol>
+    <p>
+      Flýtileið: á <strong>„Byrjun“</strong> flipanum í appinu er hnappurinn
+      <strong>„Opna Settings“</strong> sem fer með þig beint á réttu
+      stillingasíðuna — þar ýtirðu á <strong>“Keyboards”</strong> og kveikir á
+      Lyklaborð.
+    </p>
+    <p>
+      Til að skipta yfir á Lyklaborð þegar þú skrifar: haltu inni
+      hnattartákninu 🌐 neðst til vinstri á lyklaborðinu og veldu
+      <strong>Lyklaborð</strong>. Þú getur prófað strax í textareitnum á
+      „Byrjun“ flipanum í appinu.
+    </p>
+
+    <h2 id="full-access">„Allow Full Access“ — hvað þýðir þetta?</h2>
+    <p>
+      Þegar þú kveikir á <strong>“Allow Full Access”</strong> sýnir iOS
+      staðlaða viðvörun um að lyklaborð geti sent það sem þú skrifar.
+      Viðvörunin er sú sama fyrir öll lyklaborð frá þriðja aðila — og fyrir
+      Lyklaborð er svarið einfalt: <strong>lyklaborðsviðbótin inniheldur
+      engan netkóða.</strong> Ekkert sem þú skrifar getur farið neitt, hvorki
+      til okkar né annarra — kóðinn til að senda það er ekki til. Frumkóðinn
+      er opinn á
+      <a href="https://github.com/jokull/LyklabordApp">GitHub</a>, svo þetta
+      er sannreynanlegt, ekki bara loforð.
+    </p>
+    <p>Fullur aðgangur gerir tvennt:</p>
+    <ul>
+      <li>
+        Appið og lyklaborðið deila sama orðasafni — orð sem lyklaborðið lærir
+        birtast í appinu og geta samstillst dulkóðuð við þitt eigið iCloud.
+      </li>
+      <li>
+        Titringur við innslátt virkar — iOS lokar á titring fyrir öll
+        lyklaborð frá þriðja aðila þar til fullur aðgangur er veittur.
+      </li>
+    </ul>
+    <p>
+      Lyklaborðið skrifar, leiðréttir sjálfkrafa og stingur upp á orðum að
+      fullu þótt slökkt sé á fullum aðgangi. Nánar í
+      <a href="/privacy">persónuverndarstefnunni</a>.
+    </p>
+
+    <h2 id="fleiri-taeki">Lyklaborð+ á fleiri tækjum</h2>
+    <p>
+      Áskriftin að Lyklaborð+ fylgir Apple-reikningnum þínum (Apple ID), ekki
+      tækinu. Á nýju tæki — eða eftir að þú setur símann upp aftur — dugar að
+      setja appið upp og <strong>opna það einu sinni</strong>: áskriftin
+      finnst þá sjálfkrafa. Ef hún skilar sér ekki strax skaltu ýta á
+      <strong>„Endurheimta kaup“</strong> undir „Stillingar“ → „Áskrift“ í
+      appinu.
+    </p>
+
+    <h2 id="skjatimi">Skjátími (Screen Time) getur lokað á lyklaborð þriðja aðila</h2>
+    <p>
+      Ef <strong>“Screen Time”</strong> er virkt með
+      <strong>“Content &amp; Privacy Restrictions”</strong> — algengast á síma
+      barns sem foreldri stýrir í gegnum Family Sharing, eða á vinnu- og
+      skólasímum með stjórnunarhugbúnaði (MDM) — getur iOS lokað á lyklaborð
+      frá þriðja aðila alveg. Þá birtist Lyklaborð ekki í
+      <strong>“Add New Keyboard…”</strong> listanum, eða
+      <strong>“Allow Full Access”</strong> er grátt og óvirkt.
+    </p>
+    <p>
+      Þetta er stilling í iOS, ekki galli í Lyklaborði. Sá sem stýrir tækinu
+      (foreldrið eða kerfisstjórinn) þarf að slaka á takmörkununum undir
+      <strong>“Settings”</strong> → <strong>“Screen Time”</strong> →
+      <strong>“Content &amp; Privacy Restrictions”</strong> — eða í
+      MDM-stillingum vinnustaðarins — til að hægt sé að virkja lyklaborðið.
+    </p>
+
+    <h2 id="swiftkey">Að flytja inn úr SwiftKey</h2>
+    <p>
+      Lyklaborð getur flutt inn orðasafnið sem SwiftKey lærði af þér í
+      gegnum árin. Erfiða skrefið er að ná skránni út úr skýinu hjá
+      Microsoft — hér eru skrefin eins og þau eru í dag:
+    </p>
+    <ol>
+      <li>
+        Í SwiftKey appinu: skráðu þig inn með Microsoft-reikningi og kveiktu
+        á <strong>“Account”</strong> → <strong>“Backup &amp; Sync”</strong>.
+        SwiftKey vistar þá lærðu orðin þín í þínu eigin OneDrive.
+      </li>
+      <li>
+        Opnaðu <a href="https://onedrive.live.com">onedrive.live.com</a> í
+        vafra (eða OneDrive appið) og skráðu þig inn með sama
+        Microsoft-reikningi.
+      </li>
+      <li>
+        Farðu í <strong>“My files”</strong> → <strong>“Apps”</strong> →
+        <strong>“SwiftKey”</strong>. Þar liggur orðasafnið þitt sem læsileg
+        textaskrá. Sæktu hana (<strong>“Download”</strong>) og vistaðu í
+        <strong>“Files”</strong> appið á símanum — t.d. í “On My iPhone” eða
+        iCloud Drive.
+      </li>
+      <li>
+        Í Lyklaborði: opnaðu <strong>„Orðasafn“</strong> flipann, veldu
+        <strong>„Flytja inn úr SwiftKey“</strong> → <strong>„Velja
+        skrá“</strong> og bentu á skrána.
+      </li>
+    </ol>
+    <p>
+      <strong>Áttir þú gamlan útflutning?</strong> Microsoft lagði niður
+      sérstöku SwiftKey-reikningana og gömlu gagnagáttina
+      (data.swiftkey.com, „Download your data“) <strong>31. maí 2026</strong>.
+      Gamlar útflutningsskrár virka samt áfram í Lyklaborði — í ZIP-skránni
+      heitir orðasafnið <strong>“vocabulary.txt”</strong> og liggur í möppunni
+      <strong>“SwiftKey Keyboard/Dictionary”</strong>.
+    </p>
+    <p>
+      Innflutningurinn les eitt orð í línu. Línum sem eru ekki gild orð er
+      sleppt sjálfkrafa, og orð sem þú hefur áður eytt í Lyklaborði verða
+      ekki flutt inn aftur — þín eyðing gildir. SwiftKey-innflutningur er
+      hluti af Lyklaborð+.
+    </p>
+
+    <h2 id="endurgreidslur">Endurgreiðslur og áskriftarstjórnun</h2>
+    <p>
+      Apple sér alfarið um greiðslur, áskriftir og endurgreiðslur — við sjáum
+      aldrei greiðsluupplýsingarnar þínar og getum hvorki gjaldfært þig né
+      endurgreitt þér sjálf.
+    </p>
+    <ul>
+      <li>
+        <strong>Að segja upp eða breyta áskrift:</strong> í appinu undir
+        „Stillingar“ → „Áskrift“ → <strong>„Stjórna eða segja upp
+        áskrift“</strong> — eða beint í símastillingunum:
+        <strong>“Settings”</strong> → nafnið þitt efst →
+        <strong>“Subscriptions”</strong>. Uppsögn tekur gildi í lok
+        yfirstandandi tímabils og ekkert er gjaldfært eftir það.
+      </li>
+      <li>
+        <strong>Endurgreiðsla:</strong> farðu á
+        <a href="https://reportaproblem.apple.com">reportaproblem.apple.com</a>,
+        skráðu þig inn með Apple-reikningnum þínum og veldu kaupin. Apple
+        afgreiðir beiðnina, oftast innan eins til tveggja sólarhringa.
+      </li>
+      <li>
+        <strong>Þótt þú segir upp:</strong> allt sem lyklaborðið lærði
+        geymist óbreytt og bíður þín — og útflutningur gagnanna þinna er
+        alltaf ókeypis, með eða án áskriftar.
+      </li>
+    </ul>
+
+    <h2 id="kodar">Kóðar</h2>
+    <p>
+      Fékkstu kóða fyrir Lyklaborð+? Opnaðu appið og farðu í
+      <strong>„Stillingar“</strong> → <strong>„Áskrift“</strong> →
+      <strong>„Innleysa kóða“</strong>. Það er líka hægt í App Store appinu:
+      ýttu á myndina þína efst í hægra horninu og veldu
+      <strong>“Redeem Gift Card or Code”</strong>.
+    </p>
+  </main>
+
+  <style is:global>
+    header.site {
+      width: min(44rem, 100%);
+      margin: 0 auto;
+      padding: 2.6rem 1.5rem 0;
+    }
+    header.site a {
+      text-decoration: none;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      font-size: 1.35rem;
+    }
+    header.site a span {
+      color: var(--ink-soft);
+      font-weight: 450;
+    }
+    main {
+      width: min(44rem, 100%);
+      margin: 0 auto;
+      padding: 1.2rem 1.5rem 4rem;
+      flex: 1;
+      line-height: 1.65;
+    }
+    main h1 {
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      margin-top: 1.6rem;
+    }
+    main .lede {
+      color: var(--ink-soft);
+    }
+    main h2 {
+      margin-top: 3rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--rule);
+      font-size: 1.3rem;
+      letter-spacing: -0.01em;
+      scroll-margin-top: 1.5rem;
+    }
+    main p,
+    main li {
+      margin-top: 0.8rem;
+    }
+    main ul,
+    main ol {
+      padding-left: 1.4rem;
+    }
+    main strong {
+      font-weight: 650;
+    }
+  </style>
+</Base>

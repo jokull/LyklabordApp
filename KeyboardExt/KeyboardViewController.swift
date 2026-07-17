@@ -213,7 +213,16 @@ final class KeyboardViewController: KeyboardInputViewController {
                 state: controller.state,
                 services: controller.services,
                 buttonContent: { $0.view },
-                buttonView: { $0.view },
+                buttonView: { params in
+                    // Accessibility: override the vendored defaults where
+                    // they're wrong for this keyboard (see
+                    // `betterAccessibilityLabel(for:)` below). Everything
+                    // else keeps KeyboardKit's stock label.
+                    params.view.betterKeyboardAccessibility(
+                        for: params.item.action,
+                        context: controller.state.keyboardContext
+                    )
+                },
                 collapsedView: { $0.view },
                 emojiKeyboard: { $0.view },
                 toolbar: { $0.view }
@@ -221,6 +230,75 @@ final class KeyboardViewController: KeyboardInputViewController {
             .keyboardCalloutActions { params in
                 Callouts.Actions.icelandic.actions(for: params.action)
             }
+        }
+    }
+}
+
+// MARK: - Accessibility (VoiceOver labels)
+
+/// VoiceOver label overrides for keys whose vendored KeyboardKit defaults
+/// are wrong for this keyboard (accessibility audit, launch wave).
+///
+/// What the audit found (see `KeyboardAction.accessibilityLabel` in
+/// Packages/KeyboardKit/Sources/KeyboardKit/Actions/KeyboardAction+
+/// Accessibility.swift — vendored, not edited; the fixes live HERE because
+/// this wave owns KeyboardExt only):
+///
+/// - Correct already, no override: `.character` keys (ð/æ/ö/þ and the `.`
+///   key speak the character itself — the speech engine handles Icelandic
+///   letters), `.space` ("Bil" via KKL10n's is.lproj — matches the visible
+///   key label), `.shift`/`.capsLock` ("Shift"/"Capslock" — icon keys with
+///   universally known names), `.nextKeyboard` ("Next Keyboard" — a system
+///   affordance named as iOS names it).
+/// - Wrong, fixed here:
+///   - `.primary` (return key): default speaks the raw type id ("return")
+///     while the visible key says "Venda" — a spoken/visible mismatch that
+///     confuses a VoiceOver user being helped by a sighted person. Fixed to
+///     the same localized text the key displays.
+///   - `.keyboardType` switchers: default is developer-speak ("Keyboard
+///     Type - numeric"). Fixed to plain Icelandic ("Tölustafir" for "123",
+///     "Bókstafir" for "ABC", "Tákn" for "#+=").
+///   - `.backspace`: default "Backspace" — fixed to "Eyða", matching the
+///     product's Icelandic register (same verb the app's UI uses).
+private extension KeyboardAction {
+    func betterAccessibilityLabel(for context: KeyboardContext) -> String? {
+        switch self {
+        case .backspace:
+            return "Eyða"
+        case .primary(let type):
+            // The exact text the key displays ("Venda", "Áfram", "Leita" —
+            // KKL10n's is.lproj); icon-only newline falls back to "Venda".
+            return type.standardButtonText(for: context.locale) ?? "Venda"
+        case .keyboardType(let type):
+            switch type {
+            case .numeric: return "Tölustafir"
+            case .alphabetic: return "Bókstafir"
+            case .symbolic: return "Tákn"
+            case .emojis: return "Emoji"
+            default: return nil
+            }
+        default:
+            return nil
+        }
+    }
+}
+
+private extension View {
+    /// Replaces the button's accessibility element with one carrying our
+    /// corrected label; falls through untouched when the vendored default
+    /// is already right.
+    @ViewBuilder
+    func betterKeyboardAccessibility(
+        for action: KeyboardAction,
+        context: KeyboardContext
+    ) -> some View {
+        if let label = action.betterAccessibilityLabel(for: context) {
+            self
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(label)
+        } else {
+            self
         }
     }
 }

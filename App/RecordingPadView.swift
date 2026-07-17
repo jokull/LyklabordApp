@@ -87,6 +87,7 @@ struct RecordingPadView: View {
             } else {
                 Image(systemName: "record.circle")
                     .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
                 Text(Strings.Developer.recordingIdle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -154,6 +155,7 @@ private struct SessionsListView: View {
                                 Image(systemName: "square.and.arrow.up")
                             }
                             .labelStyle(.iconOnly)
+                            .accessibilityLabel(Strings.Developer.shareButton)
                         }
                     }
                     .onDelete { offsets in

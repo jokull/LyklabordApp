@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Hjálp og algengar spurningar / Help & FAQ
+    url: https://lyklabord.solberg.is/hjalp
+    about: >-
+      Setup ("where is the keyboard?"), "Allow Full Access", SwiftKey import,
+      subscriptions on multiple devices, refunds, and offer codes — answered
+      here. Please check before opening a support issue.
+  - name: Persónuverndarstefna / Privacy policy
+    url: https://lyklabord.solberg.is/privacy
+    about: What is (and isn't) collected, stored, and synced — in plain language.
+  - name: Security disclosure
+    url: https://github.com/jokull/LyklabordApp/security/advisories/new
+    about: Report a security vulnerability privately — see SECURITY.md.

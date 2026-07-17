@@ -276,6 +276,13 @@ struct DictionaryView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                // Never dead-end: if the keyboard itself isn't enabled yet,
+                // no typing can ever land here — point at the Byrjun tab.
+                if !KeyboardStatus.isKeyboardEnabled {
+                    Label(Strings.Dictionary.emptyStateEnableFirst, systemImage: "hand.wave")
+                        .foregroundStyle(.secondary)
+                }
+
                 Button {
                     newWordText = ""
                     addWordError = nil
@@ -304,6 +311,15 @@ struct DictionaryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(Strings.SwiftKeyImport.explainer)
+                    // Getting the file OUT of Microsoft's cloud is the step
+                    // users actually fail — the FAQ carries the full 2026
+                    // walkthrough (OneDrive backup, "Apps" → "SwiftKey").
+                    if let helpURL = URL(string: Strings.Links.helpSwiftKey) {
+                        Link(destination: helpURL) {
+                            Label(Strings.SwiftKeyImport.helpLink, systemImage: "questionmark.circle")
+                                .font(.callout)
+                        }
+                    }
                     Label(Strings.SwiftKeyImport.explainerNote, systemImage: "info.circle")
                         .font(.callout)
                         .foregroundStyle(.secondary)

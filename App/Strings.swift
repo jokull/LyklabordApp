@@ -33,6 +33,11 @@ enum Strings {
         static let privacyPolicy = "https://github.com/jokull/LyklabordApp/blob/main/docs/PRIVACY.md"
         static let exportFormat = "https://github.com/jokull/LyklabordApp/blob/main/docs/EXPORT_FORMAT.md"
         static let bin = "https://bin.arnastofnun.is"
+        /// Help/FAQ page on the site ("Hjálp og algengar spurningar").
+        static let help = "https://lyklabord.solberg.is/hjalp"
+        /// Deep anchor into the FAQ's SwiftKey-export walkthrough — the step
+        /// users actually fail (getting the file out of Microsoft's cloud).
+        static let helpSwiftKey = "https://lyklabord.solberg.is/hjalp#swiftkey"
     }
 
     enum Tab {
@@ -49,15 +54,42 @@ enum Strings {
         static let heroAccessibilityLabel = "Þrívíður Ð-hnappur — merki Lyklaborðs"
         static let subtitle = "Íslenskt og enskt lyklaborð sem hugsar um friðhelgi. Ekkert netkóði er í lyklaborðsviðbótinni sjálfri — allt gerist á tækinu þínu."
 
-        static let setupHeading = "Setja upp lyklaborðið"
-        static let step1 = "Opnaðu Settings → General → Keyboard → Keyboards"
-        static let step2 = "Ýttu á „Add New Keyboard…“ og veldu Lyklaborð"
-        static let step3 = "Ýttu aftur á Lyklaborð og virkjaðu „Allow Full Access“"
-        static let step3Detail = "Valfrjálst. Lyklaborðið skrifar, leiðréttir sjálfkrafa og kemur með orðauppástungur að fullu án hans. Fullur aðgangur kveikir aðeins á samstillingu orðabókarinnar þinnar við þitt eigið iCloud og snertiviðbragði (iOS lokar á titring lyklaborðs án hans). Viðbótin inniheldur engan netkóða hvort sem er."
+        static let setupHeading = "Svona virkjarðu lyklaborðið"
+
+        // Numbered walkthrough. iOS is in ENGLISH on every Icelandic
+        // iPhone (COPY RULE above) — the quoted labels must match Settings
+        // exactly so the user can pattern-match row for row.
+        static let step1 = "Opnaðu „Settings“ á símanum og veldu „General“."
+        static let step2 = "Veldu „Keyboard“ og svo „Keyboards“ efst."
+        static let step3 = "Ýttu á „Add New Keyboard…“ og veldu Lyklaborð í listanum."
+        static let step4 = "Ýttu svo aftur á Lyklaborð í listanum og kveiktu á „Allow Full Access“."
+
+        /// Shown WITH step 4, BEFORE iOS's own scary "Full Access" dialog —
+        /// the honest preemption. Keep in sync with `FullAccess.noNetworkBody`.
+        static let fullAccessPreempt = "iOS sýnir þá staðlaða viðvörun sem á við um öll lyklaborð frá þriðja aðila. Hún hljómar illa — en Lyklaborð inniheldur engan netkóða og getur ekki sent neitt frá sér. Það er hægt að sannreyna í frumkóðanum."
+        static let step4Detail = "Valfrjálst. Lyklaborðið skrifar, leiðréttir sjálfkrafa og kemur með orðauppástungur að fullu án hans. Fullur aðgangur kveikir aðeins á samstillingu orðabókarinnar þinnar við þitt eigið iCloud og snertiviðbragði (iOS lokar á titring lyklaborðs án hans)."
         static let fullAccessMoreLink = "Meira um fullan aðgang og persónuvernd"
         static let openSettingsButton = "Opna Settings"
+        /// The deep-link button lands directly on Lyklaborð's own page in
+        /// Settings — one tap from the "Keyboards" row. Explain the shortcut
+        /// so the numbered list (which starts from the Settings root) and the
+        /// button don't look like they disagree.
+        static let openSettingsShortcutNote = "Hnappurinn opnar stillingasíðu Lyklaborðs beint — þar ýtirðu á „Keyboards“ og kveikir á Lyklaborð."
 
-        static let tryHeading = "Prófaðu það"
+        // Mock Settings rows (visual anchors under the steps — styled like
+        // the real English Settings rows the user needs to find).
+        static let mockKeyboardsRow = "Keyboards"
+        static let mockAddKeyboardRow = "Add New Keyboard…"
+        static let mockLyklabordRow = "Lyklaborð"
+        static let mockFullAccessRow = "Allow Full Access"
+
+        // Done-state: the keyboard is already enabled — collapse the
+        // walkthrough, celebrate quietly, keep the steps reachable.
+        static let enabledTitle = "Lyklaborðið er virkt"
+        static let enabledBody = "Allt klárt — Lyklaborð er uppsett á þessum síma. Prófaðu það hér fyrir neðan."
+        static let showStepsButton = "Sýna uppsetningarskrefin"
+
+        static let tryHeading = "Prófaðu núna"
         static let tryBody = "Skiptu yfir í Lyklaborð með hnettinum (🌐) og skrifaðu hér:"
         static let tryPlaceholder = "Skrifaðu eitthvað…"
     }
@@ -85,6 +117,9 @@ enum Strings {
 
         static let emptyStateTitle = "Ekkert í orðasafninu ennþá"
         static let emptyStateHowItWorks = "Lyklaborðið lærir orð sem þú skrifar. Orð telst lært eftir að hafa verið samþykkt tvo mismunandi daga — eða strax ef þú ýtir á það í tillögustikunni (skýrt merki um að orðið sé rétt)."
+        /// Shown in the empty state ONLY while the keyboard isn't enabled
+        /// yet — the empty dictionary must never dead-end; point at Byrjun.
+        static let emptyStateEnableFirst = "Fyrst þarf að virkja lyklaborðið sjálft — opnaðu flipann „Byrjun“ og fylgdu skrefunum þar."
         static let emptyStatePrivacy = "Þetta gerist eingöngu á tækinu þínu. Orðasafnið fer aldrei neitt nema í þitt eigið iCloud — lyklaborðsviðbótin sjálf snertir aldrei netið."
 
         static let noSearchResults = "Ekkert orð fannst"
@@ -93,8 +128,18 @@ enum Strings {
     enum SwiftKeyImport {
         static let actionTitle = "Flytja inn úr SwiftKey"
         static let sheetTitle = "Flytja inn úr SwiftKey"
-        static let explainer = "Þú getur flutt orðasafnið þitt úr SwiftKey yfir í Lyklaborð. Sæktu gögnin þín í SwiftKey (Settings → Account → „Download your data“) og veldu síðan skrána „vocabulary.txt“ úr möppunni „SwiftKey Keyboard/Dictionary“ í útflutningnum."
+        // 2026 reality check: Microsoft retired standalone SwiftKey accounts
+        // (and the old data.swiftkey.com "Download your data" portal) on
+        // May 31, 2026. Learned words now back up into the USER'S OWN
+        // OneDrive ("Account" → "Backup & Sync" in SwiftKey, then
+        // onedrive.live.com → "Apps" → "SwiftKey"). The FAQ walkthrough
+        // (`Links.helpSwiftKey`) carries the full step list; this explainer
+        // stays short and links there.
+        static let explainer = "Þú getur flutt orðasafnið þitt úr SwiftKey yfir í Lyklaborð. SwiftKey geymir lærðu orðin þín í OneDrive: kveiktu á „Backup & Sync“ undir „Account“ í SwiftKey, sæktu svo orðasafnsskrána úr möppunni „Apps“ → „SwiftKey“ á onedrive.com og veldu hana hér."
         static let explainerNote = "Innflutt orð verða strax gild lærð orð. Orð sem þú hefur áður eytt hér verða ekki flutt inn aftur — þín eyðing gildir."
+        /// Link into the site FAQ's step-by-step SwiftKey walkthrough —
+        /// getting the file out of Microsoft's cloud is the step users fail.
+        static let helpLink = "Nákvæmar leiðbeiningar, skref fyrir skref"
         static let chooseFileButton = "Velja skrá"
         static let cancelButton = "Hætta við"
 
@@ -306,6 +351,8 @@ enum Strings {
 
         static let sessionsButton = "Upptökur"
         static let sessionsTitle = "Upptökur"
+        /// VoiceOver label for the icon-only share button on a session row.
+        static let shareButton = "Deila upptöku"
         static let doneButton = "Lokið"
         static let sessionsEmptyTitle = "Engar upptökur"
         static let sessionsEmptyBody = "Hefðu upptöku og skrifaðu á svæðinu til að búa til upptöku."

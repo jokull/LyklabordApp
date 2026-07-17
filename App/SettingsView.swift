@@ -448,15 +448,19 @@ struct SettingsView: View {
 
     private func linkRow(title: String, detail: String, systemImage: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
+            // Decorative (VoiceOver otherwise reads the SF Symbol's English
+            // description before the Icelandic row title).
             Image(systemName: systemImage)
                 .foregroundStyle(.tint)
                 .frame(width: 24)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
                     Text(title).bold()
                     Image(systemName: "arrow.up.right")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
                 Text(detail)
                     .font(.caption)

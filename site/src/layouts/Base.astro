@@ -85,6 +85,13 @@ const { title, description, ogImage = "/keycap-fallback.png" } = Astro.props;
         font-size: 0.8rem;
         color: var(--ink-soft);
       }
+      footer .footer-links {
+        display: flex;
+        gap: 1.2em;
+        justify-content: center;
+        margin-bottom: 0.7rem;
+        font-size: 0.85rem;
+      }
       @media (prefers-reduced-motion: reduce) {
         html {
           scroll-behavior: auto;
@@ -95,6 +102,11 @@ const { title, description, ogImage = "/keycap-fallback.png" } = Astro.props;
   <body>
     <slot />
     <footer>
+      <nav class="footer-links" aria-label="Vefkort">
+        <a href="/hjalp">Hjálp</a>
+        <a href="/privacy">Persónuvernd</a>
+        <a href="https://github.com/jokull/LyklabordApp">GitHub</a>
+      </nav>
       <p>
         MIT-leyfi · BÍN © Stofnun Árna Magnússonar í íslenskum fræðum · Smíðað á
         Íslandi

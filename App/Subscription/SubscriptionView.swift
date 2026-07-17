@@ -77,10 +77,14 @@ struct SubscriptionView: View {
 
     private func featureRow(systemImage: String, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
+            // Decorative — without this VoiceOver reads the SF Symbol's
+            // English description ("character book closed") before each
+            // Icelandic feature row.
             Image(systemName: systemImage)
                 .foregroundStyle(.tint)
                 .font(.title3)
                 .frame(width: 28)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).bold()
                 Text(detail)

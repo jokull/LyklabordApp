@@ -1,0 +1,92 @@
+name: Bug report
+description: Something is broken in the Lyklaborð app or keyboard
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Takk fyrir að hjálpa! / Thanks for helping make Lyklaborð better.
+        Icelandic or English — both welcome.
+
+        For setup questions ("where is the keyboard?", "Allow Full Access",
+        SwiftKey import), check the FAQ first: https://lyklabord.solberg.is/hjalp
+
+        **Privacy note:** never paste real personal typing (messages, names,
+        addresses) into an issue. A minimal invented example that reproduces
+        the behavior is perfect.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it happen?
+      description: The keyboard itself (typing in any app) or the Lyklaborð companion app (Byrjun / Orðasafn / Stillingar)?
+      options:
+        - Keyboard (typing, suggestions, autocorrect)
+        - Companion app (Byrjun / Orðasafn / Stillingar)
+        - Both / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: |
+        What did you type/tap, what did you expect, and what happened instead?
+        For autocorrect issues, the exact keystrokes matter — e.g. "typed
+        `ut i bud` + space, expected `út í búð`, got `út i bud`".
+      placeholder: Typed …, expected …, got …
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Does it happen every time? In which host app(s)?
+      placeholder: |
+        1. Open …
+        2. Type …
+        3. …
+    validations:
+      required: false
+  - type: dropdown
+    id: reproduces-in-pad
+    attributes:
+      label: Does it reproduce in the app's own text field?
+      description: |
+        Open the Lyklaborð app → "Byrjun" tab → the "Prófaðu núna" text field
+        (or the recording pad in dev builds) and try the same keystrokes there.
+        This tells us whether the bug is in the engine or in the host app.
+      options:
+        - "Yes — same behavior in the app's text field"
+        - "No — only happens in other apps"
+        - "Didn't try"
+    validations:
+      required: true
+  - type: input
+    id: ios-version
+    attributes:
+      label: iOS version
+      placeholder: e.g. iOS 18.5
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      placeholder: e.g. iPhone SE (3rd gen), iPhone 15 Pro
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version and build
+      description: In the app under "Stillingar" → "Útgáfa", e.g. "1.0 (3)".
+      placeholder: e.g. 1.0 (3)
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, screen recordings, Full Access on/off, Lyklaborð+ active — anything that might matter.
+    validations:
+      required: false
