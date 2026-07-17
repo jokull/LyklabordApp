@@ -122,8 +122,12 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord
         PRODUCT_NAME: BetterKeyboard
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "3"
-        TARGETED_DEVICE_FAMILY: "1,2"
+        CURRENT_PROJECT_VERSION: "4"
+        # iPhone-only for v1 (iPad runs compatibility mode): the keyboard's
+        # iPad layout is an uninvested surface — shipping it untested is a
+        # review and reputation risk. Proper iPad support is a post-launch
+        # wave (real iPad key arrangement + testing), then flip to "1,2".
+        TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
     preBuildScripts:
@@ -214,8 +218,12 @@ targets:
         MARKETING_VERSION: "1.0"
         # Keep in lockstep with the app target (App Store requires matching
         # short versions; CFBundleVersion now flows from this setting).
-        CURRENT_PROJECT_VERSION: "3"
-        TARGETED_DEVICE_FAMILY: "1,2"
+        CURRENT_PROJECT_VERSION: "4"
+        # iPhone-only for v1 (iPad runs compatibility mode): the keyboard's
+        # iPad layout is an uninvested surface — shipping it untested is a
+        # review and reputation risk. Proper iPad support is a post-launch
+        # wave (real iPad key arrangement + testing), then flip to "1,2".
+        TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES
     dependencies:
       - package: KeyboardKit
