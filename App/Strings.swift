@@ -236,6 +236,9 @@ enum Strings {
         static let purchaseFailed = "Kaupin tókust ekki og ekkert var gjaldfært. Reyndu aftur."
         static let purchasePending = "Beðið eftir samþykki (til dæmis „Ask to Buy“). Áskriftin virkjast sjálfkrafa um leið og kaupin eru staðfest."
         static let restoreButton = "Endurheimta kaup"
+        /// Offer-code redemption (Apple offer codes — the "coupon" path for
+        /// press, friends, community giveaways). System sheet handles the rest.
+        static let redeemButton = "Innleysa kóða"
         static let restoreFailed = "Ekki tókst að endurheimta kaup — athugaðu netsamband og reyndu aftur."
         static let restoreNothingFound = "Engin fyrri kaup fundust á þessum App Store reikningi."
         static let legalFooter = "Áskriftin endurnýjast sjálfkrafa árlega þar til henni er sagt upp — það er hægt hvenær sem er í App Store stillingunum þínum."

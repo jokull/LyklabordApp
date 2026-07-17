@@ -15,6 +15,7 @@ import StoreKit
 import SwiftUI
 
 struct SubscriptionView: View {
+    @State private var showingRedeemSheet = false
     @Environment(SubscriptionManager.self) private var subscriptions
     @Environment(\.dismiss) private var dismiss
 
@@ -139,6 +140,12 @@ struct SubscriptionView: View {
                 Task { await subscriptions.restorePurchases() }
             }
             .font(.callout)
+
+            Button(Strings.Plus.redeemButton) {
+                showingRedeemSheet = true
+            }
+            .font(.callout)
+            .offerCodeRedemption(isPresented: $showingRedeemSheet)
 
             if let error = subscriptions.lastActionError {
                 Text(error)

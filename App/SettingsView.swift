@@ -22,6 +22,7 @@ struct SettingsView: View {
     // Lyklaborð+ paywall sheet (opened from the subscription section and
     // the gated sync section).
     @State private var showingPaywall = false
+    @State private var showingRedeemSheet = false
 
     // Data export
     @State private var exportDocument: ExportDataDocument?
@@ -166,6 +167,12 @@ struct SettingsView: View {
                 Button(Strings.Plus.restoreButton) {
                     Task { await subscriptions.restorePurchases() }
                 }
+                Button {
+                    showingRedeemSheet = true
+                } label: {
+                    Label(Strings.Plus.redeemButton, systemImage: "ticket")
+                }
+                .offerCodeRedemption(isPresented: $showingRedeemSheet)
                 if let error = subscriptions.lastActionError {
                     Text(error)
                         .font(.caption)
