@@ -139,6 +139,13 @@ struct KeycapHeroView: UIViewRepresentable {
         camera.zFar = Double(maxDim) * 40
         camera.wantsHDR = true
         camera.wantsExposureAdaptation = false
+        // AEK II look: warm greige matte PBT, never blown-out white. Pull the
+        // exposure down and kill highlight bloom so the plastic keeps its tone
+        // instead of clipping to paper-white.
+        camera.exposureOffset = -0.85           // EV bias, darkens the whole frame
+        camera.whitePoint = 1.35                 // raise clip point so highlights roll off, not clip
+        camera.bloomIntensity = 0                // no glow halo on the top edge
+        camera.bloomThreshold = 1.0
         cameraNode.camera = camera
         let r = maxDim * 3.4
         let el = camElevation, az = camAzimuth
@@ -152,14 +159,14 @@ struct KeycapHeroView: UIViewRepresentable {
 
         // Warm studio image-based lighting drives the satin PBT reflections.
         scene.lightingEnvironment.contents = studioEnvironment()
-        scene.lightingEnvironment.intensity = 1.35
+        scene.lightingEnvironment.intensity = 0.95   // was 1.35 — softer studio, matte satin
 
         // Crisp warm key light -> the highlight on the Ð legend + cap edges.
         let key = SCNNode()
         let keyLight = SCNLight()
         keyLight.type = .directional
         keyLight.color = UIColor(red: 1.0, green: 0.97, blue: 0.91, alpha: 1.0)
-        keyLight.intensity = 1250
+        keyLight.intensity = 720   // was 1250 — the raking key was blowing the top edge
         keyLight.castsShadow = false // levitation shadow is drawn in SwiftUI
         key.light = keyLight
         key.eulerAngles = SCNVector3(-0.95, -0.5, 0.0) // upper-left, raking

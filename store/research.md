@@ -83,7 +83,7 @@ incumbent, which ships free and has no App Store page to out-rank).
 | Caption weight | Heavy white bold | Heavy white bold | **Heavy bold, ink-on-warm** (brand, not generic blue) |
 | Background | Blue gradient | Flat dark blue | **Warm off-white `#faf9f6`** (site palette — distinct in a sea of blue) |
 | Device frame | Mixed / dated | Notch (dated) | **Modern Dynamic-Island frame** |
-| Lead shot | AI/Copilot | Google Search | **Product identity: the Ð keycap + "kann íslensku"** |
+| Lead shot | AI/Copilot | Google Search | **Product identity: the Ð keycap + "skilur íslensku"** |
 | Proof-in-action | 1 shot (#3) | 0 | **3 shots** (accents, blend, BÍN) — our core edge |
 | Privacy | none | none | **dedicated shot** (verifiable, uncontested angle) |
 
@@ -99,7 +99,7 @@ incumbent, which ships free and has no App Store page to out-rank).
 2. **Lead with identity, not a feature.** SwiftKey/Gboard lead with a feature
    (AI, Search). We have no brand recognition yet and a self-explanatory name,
    so shot #1 is the **Ð keycap (Wave-5 marketing render) + wordmark +
-   "Lyklaborðið sem kann íslensku"** — it states what the thing *is* in one
+   "Lyklaborðið sem skilur íslensku"** — it states what the thing *is* in one
    glance. The keycap is our unfair visual asset; use it as the hook.
 
 3. **Three "impossible on any other keyboard" proof shots.** The conversion
@@ -135,7 +135,7 @@ incumbent, which ships free and has no App Store page to out-rank).
 ### Final sequence (6 shots, both locales)
 | # | File | Caption (is / en) | Job |
 |---|---|---|---|
-| 1 | `01_hero` | Lyklaborðið sem kann íslensku / The keyboard that knows Icelandic | Identity hook |
+| 1 | `01_hero` | Lyklaborðið sem skilur íslensku / The keyboard that knows Icelandic | Identity hook |
 | 2 | `02_accents` | Skrifaðu broddlaust / Type accent-naked | Proof: accents |
 | 3 | `03_blend` | Íslenska og enska, blandað / Icelandic and English, blended | Proof: two-lane |
 | 4 | `04_bin` | Skilur beygingar / It understands inflection | Proof: morphology (BÍN) |

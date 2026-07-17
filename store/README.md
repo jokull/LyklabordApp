@@ -76,7 +76,7 @@ PY
 
 | # | File | Caption is-IS / en-US |
 |---|---|---|
-| 1 | `01_hero` | Lyklaborðið sem kann íslensku / The keyboard that knows Icelandic |
+| 1 | `01_hero` | Lyklaborðið sem skilur íslensku / The keyboard that knows Icelandic |
 | 2 | `02_accents` | Skrifaðu broddlaust / Type accent-naked |
 | 3 | `03_blend` | Íslenska og enska, blandað / Icelandic and English, blended |
 | 4 | `04_bin` | Skilur beygingar / It understands inflection |

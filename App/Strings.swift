@@ -49,7 +49,7 @@ enum Strings {
     enum Onboarding {
         static let title = "Lyklaborð"
         /// Hero tagline, matched verbatim to the landing page (lyklabord.solberg.is).
-        static let tagline = "Íslenskt lyklaborð sem kann íslensku."
+        static let tagline = "Íslenskt lyklaborð sem skilur íslensku."
         /// Accessibility label for the keycap hero image.
         static let heroAccessibilityLabel = "Þrívíður Ð-hnappur — merki Lyklaborðs"
         static let subtitle = "Íslenskt og enskt lyklaborð sem hugsar um friðhelgi. Ekkert netkóði er í lyklaborðsviðbótinni sjálfri — allt gerist á tækinu þínu."

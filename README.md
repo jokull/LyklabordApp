@@ -5,7 +5,7 @@
 <h1 align="center">Lyklaborð</h1>
 
 <p align="center">
-  <strong>Íslenskt lyklaborð sem kann íslensku.</strong><br>
+  <strong>Íslenskt lyklaborð sem skilur íslensku.</strong><br>
   <em>A privacy-first iOS keyboard for Icelandic — that also types excellent English.</em>
 </p>
 
