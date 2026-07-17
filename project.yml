@@ -52,6 +52,9 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Lyklaborð
+        # CFBundleName defaults to PRODUCT_NAME (BetterKeyboard) and leaks
+        # into iOS surfaces (iPhone Storage, some dialogs) — brand it.
+        CFBundleName: Lyklaborð
         # xcodegen writes literal 1.0/1 defaults otherwise — these make the
         # bundle version track the target settings (dead70b bump et seq).
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -173,6 +176,7 @@ targets:
     info:
       path: KeyboardExt/Info.plist
       properties:
+        CFBundleName: Lyklaborð
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Required for install (installd rejects keyboard appexes without a
