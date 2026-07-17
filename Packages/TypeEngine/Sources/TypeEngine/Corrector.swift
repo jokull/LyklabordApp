@@ -1181,11 +1181,30 @@ public struct Corrector {
                 // auto-apply demands a headline-vocabulary winner (ég, við
                 // — the words people actually mean) via the raised floor.
                 let short = typedChars.count <= config.autocorrectShortLengthMax
+                // Archaic-twin restoration (wave 32, dogfood "þu"/"eg"):
+                // a restoration-only winner that is the typed skeleton's
+                // DOMINANT acute-fold twin (wave-26 shadow probe — ratio,
+                // noise-tier and English-reading gates all inside) earns
+                // the relaxed short floor below: the acute vowel has no
+                // key, so the typed skeleton IS the twin's lazy spelling
+                // and the headline bar over-demands ("þú" +1.482 sat
+                // 0.02σ under it). Only for tokens attested NOWHERE —
+                // valid skeletons (nu, sa, ja, for) never reach this
+                // branch at all (skeleton-collision triple gate).
+                let archaicTwinWinner =
+                    config.archaicTwinRestorationEnabled && short
+                    && best.cost.isRestorationOnly
+                    && model.acuteFoldShadowTwin(of: typed) == best.word
                 var minZ =
                     farRepair
                     ? max(config.autocorrectMinZ, config.autocorrectFarRepairMinZ)
                     : config.autocorrectMinZ
-                if short { minZ = max(minZ, config.autocorrectShortMinZ) }
+                if short {
+                    minZ = max(
+                        minZ,
+                        archaicTwinWinner
+                            ? config.archaicTwinShortMinZ : config.autocorrectShortMinZ)
+                }
                 // Contextual lift of winner and runner-up in the posterior-
                 // dominant lane (wave 27) — the bigram-evidence currency
                 // for the margin relief and the context-short floor below.
@@ -1386,7 +1405,10 @@ public struct Corrector {
                         "winner z \(typicality == .infinity ? "personal" : String(format: "%+.3f", typicality))"
                             + " >= minZ \(String(format: "%+.3f", minZ))"
                             + (farRepair ? " (far-repair floor)" : "")
-                            + (short ? " (short-token floor)" : ""),
+                            + (short
+                                ? archaicTwinWinner
+                                    ? " (archaic-twin floor)" : " (short-token floor)"
+                                : ""),
                         pass: typicalityOK)
                 }
                 if let trace, shortCompletion {
@@ -2147,8 +2169,16 @@ public struct Corrector {
                     >= config.accentRestoreMinZ
             {
                 let bare = String(letter)
+                // PROTECTED personal validity, not raw (wave 32 — the
+                // wave-26 parity fix this path had missed): an IMPLICITLY
+                // learned bare vowel is exactly the lazy spelling of its
+                // accent twin (a user whose "a"s meant "á" teaches the
+                // engine "a", and that must not kill the a→á restoration —
+                // the dogfood "horfa a mynd" shape). Explicit adds,
+                // verbatim taps and tombstones keep full veto power, as
+                // everywhere.
                 let bareIsIcelandicWord =
-                    model.isPersonalValid(bare)
+                    model.isPersonalProtected(bare)
                     || model.isPersonalTombstoned(bare)
                     || (model.icelandic.frequency(of: bare) != nil
                         && model.calibratedUnigramScore(of: bare, language: .icelandic)
@@ -2202,7 +2232,7 @@ public struct Corrector {
         {
             let autocorrect =
                 pEnglish >= config.accentAutoApplyMinPosterior
-                && !model.isPersonalValid("i")
+                && !model.isPersonalProtected("i")
             // Capitalization restoration has no competing reading — the
             // squashed lane posterior stands in as display confidence.
             suggestions.append(

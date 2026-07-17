@@ -102,6 +102,8 @@ public enum ConfigOverrides {
         "caseSplitSecondMinProbability": { $0.caseSplitSecondMinProbability = $1 },
         "compoundCompletionBasePenalty": { $0.compoundCompletionBasePenalty = $1 },
         "compoundCompletionHeadZWeight": { $0.compoundCompletionHeadZWeight = $1 },
+        // Archaic-twin restoration (wave 32)
+        "archaicTwinShortMinZ": { $0.archaicTwinShortMinZ = $1 },
     ]
 
     /// Int-valued tunables.
@@ -145,6 +147,8 @@ public enum ConfigOverrides {
         "contextContinuationEnabled": { $0.contextContinuationEnabled = $1 },
         // Case-aware completions (wave 23)
         "caseCompletionEnabled": { $0.caseCompletionEnabled = $1 },
+        // Archaic-twin restoration (wave 32)
+        "archaicTwinRestorationEnabled": { $0.archaicTwinRestorationEnabled = $1 },
     ]
 
     /// All override keys, sorted — for `--help` / docs / diagnostics.

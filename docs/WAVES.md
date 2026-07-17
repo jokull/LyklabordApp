@@ -32,6 +32,106 @@ architecture in `docs/adr/`. Newest first.
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
 
+## 2026-07-17 — Wave 32: archaic-twin restoration (the eg/þu class)
+
+- **Trigger**: the single most recurring silent miss across all 13 dogfood
+  sessions: eg/Eg committed silently in 5+ recordings ("en stundum tek eg",
+  "og veitingar boði eg", …), filed under restoration-fold/watch in the
+  top-gaps table. Working hypothesis going in: "eg" is BÍN-valid (archaic
+  register form of ég), so the conservatism invariant protects it.
+- **Artifact verification KILLED the premise** (repl `:word` probes + a
+  direct scan of BÍN's SHsnid.csv, 6.3M rows): the Sigrúnarsnið BÍN
+  distribution carries NO archaic eg/þu/nu/tva/sa/jeg forms at all, so
+  lemma-is.bin never knew them; is.lex's junk filter additionally dropped
+  their web-corpus attestations (eg 6359, sa 10516, þvi 38 in the raw
+  unigrams — all absent from the shipped lexicon). The class actually
+  splits three ways in the shipped chain:
+  1. skeletons attested NOWHERE (eg, þu, su, mikid, þo): ordinary-unknown
+     path, no veto exists — everything already fired at HEAD **except
+     "þu"**, whose twin þú (z +1.482) sat 0.02σ under the short-token
+     headline floor (`autocorrectShortMinZ` 1.5);
+  2. skeletons attested in en.lex only (nu −0.66, sa −0.00, ut −0.20,
+     for +2.35): valid typed words — the skeleton-collision triple gate
+     already fires them inside a running IS lane (sletta guard log-odds
+     +4.7 for nu at P(IS) 0.9). THIS is the real eg-vs-sa asymmetry the
+     dogfood data hinted at: en.lex attestation, not BÍN validity;
+  3. skeletons that are genuine is.lex vocabulary (ja 13462 vs já 71404 —
+     ratio 5.3, vist/víst, för/for): dominance-ratio (10x) keeps them
+     protected. NOT this wave's class, verified untouched.
+- **Twin-pair sweep** (unigrams.json.gz × SHsnid forms × en-80k): 4835
+  acute-fold pairs with a somewhere-valid skeleton. Structure: (i)
+  is.lex-attested junk skeletons (þvi 143074:1, þa 41015:1, frá 21852:1 —
+  all fire today via the 10x ratio gate); (ii) BÍN-only skeletons of
+  headline twins (malinu/málinu 285k:floor, seð/séð, nyta/nýta — fire via
+  `restorationDominanceMinZ`/oblique); (iii) en.lex-attested skeletons
+  (class 2 above); (iv) nowhere-attested (class 1). The only 2-char twins
+  in the (1.17, 1.5) z-band reachable from a nowhere-attested skeleton:
+  þú +1.48 (the target); next admits down are fé +1.17 and já +1.12,
+  both excluded by attested skeletons ("fe"/"ja") before any floor runs.
+- **Decided — ratio-gated probe reuse, NO curated allowlist**: (1)
+  **archaic-twin short floor**: a restoration-only winner that IS the
+  typed skeleton's dominant acute-fold twin (the wave-26
+  `acuteFoldShadowTwin` probe — 10x is.lex dominance over the skeleton's
+  own attestation, above-noise twin, twin beats the skeleton's ENGLISH
+  reading) clears `archaicTwinShortMinZ` 1.3 instead of the 1.5 headline
+  bar. The probe's three gates separate the classes cleanly on the real
+  artifacts, so an allowlist adds nothing the data doesn't already say;
+  1.3 bisects the þú/fé band with ~0.15σ safety both ways. Blast radius =
+  exactly þu→þú (mid-lane margin 1.026 ≥ 0.5 relaxed; fresh-field 1.241 ≥
+  1.15 ordinary — both now fire). Dev/heldout byte-identical (the
+  synthetic corpus has no such pairs — wave-26-style inertness). (2)
+  **Single-letter wave-26 parity**: the a→á/i→í path still consulted RAW
+  `isPersonalValid` — an IMPLICITLY learned lazy "a" (the dogfood "horfa
+  a mynd" shape: habitual accentless typing teaches the engine the
+  skeleton) silently disarmed the flagship single-letter restoration.
+  Now `isPersonalProtected` (shadow demotion) on both the IS bare-vowel
+  gate and the EN lone-i mirror; explicit adds, verbatim taps and
+  tombstones keep full veto exactly as before.
+- **Deliberateness verified end-to-end** (scenarios): one tap on the
+  quoted verbatim slot is a session-immediate EXPLICIT learn — the next
+  "eg" commits as typed with ég still offered (poetry stays typeable and
+  re-protectable); PERSONAL_EXPLICIT seeds keep the veto; implicit seeds
+  keep restoring (wave-26 continuity).
+- **Device forensics — honest open finding**: the recordings show the
+  ENGINE (raw `recordPass` bar) arming ac=false for Eg/eg/a in sessions
+  where su→sú and ætla DID arm, and the device's app-group container has
+  NO personal-model.json (devicectl-verified via the pre-migration
+  group.is.lyklabord container), yet the harness at the same stamped
+  commit with the recorded context AND tap coordinates fires eg→ég at
+  margin 2.98 vs required 0.35. No session state constructible in the
+  harness reproduces the silence; both device builds are "+dirty"
+  stamps. Suspects, in order: process-lifetime explicit session-learns
+  (a verbatim tap on "eg"/"a" any time in the keyboard process's life —
+  invisible to the recordings, which only capture armed sessions) or a
+  stale/divergent installed appex. Next device install must re-verify
+  the class live before this wave is declared closed on-device.
+- **för/for safety proof**: "for" is BÍN-valid (form of för) + en.lex
+  headline — `isValidTypedWord` true, so the archaic-twin path (which
+  only exists inside the typed-invalid branch) structurally cannot touch
+  it; its deep-IS-lane for→fór fire remains the separate grammar-vouched
+  skeleton-collision class (dominance-minZ: fór +1.77). Scenario-locked:
+  för never rewritten, for keeps its English reading at neutral, ja keeps
+  dominance protection, nu fires only through the triple gate.
+- **Personal-data hygiene** (waves 23/27 precedent, kb.jsonl-verified):
+  corrected Eg|ég → Eg|Ég (capitalization transfer — the engine's answer
+  for typed "Eg" IS "Ég"; the analyzer had lowercased the intent) and
+  lg|log → lg|og ("log" was itself abandoned mid-repair; the final text
+  says og); DROPPED five in-flight fragment rows backspaced before any
+  commit (ciyu|ciyt, log|og, su|stundum, æyla|tæ, tæ|að — replaying them
+  with a delimiter manufactures false-acs the sessions never had, the
+  wave-23 "a|Arnj" class). Registered Eg→Ég and lg→og in
+  confirmed-intents.
+- **Gates**: dev 2339 top-1 / 121 false-ac — byte-identical to wave 23
+  (A/B toggle on-vs-off: ±0.00 everywhere); heldout (once) 2287/162 —
+  byte-identical; scorecard PASS (micro 166/167, false-ac 0, valid-word
+  safety green); personal gate 48 rows top1 26 falseAc 5 — ZERO
+  regressions, 6 improvements including eg|ég newly passing top-1,
+  baseline updated; scenarios 220/220 ×3 (14 new wave-32 contracts incl.
+  mikid→mikið locking the d↔ð analog); swift test 416 green (7 new
+  ArchaicTwinTests); bench worst ~14.5 ms cold blip / p99 3.4 ms
+  (gate 30). New knobs `archaicTwinRestorationEnabled` /
+  `archaicTwinShortMinZ` in the A/B allowlist.
+
 ## 2026-07-17 — Wave 23: case-aware long-word completions (split-case governors)
 
 - **Trigger**: the flagship INFLECTION_MISS (session 2026-07-16T15-32-25):

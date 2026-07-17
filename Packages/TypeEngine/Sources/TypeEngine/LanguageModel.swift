@@ -135,6 +135,28 @@ public struct EngineConfig: Sendable {
     /// words exempt, as everywhere). ég +2.42 / við +2.93 clear it; the
     /// mid-tier words a 2-letter token sits one edit from do not.
     public var autocorrectShortMinZ: Double = 1.5
+    /// Archaic-twin restoration (wave 32, the eg/þu dogfood class): master
+    /// toggle for the relaxed SHORT-token floor below (eval A/B switch).
+    public var archaicTwinRestorationEnabled = true
+    /// Relaxed short-token typicality floor for a RESTORATION-ONLY winner
+    /// that is the typed skeleton's DOMINANT acute-fold twin (the wave-26
+    /// `acuteFoldShadowTwin` probe, base-lexicon edition: is.lex dominance
+    /// ratio over the skeleton's own attestation + above-noise twin + the
+    /// twin beats the skeleton's ENGLISH reading). Such a skeleton maps
+    /// deterministically to its twin — the acute vowel has no key of its
+    /// own, so the two typed letters ARE the twin's evidence — and demanding
+    /// the full `autocorrectShortMinZ` headline bar was the one gate that
+    /// kept "þu" → "þú" (z +1.482, 0.02σ under the 1.5 floor) silent while
+    /// "eg" → "ég" (+2.42) and "su" → "sú" (+1.72) fired. Band analysis on
+    /// the real artifacts (2-char twins reachable from a skeleton that is
+    /// attested NOWHERE — is.lex/en.lex-attested skeletons take the
+    /// skeleton-collision triple gate instead and never see this floor):
+    /// þú +1.48 is the only member in (1.17, 1.5); the next admit down is
+    /// fé +1.17 (skeleton "fe" is en.lex-attested anyway) and já +1.12
+    /// (skeleton "ja" is genuine is.lex vocabulary — dominance-ratio keeps
+    /// it protected, the för/for-class shape). 1.3 sits between þú and fé
+    /// with ~0.15σ of safety on both sides.
+    public var archaicTwinShortMinZ: Double = 1.3
     /// Short double-substitution repairs (live-session "habb" → "hann",
     /// 2026-07-16): per-edit spatial-cost ceiling for the targeted 3-4 char
     /// two-substitution pass — ~adjacent keys only (adjacent ≈ 1.05 nats).

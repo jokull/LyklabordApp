@@ -402,3 +402,142 @@ EXPECT_LAST_COMMIT gert
 SCENARIO counter: greta typed verbatim is never touched (wave 27)
 T "hún heitir greta "
 EXPECT_LAST_COMMIT greta
+
+# ============================================================================
+# Wave 32 — archaic-twin restoration: the eg/þu class
+# ============================================================================
+# The most recurring silent miss across the first 13 dogfood recordings:
+# eg/Eg committed silently in 5+ sessions ("en stundum tek eg", "og
+# veitingar boði eg", …). Artifact verification (repl :word + BÍN
+# SHsnid.csv): the premise "eg is BÍN-valid so the conservatism invariant
+# protects it" is FALSE in the shipped chain — BÍN's Sigrúnarsnið carries
+# no archaic eg/þu/nu/tva/sa forms at all, and is.lex's junk filter drops
+# their web-corpus attestations, so the class splits three ways:
+#   (a) skeletons attested NOWHERE (eg, þu, su, mikid): ordinary-unknown
+#       path — everything fired at HEAD except "þu", whose twin þú
+#       (z +1.482) sat 0.02σ under the short-token headline floor (1.5).
+#       Wave 32's archaic-twin floor (1.3, gated on the wave-26 dominant
+#       shadow-twin probe) admits it; the next admit down (fé +1.17,
+#       já +1.12) stays out with ~0.15σ of safety.
+#   (b) skeletons attested in en.lex only (nu, sa, ut, for): valid typed
+#       words — the skeleton-collision triple gate (lane + dominance +
+#       context + sletta guard) already fires them in a running IS lane.
+#   (c) skeletons that are genuine is.lex vocabulary (ja, vist, för/for):
+#       dominance-ratio keeps them protected — NOT this wave's class.
+# The device-side silent misses additionally implicated personal state:
+# the single-letter path (a→á) still consulted RAW personal validity and
+# missed wave 26's shadow demotion — fixed this wave (parity).
+
+SCENARIO eg restores ég mid-sentence (2026-07-17T12-56-35, wave 32)
+# "…horfa a mynd en stundum tek eg" — margin 2.98 over "egg" at the
+# relaxed restoration margin, bigram "tek ég" lift +1.01 on top.
+T "en stundum tek eg "
+EXPECT_LAST_COMMIT ég
+
+SCENARIO Eg restores Ég sentence-initial (2026-07-16T16-14-00, wave 32)
+# Fresh field, posterior at the neutral 0.5 prior: the lane ramp is
+# closed, so the ordinary margin (1.15) applies — ég's margin over "ef"
+# is 1.184. HONEST CONTRACT: this clears the bar by 0.034 nats, not by
+# design headroom; if a future ranking wave shrinks it, the margin — not
+# this scenario — is the thing to revisit (capitalization transfer is
+# what's really under test).
+T "Eg "
+EXPECT_LAST_COMMIT Ég
+
+SCENARIO þu restores þú mid-sentence — the wave-32 flip (2026-07-16T22-45-30)
+# The one class member the pre-wave engine kept silent everywhere:
+# restoration margin passed (1.026 >= 0.5) but þú (z +1.482) failed the
+# 1.5 short-token floor. The archaic-twin floor (1.3) admits it.
+T "ég er alveg viss um þu "
+EXPECT_LAST_COMMIT þú
+
+SCENARIO þu restores þú fresh-field (wave 32)
+# Neutral posterior: ordinary margin 1.241 >= 1.15 + archaic-twin floor.
+T "þu "
+EXPECT_LAST_COMMIT þú
+
+SCENARIO nu restores nú through the triple gate (wave 32, class b)
+# "nu" is en.lex-attested (z -0.66) — a VALID typed word, so this is the
+# skeleton-collision triple gate firing (sletta guard log-odds +4.7 in a
+# deep IS lane), not the archaic-twin path. Locks the eg/nu asymmetry.
+T "við erum saman núna nu "
+EXPECT_LAST_COMMIT nú
+
+SCENARIO mikid restores mikið — d→ð lazy skeleton (wave 32)
+# The d↔ð analog of the acute class: "mikid" is attested nowhere, the
+# d→ð confusion is restoration-class, mikið (z +1.83) clears every
+# ordinary floor. Margin 4.86 — locked so it stays boring.
+T "hann hefur gert svo mikid "
+EXPECT_LAST_COMMIT mikið
+
+SCENARIO counter: ja keeps its dominance protection (wave 32, class c)
+# "ja" is genuine is.lex vocabulary (f=13462): já at f=71404 is only
+# 5.3x dominant — under the 10x dominance-ratio gate. The för/for-class
+# shape: both readings are current words, restoration stays offer-only.
+T "hann sagði bara ja"
+EXPECT_NO_AUTOCORRECT
+EXPECT_CONTAINS já
+T " "
+EXPECT_LAST_COMMIT ja
+
+SCENARIO counter: för is never rewritten (wave 32)
+# Safety pair, half 1: "för" is a valid word — no auto-apply path exists
+# for it, in any lane.
+T "þau fóru í eina för "
+EXPECT_LAST_COMMIT för
+
+SCENARIO counter: for keeps its English reading at neutral (wave 32)
+# Safety pair, half 2: "for" at a fresh-field neutral posterior is
+# sletta-guarded English. Its deep-IS-lane for→fór fire is the separate
+# grammar-vouched skeleton-collision class (dominance-minZ: fór +1.77
+# over a BÍN-valid, is.lex-absent skeleton) — deliberately untouched by
+# this wave; the archaic-twin path never sees a valid typed word.
+T "for"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT for
+
+SCENARIO verbatim tap re-protects eg — poetry stays typeable (wave 32)
+# Deliberateness still wins: one tap on the quoted verbatim slot is a
+# session-immediate EXPLICIT learn (wave-26 machinery), and the very
+# next "eg" commits as typed — the restoration stays in the bar as an
+# offer, never a fire.
+T "en stundum tek eg"
+TAP eg
+T "og aftur eg"
+EXPECT_NO_AUTOCORRECT
+EXPECT_CONTAINS ég
+T " "
+EXPECT_LAST_COMMIT eg
+
+SCENARIO explicit dictionary add keeps eg protected (wave 32)
+# The dictionary-editor / import class: full veto power, unchanged.
+PERSONAL_EXPLICIT eg 3
+T "en stundum tek eg"
+EXPECT_NO_AUTOCORRECT
+EXPECT_CONTAINS ég
+T " "
+EXPECT_LAST_COMMIT eg
+
+SCENARIO implicitly learned eg still restores (wave 26 continuity, wave 32)
+# The lazy-commit shape: an organically learned "eg" is the shadow of ég
+# and must not kill the restoration (its counts transfer to the twin).
+PERSONAL eg 12
+T "en stundum tek eg "
+EXPECT_LAST_COMMIT ég
+
+SCENARIO implicitly learned a no longer kills a→á (2026-07-17T12-56-35, wave 32)
+# The single-letter parity fix: "horfa a mynd" — a habitual lazy-"a"
+# typist teaches the engine "a", and the pre-wave path consulted RAW
+# personal validity, silently disarming the flagship a→á restoration.
+# PROTECTED validity (wave-26 shadow demotion) frees it.
+PERSONAL a 12
+T "ég ætla a "
+EXPECT_LAST_COMMIT á
+
+SCENARIO counter: explicitly learned a keeps the single-letter veto (wave 32)
+PERSONAL_EXPLICIT a 3
+T "ég ætla a"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT a
