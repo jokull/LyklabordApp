@@ -29,6 +29,9 @@ public actor CloudKitRecordStore: CloudRecordStore {
     /// save/conflict.
     private var lastServerRecord: CKRecord?
     private var zoneEnsured = false
+    /// Guards the one-time stale-staging sweep per store instance (the
+    /// store lives for the app's process lifetime — see `SyncCoordinator`).
+    private var didSweepStaleStaging = false
 
     /// Blobs above this go into a `CKAsset` instead of an inline `Data`
     /// field (CKRecord values are budgeted at ~1MB total).
@@ -57,6 +60,10 @@ public actor CloudKitRecordStore: CloudRecordStore {
     }
 
     public func saveSnapshot(_ snapshot: SnapshotRecord, basedOnDigest: String?) async throws {
+        if !didSweepStaleStaging {
+            didSweepStaleStaging = true
+            Self.sweepStaleStagingFiles()
+        }
         try await ensureZone()
         let record: CKRecord
         if basedOnDigest != nil, let last = lastServerRecord {
@@ -64,7 +71,17 @@ public actor CloudKitRecordStore: CloudRecordStore {
         } else {
             record = CKRecord(recordType: SyncActivation.recordType, recordID: recordID)
         }
-        try Self.apply(snapshot, to: record)
+        // `apply` may stage the sealed blob as a loose file on disk for the
+        // CKAsset to point at (CloudKit reads it directly during upload).
+        // Whether the upload below succeeds or throws, the staging file
+        // must not outlive this call — otherwise every save leaks a
+        // ~1.6MB file into the container's tmp/ directory forever.
+        let stagedFileURL = try Self.apply(snapshot, to: record)
+        defer {
+            if let stagedFileURL {
+                try? FileManager.default.removeItem(at: stagedFileURL)
+            }
+        }
         do {
             let (saveResults, _) = try await database.modifyRecords(
                 saving: [record],
@@ -134,7 +151,14 @@ public actor CloudKitRecordStore: CloudRecordStore {
         )
     }
 
-    static func apply(_ snapshot: SnapshotRecord, to record: CKRecord) throws {
+    /// Applies `snapshot` onto `record`, staging the sealed blob as a loose
+    /// file when it is large enough to need a `CKAsset`. Returns the staged
+    /// file's URL so the caller can delete it once the upload that reads it
+    /// has finished (success or failure) — the file must survive until then
+    /// but not a moment longer. Returns `nil` when the blob was small enough
+    /// to go inline (no file staged).
+    @discardableResult
+    static func apply(_ snapshot: SnapshotRecord, to record: CKRecord) throws -> URL? {
         if snapshot.sealedBlob.count > assetThresholdBytes {
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("lyklabord-sync-\(UUID().uuidString).bin")
@@ -145,13 +169,48 @@ public actor CloudKitRecordStore: CloudRecordStore {
             }
             record[SyncActivation.Field.sealedBlobAsset] = CKAsset(fileURL: tempURL)
             record[SyncActivation.Field.sealedBlob] = nil
+            record[SyncActivation.Field.schemaVersion] = snapshot.schemaVersion as NSNumber
+            record[SyncActivation.Field.modelDigest] = snapshot.modelDigest as NSString
+            record[SyncActivation.Field.deviceLastWriter] = snapshot.deviceLastWriter as NSString
+            return tempURL
         } else {
             record[SyncActivation.Field.sealedBlob] = snapshot.sealedBlob as NSData
             record[SyncActivation.Field.sealedBlobAsset] = nil
+            record[SyncActivation.Field.schemaVersion] = snapshot.schemaVersion as NSNumber
+            record[SyncActivation.Field.modelDigest] = snapshot.modelDigest as NSString
+            record[SyncActivation.Field.deviceLastWriter] = snapshot.deviceLastWriter as NSString
+            return nil
         }
-        record[SyncActivation.Field.schemaVersion] = snapshot.schemaVersion as NSNumber
-        record[SyncActivation.Field.modelDigest] = snapshot.modelDigest as NSString
-        record[SyncActivation.Field.deviceLastWriter] = snapshot.deviceLastWriter as NSString
+    }
+
+    // MARK: - Staging cleanup
+
+    /// Removes leftover `lyklabord-sync-*.bin` staging files older than
+    /// `maxAge`. Normal operation cleans these up itself (see `saveSnapshot`'s
+    /// `defer`), but a process kill mid-upload (crash, force-quit, jetsam)
+    /// can strand one — this sweep is the crash-resilience backstop, run
+    /// once per store instance before the first save. Only touches files
+    /// older than a day so a save currently in flight is never raced.
+    static func sweepStaleStagingFiles(
+        olderThan maxAge: TimeInterval = 86_400,
+        in directory: URL = FileManager.default.temporaryDirectory
+    ) {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else {
+            return
+        }
+        let cutoff = Date().addingTimeInterval(-maxAge)
+        for url in contents {
+            guard url.lastPathComponent.hasPrefix("lyklabord-sync-"), url.pathExtension == "bin" else {
+                continue
+            }
+            let modDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            guard let modDate, modDate < cutoff else { continue }
+            try? fm.removeItem(at: url)
+        }
     }
 
     // MARK: - Error mapping
