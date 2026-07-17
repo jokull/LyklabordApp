@@ -3,6 +3,10 @@
 _Voice sourced from README.md and lyklabord.solberg.is. Character limits noted
 in parentheses; counts verified in `store/metadata/charcheck.txt`._
 
+**This is the primary — and only — App Store Connect localization.** ASC has
+no Icelandic metadata locale, so `metadata/is.md` is not a second upload
+target; see `store/README.md` §A.1.
+
 ## App name (≤30)
 `Lyklaborð – Icelandic Keyboard`
 <!-- 30 chars incl. spaces & en-dash. Fallback if 30 is rejected by ASC

@@ -1,4 +1,12 @@
-# App Store metadata — is-IS
+# App Store metadata — is-IS (reference copy, not an ASC localization)
+
+> **Not uploadable as-is.** App Store Connect has no Icelandic metadata
+> locale — there is no `is` / `is-IS` option in ASC's localization picker.
+> Primary language for the ASC listing is **English (U.S.)**
+> (`metadata/en.md`); this file exists as source voice for the marketing
+> site (`site/src/pages/index.astro`, already Icelandic-first) and for any
+> future in-app localized strings, not for direct upload. See
+> `store/README.md` §A.1.
 
 _Description + What's New proofed via Gemini (translate-to-icelandic skill,
 gemini-3.1-pro-preview). Short fields hand-crafted to hit hard character limits
