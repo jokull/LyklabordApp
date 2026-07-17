@@ -112,7 +112,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord
         PRODUCT_NAME: BetterKeyboard
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "1.0"
         # Bumped 1→2 with the CloudDocuments entitlement: iCloud Drive only
         # re-reads NSUbiquitousContainers on a bundle-version change.
         CURRENT_PROJECT_VERSION: "2"
@@ -204,7 +204,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord.keyboard
         PRODUCT_NAME: BetterKeyboardExt
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "1.0"
         # Keep in lockstep with the app target (App Store requires matching
         # short versions; CFBundleVersion now flows from this setting).
         CURRENT_PROJECT_VERSION: "2"
@@ -245,7 +245,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord.replayhost
         PRODUCT_NAME: ReplayHost
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
