@@ -18,11 +18,19 @@ public protocol MorphologyProviding: AnyObject {
     /// exactly one candidate — runs on this (PLAN.md "Lemma-level learning
     /// constraint"). Default: none (no form ever lifts).
     func lemmaCandidates(of word: String) -> [String]
+
+    /// Whether the form has an OPEN word-class analysis (noun/verb/
+    /// adjective) — the compound-HEAD legality test (wave 22, the port of
+    /// Miðeind's `_OPEN_CATS` restriction: function words are never
+    /// compound heads). Default: plain `isKnown` (validation-only
+    /// conformers over-accept rather than break).
+    func hasOpenClassAnalysis(_ word: String) -> Bool
 }
 
 public extension MorphologyProviding {
     func nounAdjectiveCases(of word: String) -> [String] { [] }
     func lemmaCandidates(of word: String) -> [String] { [] }
+    func hasOpenClassAnalysis(_ word: String) -> Bool { isKnown(word) }
 }
 
 /// All engine tunables in one place. Defaults documented inline; every value
@@ -164,6 +172,81 @@ public struct EngineConfig: Sendable {
     /// Kept as an A/B knob for a future wave with better junk separation
     /// (e.g. compound-splitter validation instead of raw BÍN validity).
     public var vacuumAutoApplyEnabled = false
+
+    // MARK: - Compound acceptance (wave 22 — PLAN.md "Compounds")
+
+    /// Master toggle for productive compound VALIDITY (see Compounds.swift):
+    /// an OOV word decomposable as legal-modifier(s)+legal-BÍN-head is
+    /// autocorrect-PROTECTED (never auto-replaced by an error-class rewrite
+    /// or a split; restoration-class auto-apply still runs through the
+    /// skeleton triple gate, so lazy accent skeletons like "tungumal" that
+    /// happen to decompose keep restoring). Deliberately NOT fed into the
+    /// generation-pass gates: suggestions for a compound-shaped token are
+    /// generated exactly as before, only the auto-apply decision changes.
+    /// Inert without BOTH a morphology provider and an inflection model
+    /// (paradigms.bin carries the definiteness bit the modifier rule
+    /// needs).
+    public var compoundValidityEnabled = true
+    /// Minimum modifier (non-final part) length. Miðeind's prefix list
+    /// bottoms out at 2; 4 is this engine's over-acceptance guard (the
+    /// dev sweep: 3/3 protects 2.7% of typo rows, 4/4 → 1.2% with no loss
+    /// on real-compound positives — short-part compounds live in BÍN
+    /// anyway, so validity only needs the productive long tail).
+    public var compoundMinModifierLength: Int = 4
+    /// Minimum head (final part) length; same sweep as above.
+    public var compoundMinHeadLength: Int = 4
+    /// Words longer than this skip compound analysis (pathological-input
+    /// latency guard; the split scan is O(length) lookups).
+    public var compoundMaxWordLength: Int = 32
+    /// Compound-head repair pass (Corrector step 5b): when an unknown
+    /// token has a legal modifier PREFIX but no legal head, hold the
+    /// modifier fixed and admit single-edit repairs of the head that are
+    /// legal compound heads ("stökkl|rikanum" → stökk + leikanum). The
+    /// candidates rank through the normal pipeline; being unattested they
+    /// can never auto-apply (attested-winner rule).
+    public var compoundRepairEnabled = true
+    /// Minimum typed length for the compound-head repair pass. OOV
+    /// compounds worth repairing are long (modifier ≥ 4 + head ≥ 4).
+    public var compoundRepairMinLength: Int = 8
+    /// The repair pass only runs when the cheap passes left no
+    /// attested-or-personal candidate at or under this spatial cost (the
+    /// `beamDeepGate` shape). 4.5 — one indel above the deep-beam gate —
+    /// keeps compound hypotheses out of pools that already hold an
+    /// honest single-insert repair ("eldsnyti" → attested "eldsneyti" at
+    /// cost 4.0 must not grow a cheap-sub compound rival "elds+nytu").
+    public var compoundRepairGate: Double = 4.5
+    /// At most this many legal-modifier prefixes are tried, longest first.
+    public var compoundRepairMaxModifiers: Int = 2
+    /// Budget of head-legality lookups per correct() call (each is one
+    /// mmap binary search over packed entries — no string decodes) — the
+    /// latency cap for the repair pass. 1400 covers the full single-edit
+    /// enumeration of two ~8-char head regions; the enumeration is
+    /// cost-sorted, so a cut drops the least plausible repairs first.
+    public var compoundRepairMaxLookups: Int = 1400
+    /// Also pool lexicon completions of the head REGION under the fixed
+    /// modifier ("stökklei|" → stökk + leikur…): compound continuations in
+    /// the bar (scope 3 of the wave, riding the same pass). DEFAULT OFF
+    /// (2026-07-17 verdict): completion-priced compound extensions
+    /// (0.5/char) structurally outrank space-miss splits and honest
+    /// repairs on the dev corpus — a speculative "fimmtabókina" must not
+    /// displace "fimmta bókin". Revisit with completion-specific pricing
+    /// in the split-case wave (#23).
+    public var compoundCompletionEnabled = false
+    /// Frequency assigned to a compound-valid word absent from every
+    /// table: STRICTLY below `binFloorFrequency`, so a BÍN-attested whole
+    /// word always outranks a hypothesized decomposition at equal cost
+    /// (dev-corpus verdict — a head-frequency lift and a shared BÍN floor
+    /// both walked cheap-edit junk compounds over honest repairs).
+    public var compoundFloorFrequency: UInt32 = 1
+    /// Typicality floor for a GENERATED (repair/completion) compound head:
+    /// bound suffix forms are exempt; every other hypothesized head must
+    /// be is.lex-attested at or above this calibrated z. Set between the
+    /// junk tier ("legan" −2.07, "legs" −2.04 — the web-corpus noise that
+    /// flooded the "faralega" bar) and the honest rare heads ("spjallið"
+    /// −1.50, "krikanum" −1.17). VALIDITY (protection) deliberately keeps
+    /// the wider BÍN-only head rule: under-correcting a typed word is
+    /// safe, suggesting junk is not.
+    public var compoundHeadMinZ: Double = -1.6
 
     /// Proper-noun possessive guard (dev contraction_damage diagnosis,
     /// 2026-07-16): a capitalized MID-SENTENCE unknown token of shape
@@ -912,6 +995,10 @@ struct BlendedLanguageModel {
     /// shared by reference exactly like `personal` — inert (nil snapshot)
     /// unless the embedder injects one via `TypeEngine.setPersonalTouch`.
     let touch: TouchModelStore
+    /// Compound decomposition engine + memo caches (wave 22), shared by
+    /// reference like the stores above. Inert unless both morphology and
+    /// an inflection model (paradigms) are present.
+    let compounds = CompoundAnalyzer()
 
     init(
         icelandic: Lexicon,
@@ -1086,6 +1173,30 @@ struct BlendedLanguageModel {
         isKnownAnywhere(word) || isPersonalProtected(word) || personal.isTombstoned(word)
     }
 
+    /// The word's compound decomposition (wave 22 — Compounds.swift), or
+    /// nil when it has none / the machinery is unavailable. Only
+    /// meaningful for words that are NOT known anywhere — callers
+    /// short-circuit on `isValidTypedWord` first.
+    func compoundSplit(of word: String) -> CompoundSplit? {
+        guard config.compoundValidityEnabled,
+            let morphology,
+            let paradigms = inflection.model?.paradigms
+        else { return nil }
+        return compounds.split(
+            of: word, morphology: morphology, paradigms: paradigms, config: config)
+    }
+
+    /// Validity for the AUTOCORRECT VETO (the conservatism invariant):
+    /// `isValidTypedWord` widened by productive compound acceptance. A
+    /// typed OOV compound ("stökkleikanum") must never be auto-replaced
+    /// by an error-class rewrite or a split — but it deliberately does
+    /// NOT count as valid for the generation-pass gates (deep beam,
+    /// space-miss splits still generate OFFERS for it) nor as lane
+    /// evidence (same junk-collision stance as BÍN validity).
+    func isProtectedTypedWord(_ word: String) -> Bool {
+        isValidTypedWord(word) || compoundSplit(of: word) != nil
+    }
+
     /// Additive personal-source prior for a candidate (see the
     /// `personalBoost*` tunables): unigram part for valid personal words,
     /// bigram part when the personal store attests the (previous, word)
@@ -1164,6 +1275,24 @@ struct BlendedLanguageModel {
         if let f = attested { return f }
         if language == .icelandic, morphology?.isKnown(word) == true {
             return config.binFloorFrequency
+        }
+        // Compound-valid words score like BÍN-valid ones (wave 22): the
+        // BÍN floor is what lets a generated compound candidate
+        // ("stökkleikanum") outrank raw junk while still never outranking
+        // attested vocabulary. Checked LAST (memoized in the analyzer);
+        // attested and BÍN-known words never reach it.
+        // Compound-valid words score at the compound floor — STRICTLY
+        // below the BÍN floor (wave 22): a whole word BÍN attests
+        // ("skrásetta") is one confirmed morphological unit and must
+        // outrank a merely-hypothesized decomposition ("skrá+detta") at
+        // equal spatial cost, exactly as Miðeind's analyzer only
+        // compounds after the whole-word lookup fails. (A head-frequency
+        // lift was tried here and reverted: it walked cheap-edit junk
+        // compounds over honest rare repairs on the dev corpus.) Checked
+        // LAST (memoized in the analyzer); attested and BÍN-known words
+        // never reach it.
+        if language == .icelandic, compoundSplit(of: word) != nil {
+            return config.compoundFloorFrequency
         }
         return nil
     }

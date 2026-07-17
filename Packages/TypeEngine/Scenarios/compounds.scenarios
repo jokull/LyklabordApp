@@ -1,0 +1,115 @@
+# compounds.scenarios — wave 22: productive compound acceptance
+# (PLAN.md "Compounds"; Compounds.swift — the Greynir/BinPackage rule port).
+#
+# Run:  swift run -c release type-repl run Scenarios/compounds.scenarios
+#
+# Three contracts:
+#  1. An OOV word that decomposes as legal-modifier(s)+legal-BÍN-head is
+#     autocorrect-PROTECTED: never auto-replaced by an error-class rewrite,
+#     never auto-split ("never auto-insert spaces into compounds" —
+#     SwiftKey pain #4). Offers still appear in the bar.
+#  2. An OOV token with a legal modifier prefix but a typo'd head gets
+#     compound-repair OFFERS (modifier held fixed, head repaired against
+#     BÍN + bound suffix forms). Unattested winners never auto-apply.
+#  3. Garbage stays garbage: junk tokens gain no compound protection and
+#     the pre-wave repairs still fire.
+#
+# The typed-valid compounds below were verified OOV in BOTH is.lex and
+# lemma-is.bin at authoring time (repl `:word`): stökkleikanum,
+# leikjakvöldið, kaffispjallið, morgunhlaupið.
+
+LIMIT 5
+
+# ============================================================
+# 1. The dogfood case (session 2026-07-16T14-59-28)
+# ============================================================
+
+SCENARIO stökklrikanum offers the compound repair stökkleikanum
+# The intended word is OOV in EVERY vocabulary source (unregistered
+# compound stökk+leiki; "leikanum" exists only as a BÍN bound suffix,
+# ord.suffix.csv utg=-1). The compound-head repair pass holds the
+# modifier "stökk" fixed and reaches "leikanum" via one adjacent-key
+# substitution (r→e). Offer-only: an unattested compound winner never
+# clears the attested-typicality floor, so EXPECT_AUTOCORRECT would be
+# wrong by design — the margins genuinely do not support it.
+T "Fáir betri í stökklrikanum"
+EXPECT_CONTAINS stökkleikanum
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT stökklrikanum
+
+# ============================================================
+# 2. Typed valid compounds are never auto-replaced
+# ============================================================
+
+SCENARIO typed stökkleikanum is protected and committed as typed
+T "stökkleikanum"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT stökkleikanum
+
+SCENARIO linking-letter compound leikjakvöldið is protected
+# The -ja- "bandstafur" IS the genitive plural of leikur ("leikja") — no
+# separate linking-letter machinery, exactly the Greynir reading. The
+# space-miss split "leikja kvöldið" may be OFFERED but must never
+# auto-apply into a valid compound.
+T "leikjakvöldið"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT leikjakvöldið
+
+SCENARIO stem compound kaffispjallið is protected
+T "kaffispjallið"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT kaffispjallið
+
+SCENARIO stem compound morgunhlaupið is protected
+# morgun- is the masculine accusative stem slot (þf.et of morgunn).
+T "morgunhlaupið"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT morgunhlaupið
+
+# ============================================================
+# 3. Compound-head repair offers
+# ============================================================
+
+SCENARIO kaffispjalið offers the gemination head repair kaffispjallið
+# The typo itself decomposes by accident (kaffis+pjalið), so it is
+# protected — but the honest repair (kaffi+spjallið, insert l) must
+# still be OFFERED, lifted over junk-head ties by the head's own
+# attestation (compoundHeadFrequencyFraction).
+T "kaffispjalið"
+EXPECT_CONTAINS kaffispjallið
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT kaffispjalið
+
+# ============================================================
+# 4. Garbage stays garbage (eval-corpus rows, personal-eval.jsonl)
+# ============================================================
+
+SCENARIO dlmk gains no compound reading
+# All parts sub-minimum and nothing decomposes: no protection, no junk
+# compound offers — the bar keeps only the verbatim escape hatch
+# (dæmi remains out of reach, the corpus SILENT_MISS).
+T "dlmk"
+EXPECT_ONLY_VERBATIM dlmk
+
+SCENARIO habb still becomes hann via the double substitution
+# 4 chars sits below every compound minimum (modifier 4 + head 4): the
+# wave must not disturb the live-session repair.
+T "kartöflunum. Hef séð habb"
+EXPECT_AUTOCORRECT hann
+T " "
+EXPECT_LAST_COMMIT hann
+
+SCENARIO eotthbap still autocorrects to eitthvað
+# 8 chars — long enough for the repair pass gates, but no prefix of
+# "eotthbap" is a legal modifier, so the compound machinery stays out
+# of the way of the honest beam repair.
+T "og gret Er eotthbap"
+EXPECT_AUTOCORRECT eitthvað
+T " "
+EXPECT_LAST_COMMIT eitthvað

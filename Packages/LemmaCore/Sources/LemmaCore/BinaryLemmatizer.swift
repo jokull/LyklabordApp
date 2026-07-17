@@ -321,6 +321,27 @@ public final class BinaryLemmatizer {
         return withBuffer { buf in findWord(key, in: buf) != nil }
     }
 
+    /// Whether the form has an entry in an OPEN word class (noun/verb/
+    /// adjective — POS codes 0/1/2). A packed-entry scan with no string
+    /// materialization: this is the compound-HEAD legality probe (wave 22),
+    /// called hundreds of times per keystroke by the compound repair pass,
+    /// so it must cost one binary search and a few masked reads — never
+    /// the lemma-string decodes `lemmatizeWithPOS` pays.
+    public func hasOpenClassEntry(_ word: String) -> Bool {
+        let key = Array(word.lowercased().utf8)
+        return withBuffer { buf in
+            guard let idx = findWord(key, in: buf) else { return false }
+            let start = Int(readU32(buf, at: entryOffsetsOffset + idx * 4))
+            let end = Int(readU32(buf, at: entryOffsetsOffset + (idx + 1) * 4))
+            for i in start..<end {
+                let entry = readU32(buf, at: entriesOffset + i * 4)
+                let (_, posCode, _, _, _) = unpackEntry(entry)
+                if posCode <= 2 { return true }  // 0=no, 1=so, 2=lo
+            }
+            return false
+        }
+    }
+
     /// Bigram frequency, or 0 if not found (or the binary has no bigrams).
     public func bigramFreq(_ word1: String, _ word2: String) -> UInt32 {
         let k1 = Array(word1.lowercased().utf8)

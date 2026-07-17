@@ -72,7 +72,7 @@ func runScorecardCommand(_ args: [String]) {
     var scenarioPassed = 0
     var scenarioTotal = 0
     var scenarioOK = true
-    for suite in ["core", "dogfood", "inflect", "touch"] {
+    for suite in ["core", "dogfood", "inflect", "touch", "compounds"] {
         let file = packageDir.appendingPathComponent("Scenarios/\(suite).scenarios").path
         let (out, code) = run(repl.path, ["run", file], cwd: packageDir)
         let (passed, total) = parseScenarioTotals(out)

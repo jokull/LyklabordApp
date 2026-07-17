@@ -89,6 +89,9 @@ public enum ConfigOverrides {
         "morphBackoffWeight": { $0.morphBackoffWeight = $1 },
         "morphMinGovernorMass": { $0.morphMinGovernorMass = $1 },
         "morphBackoffMinPosterior": { $0.morphBackoffMinPosterior = $1 },
+        // Compound acceptance (wave 22)
+        "compoundRepairGate": { $0.compoundRepairGate = $1 },
+        "compoundHeadMinZ": { $0.compoundHeadMinZ = $1 },
     ]
 
     /// Int-valued tunables.
@@ -102,6 +105,13 @@ public enum ConfigOverrides {
         "splitMinLength": { $0.splitMinLength = $1 },
         "completionPoolLimit": { $0.completionPoolLimit = $1 },
         "morphCompletionPoolLimit": { $0.morphCompletionPoolLimit = $1 },
+        // Compound acceptance (wave 22)
+        "compoundMinModifierLength": { $0.compoundMinModifierLength = $1 },
+        "compoundMinHeadLength": { $0.compoundMinHeadLength = $1 },
+        "compoundRepairMinLength": { $0.compoundRepairMinLength = $1 },
+        "compoundRepairMaxModifiers": { $0.compoundRepairMaxModifiers = $1 },
+        "compoundRepairMaxLookups": { $0.compoundRepairMaxLookups = $1 },
+        "compoundFloorFrequency": { $0.compoundFloorFrequency = UInt32(max(0, $1)) },
     ]
 
     /// Bool-valued tunables (per-profile lane-relaxation toggles).
@@ -110,6 +120,10 @@ public enum ConfigOverrides {
         "foldProfileENEnabled": { $0.foldProfileENEnabled = $1 },
         "properNounGuardEnabled": { $0.properNounGuardEnabled = $1 },
         "vacuumAutoApplyEnabled": { $0.vacuumAutoApplyEnabled = $1 },
+        // Compound acceptance (wave 22)
+        "compoundValidityEnabled": { $0.compoundValidityEnabled = $1 },
+        "compoundRepairEnabled": { $0.compoundRepairEnabled = $1 },
+        "compoundCompletionEnabled": { $0.compoundCompletionEnabled = $1 },
     ]
 
     /// All override keys, sorted — for `--help` / docs / diagnostics.

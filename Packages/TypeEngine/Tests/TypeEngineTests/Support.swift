@@ -13,6 +13,12 @@ final class FakeMorphology: MorphologyProviding {
     func isKnown(_ word: String) -> Bool { words.contains(word) }
     func nounAdjectiveCases(of word: String) -> [String] { cases[word] ?? [] }
     func lemmaCandidates(of word: String) -> [String] { lemmas[word] ?? [] }
+    /// Open-class override (the compound-HEAD legality seam, wave 22);
+    /// nil = every known word counts as open-class (the protocol default).
+    var openClass: Set<String>?
+    func hasOpenClassAnalysis(_ word: String) -> Bool {
+        openClass?.contains(word) ?? words.contains(word)
+    }
 }
 
 /// Dictionary-backed paradigms fake (stands in for LemmaCore's

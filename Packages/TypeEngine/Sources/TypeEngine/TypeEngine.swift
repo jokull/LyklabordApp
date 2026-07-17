@@ -23,6 +23,15 @@ extension BinaryLemmatizer: MorphologyProviding {
         }
         return result
     }
+
+    /// Open word-class membership (noun/verb/adjective) — the compound
+    /// HEAD legality test (wave 22, Miðeind's `_OPEN_CATS` port; adverbs
+    /// and function words are never compound heads). Delegates to the
+    /// lean packed-entry scan (no lemma-string materialization — this
+    /// probe runs hundreds of times per keystroke in the repair pass).
+    public func hasOpenClassAnalysis(_ word: String) -> Bool {
+        hasOpenClassEntry(word)
+    }
 }
 
 /// Production paradigms conformance: the mmap reader over
@@ -138,6 +147,9 @@ public final class TypeEngine {
     /// Same queue-confinement contract as every other engine call.
     public func setInflection(_ inflection: InflectionModel?) {
         model.inflection.setModel(inflection)
+        // Compound decompositions depend on the paradigms artifact (the
+        // modifier rule) — drop the memo caches on a model swap.
+        model.compounds.clearCache()
         rebuildLemmaLift()
     }
 

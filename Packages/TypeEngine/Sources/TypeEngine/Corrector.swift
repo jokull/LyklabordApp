@@ -47,8 +47,9 @@ public struct Suggestion: Equatable, Sendable {
 /// Result of correcting a single typed word.
 public struct CorrectionResult {
     public let suggestions: [Suggestion]
-    /// True when the typed word exists in either lexicon or is BÍN-valid.
-    /// When true, suggestions are alternatives only (never autocorrect).
+    /// True when the typed word exists in either lexicon, is BÍN-valid, or
+    /// is an accepted productive compound (wave 22). When true, suggestions
+    /// are alternatives only (never autocorrect).
     public let typedWordIsValid: Bool
 }
 
@@ -182,7 +183,21 @@ public struct Corrector {
         // and so are TOMBSTONED words, because deletion means "stop
         // suggesting", never "punish typing" (isValidTypedWord docs).
         let typedIsValid = model.isValidTypedWord(typed)
+        // Compound acceptance (wave 22): an OOV token decomposable as
+        // modifier(s)+BÍN-head is autocorrect-PROTECTED like a valid word,
+        // but stays "invalid" for the generation-pass gates — every
+        // suggestion pass below runs for it exactly as before, only the
+        // auto-apply branches see the widened validity. Lazily computed:
+        // valid words never pay for decomposition.
+        let typedCompoundSplit = typedIsValid ? nil : model.compoundSplit(of: typed)
+        let typedIsProtected = typedIsValid || typedCompoundSplit != nil
         trace?.typedIsValid = typedIsValid
+        if let split = typedCompoundSplit {
+            trace?.note(
+                "typed decomposes as compound "
+                    + (split.modifiers + [split.head]).joined(separator: "+")
+                    + " -> autocorrect-protected (offers only)")
+        }
 
         // Single-letter input: the general pipeline is both too expensive
         // (1-char completion ranges) and too noisy for one letter — the only
@@ -535,7 +550,157 @@ public struct Corrector {
             runBeam(maxEdits: config.beamMaxEdits)
         }
 
+        // Captured BEFORE the compound pass on purpose: compound candidates
+        // are cheap unattested readings ("frá"+completion) that must not
+        // hold the space-miss split gate shut — split suggestions compete
+        // with them on merit instead.
         let bestSoFar = candidates.values.map(\.total).min() ?? .infinity
+
+        // 5b. Compound-head repairs + compound completions (wave 22, the
+        // dogfood "stökklrikanum" → "stökkleikanum" class — PLAN.md
+        // "Compounds"): an unknown all-letter token with a legal compound-
+        // modifier PREFIX may be a productive compound with the typo in the
+        // head. Hold the modifier fixed and admit (a) single-edit repairs
+        // of the head region and (b) lexicon completions of it, each
+        // validated as a legal compound head (BÍN open-class or bound
+        // suffix form). Candidates rank through the normal pipeline —
+        // spatial DP prices the full word, the language score sits at the
+        // BÍN floor (see effectiveFrequency) — and, being unattested, they
+        // can never auto-apply (attested-winner rule). Gated like the deep
+        // passes: never fires while a close attested repair exists.
+        if config.compoundRepairEnabled, !typedIsValid,
+            typedChars.count >= config.compoundRepairMinLength,
+            typedChars.count <= config.compoundMaxWordLength,
+            typedChars.allSatisfy(\.isLetter),
+            let morphology = model.morphology,
+            let paradigms = model.inflection.model?.paradigms,
+            bestAttestedCost(in: candidates) > config.compoundRepairGate
+        {
+            let minModifier = config.compoundMinModifierLength
+            let minHead = config.compoundMinHeadLength
+            let n = typedChars.count
+            var lookupBudget = config.compoundRepairMaxLookups
+            var modifiersTried = 0
+            // GENERATED heads are held to a stricter bar than validity:
+            // bound suffix forms, or BÍN open-class AND is.lex-attested at
+            // decent typicality (compoundHeadMinZ). BÍN-only and junk-tier
+            // heads ("lefa", "legan", "legs") sit one edit from everything —
+            // hypothesizing them floods the bar and displaces honest
+            // repairs (the core "faralega offers fáránlega" regression).
+            // Protection (validity) keeps the wider BÍN-only head rule:
+            // under-correcting a typed word is safe, suggesting junk is not.
+            func generatedHeadOK(_ headWord: String) -> Bool {
+                guard
+                    model.compounds.isHead(
+                        headWord, morphology: morphology, minLength: minHead)
+                else { return false }
+                if CompoundAnalyzer.boundHeadForms.contains(headWord) { return true }
+                return model.icelandic.frequency(of: headWord) != nil
+                    && model.calibratedUnigramScore(of: headWord, language: .icelandic)
+                        >= config.compoundHeadMinZ
+            }
+            // Longest legal modifier prefix first: the typo is more often
+            // deep in the head than at the seam, and a longer fixed
+            // modifier means a shorter, cheaper head repair.
+            var splitPoint = n - 2
+            while splitPoint >= minModifier, modifiersTried < config.compoundRepairMaxModifiers {
+                defer { splitPoint -= 1 }
+                let modifier = String(typedChars[..<splitPoint])
+                guard
+                    model.compounds.isModifier(
+                        modifier, paradigms: paradigms, minLength: minModifier)
+                else { continue }
+                modifiersTried += 1
+                let headRegion = Array(typedChars[splitPoint...])
+                // (a) Single-edit head repairs. Runs even when the typed
+                // word has a compound reading of its own: a typo can
+                // decompose by accident ("kaffispjalið" = kaffis+pjalið),
+                // and the honest repair ("kaffi"+"spjallið") must still be
+                // OFFERED — protection only vetoes auto-apply.
+                if headRegion.count >= minHead {
+                    // Direct edits1 enumeration (no dict, no sort — the
+                    // generation order is deterministic and roughly
+                    // plausibility-ranked by edit class: deletions,
+                    // transpositions, substitutions, insertions).
+                    var headVariants: [[Character]] = []
+                    headVariants.reserveCapacity(
+                        headRegion.count * 2 * (Self.alphabet.count + 1))
+                    for i in 0..<headRegion.count {
+                        var copy = headRegion
+                        copy.remove(at: i)
+                        headVariants.append(copy)
+                    }
+                    for i in 0..<(headRegion.count - 1)
+                    where headRegion[i] != headRegion[i + 1] {
+                        var copy = headRegion
+                        copy.swapAt(i, i + 1)
+                        headVariants.append(copy)
+                    }
+                    for i in 0..<headRegion.count {
+                        // Restoration-pair substitutions (o→ö, a→á, d→ð)
+                        // are deliberately excluded: they price at the
+                        // lane-relaxed fold cost, and a fold-cheap junk
+                        // compound ("prentletu" → prent+létu) walks over
+                        // honest error-class repairs. Compound repair is
+                        // an ERROR-class hypothesis by design; accent
+                        // restoration stays with the restoration passes.
+                        for ch in Self.alphabet
+                        where ch != headRegion[i] && ch.isLetter
+                            && !Self.isRestorationPair(headRegion[i], ch)
+                        {
+                            var copy = headRegion
+                            copy[i] = ch
+                            headVariants.append(copy)
+                        }
+                    }
+                    for i in 0...headRegion.count {
+                        for ch in Self.alphabet where ch.isLetter {
+                            var copy = headRegion
+                            copy.insert(ch, at: i)
+                            headVariants.append(copy)
+                        }
+                    }
+                    for variant in headVariants {
+                        guard lookupBudget > 0 else { break }
+                        guard variant.count >= minHead else { continue }
+                        let headWord = String(variant)
+                        let candidateWord = modifier + headWord
+                        guard candidates[candidateWord] == nil, candidateWord != typed
+                        else { continue }
+                        // Strict-prefix EXTENSIONS of the typed word take
+                        // the completion shortcut in channelCost (0.5/char)
+                        // — a speculative compound extension at that price
+                        // structurally dominates honest space-miss splits
+                        // ("fimmtabókin" must keep offering "fimmta
+                        // bókin", not "fimmtabókina"). Extensions are the
+                        // completion pass's business (see
+                        // compoundCompletionEnabled), not the repair's.
+                        guard
+                            !(candidateWord.count > typed.count
+                                && candidateWord.hasPrefix(typed))
+                        else { continue }
+                        lookupBudget -= 1
+                        if generatedHeadOK(headWord) {
+                            admit(candidateWord)
+                        }
+                    }
+                }
+                // (b) Compound continuations ("stökklei|" → stökk+leikur):
+                // is.lex completions of the head region, head-validated.
+                // Icelandic-only — compounding is the IS phenomenon.
+                if config.compoundCompletionEnabled, headRegion.count >= 2 {
+                    for completion in model.icelandic.completions(
+                        of: String(headRegion), limit: config.completionPoolLimit)
+                    {
+                        guard lookupBudget > 0 else { break }
+                        lookupBudget -= 1
+                        if generatedHeadOK(completion.word) {
+                            admit(modifier + completion.word)
+                        }
+                    }
+                }
+            }
+        }
 
         // ---- Scoring ------------------------------------------------------
         // score = -channelCost + λ·S_lang(candidate | context, posterior),
@@ -650,9 +815,9 @@ public struct Corrector {
                 trace.margin = margin
                 trace.tapVetoFactor = tapMarginFactor
                 trace.rule =
-                    !typedIsValid && best.word.contains(" ")
+                    !typedIsProtected && best.word.contains(" ")
                     ? "split"
-                    : !typedIsValid
+                    : !typedIsProtected
                         ? "ordinary-unknown"
                         : best.cost.isRestorationOnly && !best.word.contains(" ")
                             && deliberate.isEmpty
@@ -673,7 +838,7 @@ public struct Corrector {
                 if !apostrophesOK { trace.gate("preservesApostrophes", "candidate drops a typed apostrophe", pass: false) }
                 if !deliberateOK { trace.gate("preservesDeliberateCharacters", "candidate drops a long-pressed character", pass: false) }
             }
-            if preconditionsOK, !typedIsValid, best.word.contains(" ") {
+            if preconditionsOK, !typedIsProtected, best.word.contains(" ") {
                 // Split auto-apply (dogfood "fara lega" tightening): a split
                 // is a bigger intervention than a repair, so it must clear a
                 // RAISED margin AND the merged token must have no plausible
@@ -701,7 +866,7 @@ public struct Corrector {
                         pass: noSingleRepair)
                 }
                 autocorrect = marginOK && noSingleRepair
-            } else if preconditionsOK, !typedIsValid {
+            } else if preconditionsOK, !typedIsProtected {
                 // Single-word auto-apply additionally requires the winner to
                 // be typical vocabulary (attested at z ≥ autocorrectMinZ;
                 // personal words are exempt): BÍN-floored junk like
@@ -881,7 +1046,9 @@ public struct Corrector {
                 deliberate.isEmpty
             {
                 // Skeleton collision (PLAN.md "The hard part"): the typed
-                // token is itself a valid word ("for", "vist", "dont"), so
+                // token is itself a valid word ("for", "vist", "dont") or
+                // an accepted compound ("tungumal" = tungu+mal — the lazy
+                // accent skeleton of "tungumál" decomposes; wave 22), so
                 // the sacred valid-word rule applies — restoration may
                 // auto-apply PAST it only through the triple gate
                 // (dominance × context × no deliberateness signal), plus
@@ -962,7 +1129,7 @@ public struct Corrector {
             suggestions = Array(suggestions.prefix(limit))
         }
 
-        return CorrectionResult(suggestions: suggestions, typedWordIsValid: typedIsValid)
+        return CorrectionResult(suggestions: suggestions, typedWordIsValid: typedIsProtected)
     }
 
     /// The single best wrong-form sibling to offer for a VALID typed word
