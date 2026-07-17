@@ -565,6 +565,69 @@ public struct EngineConfig: Sendable {
     /// The relaxed clamp for extreme-common winners (see above).
     public var tapVetoCommonMaxFactor: Double = 2.5
 
+    // --- Deep-decode mash recovery (wave 30, the eotthbap→eitthvað class).
+    // Fast-typing mashes carry SEVERAL adjacent-key substitutions whose
+    // taps mostly resolved to the WRONG key's center — motor-plan (aim)
+    // errors, not touch noise. Verified against the recorded sessions
+    // (2026-07-16T22-45-30, 2026-07-17T12-04-13/12-09-21): the boundary
+    // search reaches this class fine under STATIC pricing (the tapless
+    // replay auto-fires eotthbap→eitthvað), but the per-tap log-likelihood
+    // ratio was pricing even taps that LEAN toward the intended key ABOVE
+    // the static geometry cost (o→i at 1.62 vs 1.02 static for a tap 78%
+    // of the way to the boundary), so with real coordinates the same
+    // decode blew every cost cap. The three knobs below restore the
+    // ENABLING half of the bidirectional-evidence doctrine without
+    // touching the veto half (dead-center and wrong-direction taps keep
+    // the full LLR).
+
+    /// A tap whose within-key offset projects at least this far (in
+    /// key-pitch units) along the direction toward the intended key's
+    /// center caps that substitution's per-tap price at the STATIC
+    /// geometry cost: a near-miss tap leaning toward a key must never
+    /// price its substitution WORSE than having no coordinates at all.
+    /// 0.25 = halfway to the shared key boundary. The same predicate
+    /// exempts the position from the margin-veto aggregate (a supporting
+    /// tap cannot simultaneously contradict the rewrite). Below the
+    /// threshold the pure log-likelihood ratio (the veto behaviour)
+    /// stands unchanged; past ~0.43 the LLR is already below static and
+    /// the cap is a no-op.
+    public var tapNearMissMinLean: Double = 0.25
+    /// Master switch for the near-miss static cap + veto exemption
+    /// (tapless behaviour is identical either way).
+    public var tapNearMissCapEnabled: Bool = true
+    /// Edge-key undershoot carve-out: the Icelandic-only letters ð/æ/ö/þ
+    /// sit in the rightmost columns, OUTSIDE the standard-QWERTY motor
+    /// map, and the dogfood sessions show fast typists undershooting them
+    /// onto their immediate left neighbour's CENTER (typed dead-center p
+    /// for ð in two independent sessions: heipina→heiðina,
+    /// eotthbap→eitthvað). Like the orthographic-confusion pairs, the tap
+    /// carries no information about this slip — it lands where the (wrong)
+    /// motor plan aimed — so the per-tap provider prices the directional
+    /// pairs p→ð, l→æ, æ→ö, m→þ at the STATIC geometry cost (~1.02 nats;
+    /// static/tapless pricing is untouched) and the margin veto skips
+    /// them, exactly the carve-out shape d↔ð already has.
+    public var edgeUndershootEnabled: Bool = true
+    /// The deep multi-edit decode's cost cap rises from
+    /// `beamMultiEditCostCap` to this value when the typed token is mash
+    /// (invalid, length >= `mashRecoveryMinLength`, and the best
+    /// attested-or-personal candidate costs more than
+    /// `mashRecoveryGate` — i.e. the bar would otherwise be essentially
+    /// empty). 6.5 admits the two-adjacent-subs + one-indel shape
+    /// (1.02 + 1.02 + 4.0 = 6.04, the tilsbæðrum→tilsvörum class) that
+    /// the 5.0 cap structurally excluded; ordinary tokens never see the
+    /// widened cone, and `autocorrectMaxSpatialCost` (6.0) keeps every
+    /// candidate the widening admits OFFER-ONLY.
+    public var mashRecoveryCostCap: Double = 6.5
+    /// Attested-candidate cost above which the token counts as mash (the
+    /// pool holds nothing a bar tap could plausibly want — above the
+    /// auto-apply cost ceiling, so nothing offer-worthy is displaced).
+    public var mashRecoveryGate: Double = 5.5
+    /// Minimum typed length for the recovery cap: short tokens are within
+    /// cheap edits of half the lexicon and get no widened cone.
+    public var mashRecoveryMinLength: Int = 6
+    /// Master switch for the recovery cap (A/B).
+    public var mashRecoveryEnabled: Bool = true
+
     // --- Personal adaptive touch model (PLAN.md "Touch decoding", stage 2).
     // When a `PersonalTouchSnapshot` is injected (TypeEngine.setPersonalTouch)
     // AND taps flow, the PerTapCostProvider prices keys that cleared the

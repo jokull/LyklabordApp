@@ -104,6 +104,10 @@ public enum ConfigOverrides {
         "compoundCompletionHeadZWeight": { $0.compoundCompletionHeadZWeight = $1 },
         // Archaic-twin restoration (wave 32)
         "archaicTwinShortMinZ": { $0.archaicTwinShortMinZ = $1 },
+        // Deep-decode mash recovery (wave 30)
+        "tapNearMissMinLean": { $0.tapNearMissMinLean = $1 },
+        "mashRecoveryCostCap": { $0.mashRecoveryCostCap = $1 },
+        "mashRecoveryGate": { $0.mashRecoveryGate = $1 },
     ]
 
     /// Int-valued tunables.
@@ -131,6 +135,8 @@ public enum ConfigOverrides {
         // Case-aware completions (wave 23)
         "caseCompletionMaxTrim": { $0.caseCompletionMaxTrim = $1 },
         "caseCompletionMinLength": { $0.caseCompletionMinLength = $1 },
+        // Deep-decode mash recovery (wave 30)
+        "mashRecoveryMinLength": { $0.mashRecoveryMinLength = $1 },
     ]
 
     /// Bool-valued tunables (per-profile lane-relaxation toggles).
@@ -153,6 +159,10 @@ public enum ConfigOverrides {
         "caseCompletionEnabled": { $0.caseCompletionEnabled = $1 },
         // Archaic-twin restoration (wave 32)
         "archaicTwinRestorationEnabled": { $0.archaicTwinRestorationEnabled = $1 },
+        // Deep-decode mash recovery (wave 30)
+        "tapNearMissCapEnabled": { $0.tapNearMissCapEnabled = $1 },
+        "edgeUndershootEnabled": { $0.edgeUndershootEnabled = $1 },
+        "mashRecoveryEnabled": { $0.mashRecoveryEnabled = $1 },
     ]
 
     /// All override keys, sorted — for `--help` / docs / diagnostics.

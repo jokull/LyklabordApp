@@ -541,3 +541,114 @@ T "ég ætla a"
 EXPECT_NO_AUTOCORRECT
 T " "
 EXPECT_LAST_COMMIT a
+
+# ---------------------------------------------------------------------------
+# Wave 30 — deep-decode mash recovery (the eotthbap→eitthvað class).
+# Fast-typing mashes with 2-3 adjacent-key substitutions whose taps mostly
+# resolved to the WRONG key's center (motor-plan aim errors, not touch
+# noise). The tapless engine already decoded this class — the per-tap LLR
+# was pricing even taps that LEAN toward the intended key above the static
+# geometry cost, so with real coordinates the decode blew every cap. The
+# TAP offsets below are the REAL recorded coordinates from the cited
+# sessions (coordinates only; scenario context is demo text).
+
+SCENARIO eotthbap decodes to eitthvað under its real taps (2026-07-16T22-45-30, wave 30)
+# o→i (lean 0.39 toward i), b→v (lean 0.30 toward v), p→ð (edge-key
+# undershoot: ð sits right of p, outside the QWERTY motor map). All three
+# substitutions are tap-supported, so the margin veto stands aside and the
+# 3-sub decode (3.06 nats) fires exactly like the tapless replay — the
+# live keyboard had lost it at a per-tap price of 12.4 nats.
+T "hann er "
+TAP e -0.304 -0.077
+TAP o -0.388 -0.351
+TAP t -0.425 -0.036
+TAP t -0.089 0.083
+TAP h 0.442 -0.214
+TAP b -0.304 -0.024
+TAP a 0.06 0.161
+TAP p -0.071 0.357
+EXPECT_AUTOCORRECT eitthvað
+T " "
+EXPECT_LAST_COMMIT eitthvað
+
+SCENARIO tilsbæðrum offers tilsvörum under its real taps (2026-07-17T12-09-21, wave 30)
+# b→v + æ→ö + an extra typed ð: 6.04 nats over 3 edits — structurally
+# outside the ordinary 5.0 multi-edit cap, admitted by the mash-recovery
+# widened cone (the candidate pool is otherwise empty). OFFER-ONLY by
+# construction: 6.04 > autocorrectMaxSpatialCost, and the doctrine wants
+# mash winners offered, not forced.
+T "skörp og snögg í "
+TAP t -0.099 0.089
+TAP i -0.239 0.107
+TAP l -0.173 0.048
+TAP s 0.116 -0.077
+TAP b -0.407 0.405
+TAP æ 0.312 0.458
+TAP ð 0.078 0.143
+TAP r -0.388 -0.101
+TAP u -0.351 0.095
+TAP m -0.444 0.161
+EXPECT_CONTAINS tilsvörum
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT tilsbæðrum
+
+SCENARIO heipina fires heiðina under its real taps (2026-07-17T12-04-13, wave 30)
+# Single p→ð undershoot: the p tap resolved near-center (conf 0.99) and
+# leans slightly AWAY from ð — the second independent session with a
+# dead-center p for an intended ð, the evidence behind the edge-key
+# carve-out. Static price 1.02, margin 11.4, bigram "yfir heiðina" vouches.
+T "hann fór yfir "
+TAP h 0.237 -0.429
+TAP e -0.145 0.03
+TAP i -0.08 -0.327
+TAP p -0.248 -0.048
+TAP i -0.416 0.131
+TAP n 0.022 0.018
+TAP a -0.061 0.19
+EXPECT_AUTOCORRECT heiðina
+T " "
+EXPECT_LAST_COMMIT heiðina
+
+SCENARIO counter: dead-center ofpeppast is untouchable slangur (wave 30)
+# Confirmed-intentional vocabulary (confirmed-intents.jsonl): typed with
+# every tap dead center, the recovery cone must find no SUBSTITUTION
+# reading to force — dead-center taps veto them all, and the widened
+# cone's admissions are offer-only besides. (Insertion-split offers like
+# "of leppast" may sit in the bar — taps carry no evidence against an
+# inserted space — but nothing fires.)
+TAP o 0 0
+TAP f 0 0
+TAP p 0 0
+TAP e 0 0
+TAP p 0 0
+TAP p 0 0
+TAP a 0 0
+TAP s 0 0
+TAP t 0 0
+EXPECT_NO_AUTOCORRECT
+EXPECT_VERBATIM ofpeppast
+T " "
+EXPECT_LAST_COMMIT ofpeppast
+
+SCENARIO counter: dead-center kozy still commits as typed (wave 30, wave-24 continuity)
+TAP k 0 0
+TAP o 0 0
+TAP z 0 0
+TAP y 0 0
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT kozy
+
+SCENARIO counter: valid skip never becomes skið despite the cheap edge pair (wave 30)
+# "skip" is IS-valid and p→ð now prices at the static ~1.02 nats even
+# under a dead-center p tap — the conservatism invariant (valid words are
+# never auto-replaced) sits UPSTREAM of all pricing and must hold.
+T "þetta er "
+TAP s 0 0
+TAP k 0 0
+TAP i 0 0
+TAP p 0 0
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT skip

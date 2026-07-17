@@ -32,6 +32,98 @@ architecture in `docs/adr/`. Newest first.
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
 
+## 2026-07-17 — Wave 30: deep-decode mash recovery (the eotthbap→eitthvað class)
+
+- **Trigger**: fast-typing mashes with ≥2 adjacent-key substitutions the live
+  keyboard could not reach, all user-confirmed: eotthbap→eitthvað (session
+  2026-07-16T22-45-30: o→i, b→v, p→ð), tilsbæðrum→tilsvörum
+  (2026-07-17T12-09-21: b→v, æ→ö + extra ð), heipina→heiðina
+  (2026-07-17T12-04-13: p→ð). The design hint going in was beam continuity —
+  the live recording shows "eitth" ac:true conf 1.0 mid-word, lost as the
+  tail arrived.
+- **Beam-continuity assessment (design A) — evaluated and REJECTED, with
+  evidence**: the boundary search already reaches the whole class under
+  static pricing — the TAPLESS replay auto-fires eotthbap→eitthvað (3 × 1.02
+  nats, inside the deep beam's caps) and heipina→heiðina (single 1.02-nat
+  sub), and both personal-baseline rows already PASSED top-1. What the live
+  keyboard lost was not search state but per-tap cost headroom: with the
+  real coordinates the SAME decode prices o→i 1.62, b→v 2.83, p→ð 8.00
+  (capped) = 12.45 nats against a 5.0 multi-edit cap. "eitth" survived
+  mid-word only because the prefix needed just the one leaning-tap sub;
+  persisting beam state would have persisted the same overpriced tail.
+  Root cause is PRICING, in two shapes, plus one genuine search gap:
+  1. the per-tap LLR (tight TSI σ) taxes even taps that LEAN toward the
+     intended key ABOVE the static geometry price (a tap 78% of the way to
+     the i boundary priced o→i 1.62 vs 1.02 static) — harmless on 1-sub
+     words, fatal in the multi-sub regime where the taxes compound;
+  2. both p→ð cases carry a tap AT p's center (conf 0.99) — a motor-plan
+     aim error onto the neighbour of an Icelandic-only edge key (ð sits
+     right of p, outside the QWERTY motor map), about which the tap point
+     carries no information (the v→ð precedent, spatial edition);
+  3. tilsvörum (2 subs + indel = 6.04 nats) is structurally outside the 5.0
+     multi-edit cap even tapless — the only piece that needed more search.
+- **Decided — three bounded pieces (refined design B)**:
+  (1) **Near-miss enabling cap** (`tapNearMissMinLean` 0.25,
+  `tapNearMissCapEnabled`): a tap whose within-key offset projects ≥ 0.25
+  key pitches along the direction to the intended key caps that
+  substitution's per-tap price at the STATIC cost — a supporting tap must
+  never price a substitution worse than no coordinates at all (that is what
+  "near-misses enable" means); the same predicate exempts the position from
+  the margin-veto aggregate (a supporting tap cannot simultaneously
+  contradict the rewrite). Dead-center and wrong-direction taps keep the
+  full LLR — the veto half untouched (all dead-center scenarios unchanged).
+  (2) **Edge-key undershoot carve-out** (`edgeUndershootEnabled`,
+  `SpatialModel.edgeUndershootPairs`): the DIRECTIONAL pairs p→ð, l→æ, æ→ö,
+  m→þ (typed the left neighbour of a rightmost-column Icelandic-only key)
+  price at the static geometry cost per-tap and skip the veto — the same
+  carve-out shape the orthographic confusions already have, on the
+  structural rule (Icelandic-only edge keys) rather than a point fix; two
+  independent confirmed sessions attest the p→ð member. Static/tapless
+  pricing untouched (the pairs are adjacent, ~1.02 nats, already).
+  (3) **Mash-recovery widened cone** (`mashRecoveryEnabled`, cap 6.5, gate
+  5.5, min length 6): when the deep decode runs AND the pool holds no
+  attested candidate under 5.5 (above the 6.0 auto-apply cost ceiling — the
+  bar would be essentially empty), the multi-edit cost cap rises 5.0 → 6.5,
+  admitting the 2-subs+indel shape. **Offer-only suppression, learned from
+  the dev A/B**: the first cut leaked 4 wrong fires in the 5.0–6.0 band
+  (raðvherfa→"ráðherra", cloours→"clouds", HHatley→"Harley",
+  Yktzchak→"Yitzhak") — candidates only the widened cone admitted, firing
+  through margins calibrated for the narrow cone. Rule: a winner only the
+  recovery run pooled, whose exact DP cost exceeds `beamMultiEditCostCap`,
+  never auto-applies (widening the search fills an empty bar with offers;
+  it must not widen the calibrated set of auto-applies). With the rule, the
+  wave REMOVES 2 dev false-acs net (two pre-existing wrong fires — a
+  Bkrtíngur accent guess and an "eve enters" split — die because the cone
+  surfaces better readings).
+- **The three cases after the wave** (real recorded taps, repl-verified):
+  eotthbap→eitthvað AUTO-FIRES (cost 3.06 = static, margin ∞, veto factor
+  1.0 — every sub tap-supported); heipina→heiðina AUTO-FIRES (1.02, margin
+  11.4, "yfir heiðina" bigram relief); tilsbæðrum→tilsvörum OFFERED at
+  slot 2 behind verbatim, auto-apply structurally blocked (6.04 >
+  autocorrectMaxSpatialCost 6.0) — exactly the offer-not-force doctrine.
+  Tapless (personal corpus) tilsbæðrum|tilsvörum flips to top-1.
+- **Gates**: dev 2339 top-1 / 119 false-ac vs 2339/121 wave-off (top-1
+  byte-identical to waves 23/31/32, false-ac DOWN 2, ac-fired −0.07pp);
+  heldout (once) 2281/160 vs 2285/163 (top-1 −4 = −0.13pp within the 0.2pp
+  gate; false-ac DOWN 3 — the recovery cone kills a Kanters→"Mangers" fire
+  and a "Gu actually" split fire); compounds corpus 209/666, 19 false-ac
+  (baseline 208/19 — one row improved, none regressed); personal gate 54
+  rows top1 27 falseAc 9 — zero regressions, tilsbæðrum|tilsvörum newly
+  passing, slangur 3/3 unforced (ofpeppast/kozy), baseline updated;
+  scorecard PASS (micro 166/167, false-ac 0, valid-word safety green,
+  scenarios 237/237); suites ×3 green (6 new wave-30 contracts: the three
+  real-tap cases, dead-center ofpeppast/kozy counters, valid "skip" never
+  becomes "skið" despite the cheap edge pair); swift test 435 green (13 new
+  MashRecoveryTests). **Latency**: bench p50/p95 unchanged (~1.2/3–5 ms,
+  within run-to-run noise); the widened cone costs +3–4 ms ONLY on
+  empty-pool mash keystrokes (koetip-class stress worst 5.5 → 9.5 ms,
+  each decode still hard-capped by the existing 6 ms `beamTimeBudget`);
+  worst observed mash keystroke with real taps ~27 ms under heavy machine
+  contention, gate 30 passes with margin on a quiet run (max 4.5–6.6 ms).
+  New knobs `tapNearMissMinLean`/`tapNearMissCapEnabled`/
+  `edgeUndershootEnabled`/`mashRecoveryEnabled`/`mashRecoveryCostCap`/
+  `mashRecoveryGate`/`mashRecoveryMinLength` in the A/B allowlist.
+
 ## 2026-07-17 — Wave 31: compound guard hardening + Miðeind eval integration
 
 - **Trigger**: the mideind-compound-cases harvest (research/

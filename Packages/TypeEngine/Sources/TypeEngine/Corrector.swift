@@ -280,7 +280,7 @@ public struct Corrector {
         // The beam prices substitutions per position through the provider
         // seam — the per-tap provider when coordinate evidence exists.
         let beamCosts: PositionCostProvider = perTap ?? self.positionCosts
-        func runBeam(maxEdits: Int) {
+        func runBeam(maxEdits: Int, multiEditCostCap: Double? = nil) {
             for (index, lexicon) in [model.icelandic, model.english].enumerated() {
                 guard let searchable = lexicon as? PrefixSearchableLexicon else {
                     beamCoveredLexicons = false
@@ -292,7 +292,8 @@ public struct Corrector {
                     lexiconIndex: index,
                     costs: beamCosts,
                     pricing: pricing,
-                    maxEdits: maxEdits
+                    maxEdits: maxEdits,
+                    multiEditCostCap: multiEditCostCap
                 ) {
                     admit(word)
                 }
@@ -760,6 +761,12 @@ public struct Corrector {
             }
         }
 
+        // Candidates admitted only by the mash-recovery widened cone (wave
+        // 30): OFFER-ONLY when their exact DP cost exceeds the ordinary
+        // multi-edit cap — see the fire-suppression rule at the auto-apply
+        // decision.
+        var mashRecoveryAdmissions: Set<String> = []
+
         // 5. DEEP beam decode (multi-edit; replaced the generate-and-test
         // edits2 walk): only for unknown tokens of length >=
         // beamLongMinLength with no good close ATTESTED hit from the cheap
@@ -776,7 +783,40 @@ public struct Corrector {
             bestAttestedCost(in: candidates, excluding: speculativeCompletions)
                 > config.beamDeepGate
         {
-            runBeam(maxEdits: config.beamMaxEdits)
+            // Mash recovery (wave 30, the tilsbæðrum→tilsvörum shape): when
+            // the pool holds nothing attested a bar tap could plausibly
+            // want (best attested cost above `mashRecoveryGate`, itself
+            // above the auto-apply cost ceiling), the multi-edit cone
+            // widens to `mashRecoveryCostCap` — admitting e.g. the
+            // two-adjacent-subs + one-indel reading (≈ 6.04 nats) the 5.0
+            // cap structurally excluded. Everything admitted is re-scored
+            // by the exact DP and, costing more than
+            // `autocorrectMaxSpatialCost`, competes for OFFERS only.
+            let mashRecovery =
+                config.mashRecoveryEnabled
+                && typedChars.count >= config.mashRecoveryMinLength
+                && bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+                    > config.mashRecoveryGate
+            if mashRecovery {
+                trace?.note(
+                    "mash recovery: no attested candidate under "
+                        + String(format: "%.1f", config.mashRecoveryGate)
+                        + " -> deep-beam multi-edit cap widened to "
+                        + String(format: "%.1f", config.mashRecoveryCostCap))
+                let before = Set(candidates.keys)
+                runBeam(
+                    maxEdits: config.beamMaxEdits,
+                    multiEditCostCap: config.mashRecoveryCostCap)
+                // Words only the WIDENED cone admitted: eligible for the
+                // fire-suppression rule below (pre-wave, they could not
+                // even be pooled — widening the search must not widen the
+                // set of auto-applies past the pre-wave calibration).
+                for word in candidates.keys where !before.contains(word) {
+                    mashRecoveryAdmissions.insert(word)
+                }
+            } else {
+                runBeam(maxEdits: config.beamMaxEdits)
+            }
         }
 
         // Captured BEFORE the compound pass on purpose: compound candidates
@@ -1445,7 +1485,32 @@ public struct Corrector {
                             + " completion — never auto-expanded",
                         pass: false)
                 }
-                autocorrect = marginOK && typicalityOK && properNounOK && !shortCompletion
+                // Mash-recovery fire suppression (wave 30): a winner only
+                // the WIDENED multi-edit cone admitted, whose exact DP cost
+                // sits above the ordinary `beamMultiEditCostCap`, was
+                // structurally unpoolable pre-wave — widening the search
+                // fills an otherwise-empty bar with OFFERS, it must not
+                // widen the calibrated set of auto-applies (the dev A/B
+                // showed exactly this leak: 4 wrong fires in the 5.0–6.0
+                // band, ráðherra-from-raðvherfa class). Winners the
+                // ordinary cone could also have reached (DP cost at or
+                // under the cap, e.g. eitthvað at 3.06) keep every fire
+                // rule unchanged.
+                let mashOfferOnly =
+                    mashRecoveryAdmissions.contains(best.word)
+                    && best.cost.total > config.beamMultiEditCostCap
+                if let trace, mashOfferOnly {
+                    trace.gate(
+                        "mash-recovery-offer-only",
+                        "winner admitted only by the widened mash-recovery cone"
+                            + " at cost \(String(format: "%.3f", best.cost.total))"
+                            + " > beamMultiEditCostCap \(config.beamMultiEditCostCap)"
+                            + " — offer, never auto-apply",
+                        pass: false)
+                }
+                autocorrect =
+                    marginOK && typicalityOK && properNounOK && !shortCompletion
+                    && !mashOfferOnly
             } else if preconditionsOK, best.cost.isRestorationOnly, !best.word.contains(" "),
                 deliberate.isEmpty
             {
@@ -1726,6 +1791,13 @@ public struct Corrector {
                 let intended = candidateChars[index]
                 if intended == " " { continue }
                 if Self.isRestorationPair(typedChars[index], intended) { continue }
+                // Wave 30: a tap that SUPPORTS this substitution (edge-key
+                // undershoot pair, or a near-miss leaning toward the
+                // intended key) cannot simultaneously contradict it — the
+                // veto must come from taps that contradict the rewrite.
+                if perTap.tapSupports(
+                    position: index, typed: typedChars[index], intended: intended)
+                { continue }
                 guard perTap.hasTap(at: index) else { continue }
                 sum += perTap.confidence(position: index)
                 count += 1

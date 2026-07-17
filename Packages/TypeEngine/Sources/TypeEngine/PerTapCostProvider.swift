@@ -89,6 +89,9 @@ struct PerTapCostProvider: PositionCostProvider {
         let char: Character
         /// Tap point in key-grid units (key center + normalized offsets).
         let point: SIMD2<Double>
+        /// The resolved key's center (cached — the near-miss lean test
+        /// sits on the beam's substitution hot path).
+        let center: SIMD2<Double>
         /// −log likelihood of the tap under the RESOLVED key's (blended)
         /// Gaussian, up to the shared prior constant.
         let nllResolved: Double
@@ -117,6 +120,14 @@ struct PerTapCostProvider: PositionCostProvider {
     private let minSubstitution: Double
     private let maxSubstitution: Double
     private let orthographicConfusion: Double
+    /// Near-miss enabling cap (wave 30): a tap leaning at least this far
+    /// toward the intended key caps its substitution at the static price
+    /// and exempts the position from the margin veto.
+    private let nearMissMinLean: Double
+    private let nearMissCapEnabled: Bool
+    /// Edge-key undershoot carve-out (wave 30): directional aim-error
+    /// pairs (p→ð, l→æ, æ→ö, m→þ) price static, tap-blind.
+    private let edgeUndershootEnabled: Bool
     /// Per-key personal Gaussians (keys past the min-samples gate, plus
     /// their accent twins); nil when no personal key is eligible — the
     /// stage-1 byte-identical path.
@@ -148,6 +159,9 @@ struct PerTapCostProvider: PositionCostProvider {
         self.minSubstitution = costs.minSubstitution
         self.maxSubstitution = costs.maxSubstitution
         self.orthographicConfusion = costs.orthographicConfusion
+        self.nearMissMinLean = config.tapNearMissMinLean
+        self.nearMissCapEnabled = config.tapNearMissCapEnabled
+        self.edgeUndershootEnabled = config.edgeUndershootEnabled
         let ix = 1.0 / (2.0 * config.tapSigmaX * config.tapSigmaX)
         let iy = 1.0 / (2.0 * config.tapSigmaY * config.tapSigmaY)
         self.invTwoSigmaX2 = ix
@@ -195,6 +209,7 @@ struct PerTapCostProvider: PositionCostProvider {
                 Evidence(
                     char: tap.char,
                     point: point,
+                    center: center,
                     nllResolved: nllResolved,
                     confidence: confidence
                 )
@@ -284,6 +299,15 @@ struct PerTapCostProvider: PositionCostProvider {
         if SpatialModel.confusionPairs.contains(String(typed) + String(intended)) {
             return orthographicConfusion
         }
+        // Edge-key undershoot (wave 30): an aim error onto the neighbour's
+        // center — the tap lands where the (wrong) motor plan aimed, so it
+        // carries no information about the slip. Static geometry price,
+        // exactly like the tapless engine.
+        if edgeUndershootEnabled,
+            SpatialModel.edgeUndershootPairs.contains(String(typed) + String(intended))
+        {
+            return spatial.substitutionCost(typed: typed, intended: intended)
+        }
         guard
             position >= 0, position < evidence.count,
             let evidence = evidence[position],
@@ -298,7 +322,56 @@ struct PerTapCostProvider: PositionCostProvider {
         // construction), clamped into the static cost band so the beam's
         // caps/gates keep their calibrated meaning.
         let ratio = nllIntended - evidence.nllResolved
-        return min(max(ratio, minSubstitution), maxSubstitution)
+        let clamped = min(max(ratio, minSubstitution), maxSubstitution)
+        // Near-miss enabling cap (wave 30, the doctrine's ENABLING half):
+        // a tap leaning toward the intended key must never price the
+        // substitution WORSE than static geometry (with tight TSI σ the
+        // raw LLR taxes even a tap 78% of the way to the boundary — fatal
+        // in the multi-substitution mash regime, where the taxes compound
+        // past every cost cap). Dead-center and wrong-direction taps keep
+        // the full LLR — the veto half is untouched. The lean test runs
+        // only when the cap could matter (LLR above the floor).
+        if nearMissCapEnabled, clamped > minSubstitution,
+            tapLean(of: evidence, towards: intendedCenter) >= nearMissMinLean
+        {
+            return min(clamped, spatial.substitutionCost(typed: typed, intended: intended))
+        }
+        return clamped
+    }
+
+    /// Projection of the tap's within-key offset onto the unit vector from
+    /// the resolved key's center toward `intendedCenter`, in key-pitch
+    /// units — how far the tap physically leans toward the intended key.
+    private func tapLean(of evidence: Evidence, towards intendedCenter: SIMD2<Double>) -> Double {
+        let direction = intendedCenter - evidence.center
+        let length = (direction.x * direction.x + direction.y * direction.y).squareRoot()
+        guard length > 0 else { return 0 }
+        let offset = evidence.point - evidence.center
+        return (offset.x * direction.x + offset.y * direction.y) / length
+    }
+
+    /// True when the tap at `position` SUPPORTS reading the typed character
+    /// as `intended` (wave 30): either an edge-undershoot pair (the tap
+    /// carries no information) or a near-miss lean past the threshold (the
+    /// tap leans toward the key the candidate says was intended). Such a
+    /// tap cannot simultaneously contradict the rewrite, so the corrector's
+    /// margin veto skips the position — mirroring the restoration-pair
+    /// exemption. Positions without a usable tap report false (the
+    /// whole-word aggregate rules keep their existing semantics).
+    func tapSupports(position: Int, typed: Character, intended: Character) -> Bool {
+        guard typed != intended else { return false }
+        if edgeUndershootEnabled,
+            SpatialModel.edgeUndershootPairs.contains(String(typed) + String(intended))
+        {
+            return true
+        }
+        guard nearMissCapEnabled,
+            position >= 0, position < evidence.count,
+            let evidence = evidence[position],
+            evidence.char == typed,
+            let intendedCenter = spatial.keyCenter(of: intended)
+        else { return false }
+        return tapLean(of: evidence, towards: intendedCenter) >= nearMissMinLean
     }
 
     func confidence(position: Int) -> Double {

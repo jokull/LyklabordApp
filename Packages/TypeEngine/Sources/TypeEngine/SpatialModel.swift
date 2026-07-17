@@ -85,6 +85,20 @@ public struct SpatialModel: Sendable {
         return set
     }()
 
+    /// Edge-key undershoot pairs (wave 30, deep-decode mash recovery):
+    /// typed the LEFT NEIGHBOUR's key for an intended Icelandic-only
+    /// letter of the rightmost columns (ð right of p, æ right of l, ö
+    /// right of æ, þ right of m). These keys sit outside the standard-
+    /// QWERTY motor map and fast typists undershoot them onto the
+    /// neighbour's CENTER (recorded sessions 2026-07-16T22-45-30 and
+    /// 2026-07-17T12-04-13: dead-center p taps with confirmed intent ð) —
+    /// an aim error the tap point carries no information about, so the
+    /// per-tap provider prices these DIRECTIONAL pairs at the static
+    /// geometry cost and the margin veto skips them (the same carve-out
+    /// shape as `confusionPairs`). Static pricing is untouched: the pairs
+    /// are spatially adjacent already (~1.02 nats).
+    static let edgeUndershootPairs: Set<String> = ["pð", "læ", "æö", "mþ"]
+
     /// The dedicated physical keys of the layout (the row characters).
     /// Accent twins share their base key's position and are NOT separate
     /// touch targets — the per-tap confidence normalization (see

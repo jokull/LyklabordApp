@@ -157,13 +157,18 @@ final class BeamDecoder {
     /// per-position provider seam — the future per-tap provider swap and
     /// the lane layer stay orthogonal (per-tap confidence will multiply
     /// into fold pricing, not replace it; see `FoldPricing`).
+    /// `multiEditCostCap` overrides `config.beamMultiEditCostCap` for this
+    /// decode (wave 30 mash recovery: the corrector widens the multi-edit
+    /// cone only for invalid long tokens whose candidate pool is
+    /// essentially empty); nil = the configured cap.
     func decode(
         typed: [Character],
         lexicon: PrefixSearchableLexicon,
         lexiconIndex: Int,
         costs positionCosts: PositionCostProvider,
         pricing: FoldPricing,
-        maxEdits: Int
+        maxEdits: Int,
+        multiEditCostCap: Double? = nil
     ) -> [(word: String, cost: Double)] {
         let n = typed.count
         guard n > 0, maxEdits >= 0 else { return [] }
@@ -225,7 +230,7 @@ final class BeamDecoder {
         var results: [(word: String, cost: Double)] = []
         var emitted = Set<String>()
 
-        let multiEditCap = min(costCap, config.beamMultiEditCostCap)
+        let multiEditCap = min(costCap, multiEditCostCap ?? config.beamMultiEditCostCap)
         func push(_ state: State) {
             let cap = state.edits >= 2 ? multiEditCap : costCap
             guard state.cost <= cap, !state.cursor.isEmpty else { return }
