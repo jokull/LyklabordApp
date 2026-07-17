@@ -18,7 +18,7 @@ target; see `store/README.md` §A.1.
 <!-- 29 chars -->
 
 ## Promotional text (≤170)
-`Free, open source, network-free — the Icelandic keyboard that places accents for you, understands BÍN inflection, and learns your words on-device. Coming soon.`
+`Free, open source, network-free — the Icelandic keyboard that places accents for you and understands BÍN inflection. Lyklaborð+ learns your words on-device.`
 <!-- 159 chars -->>
 
 ## Keywords (≤100, comma-separated, no spaces)
@@ -31,7 +31,7 @@ target; see `store/README.md` §A.1.
 
 The keyboard that actually knows Icelandic — and types excellent English on the same layout.
 
-Lyklaborð is what a third-party keyboard should have been for Iceland: one Icelandic layout that fluently blends Icelandic and English as you type, autocorrect that understands Icelandic inflection, on-device learning you fully control, and a hard privacy guarantee you can verify in the source. Free. Open source. No account. No telemetry. No AI bloat.
+Lyklaborð is what a third-party keyboard should have been for Iceland: one Icelandic layout that fluently blends Icelandic and English as you type, autocorrect that understands Icelandic inflection, on-device learning you fully control, and a hard privacy guarantee you can verify in the source. Free base keyboard. Open source. No account required. No telemetry. No AI bloat. On-device learning of your own words is an optional subscription, Lyklaborð+.
 
 WRITE ACCENT-NAKED
 Dropping accents is an input method, not a typo. Type "flytjum i bud" at full speed and get "flytjum í búð" — the keyboard restores the accents for you, so you never have to reach for a long-press.
@@ -45,8 +45,8 @@ A two-lane language model follows you between languages. One-off English words �
 CORRECTS LESS, NOT MORE
 A word that's valid in either language is never silently replaced, and the exact word you typed always sits in the suggestion bar, quoted, as an escape hatch. URLs, emails, and abbreviations are left alone. When the spacebar's neighbour is the more likely key, it's treated as a hypothesis, not a typo ("smelirna" → "smellir á").
 
-YOUR VOCABULARY, TRULY YOURS
-The keyboard learns the words you type, entirely on your device. You can inspect every learned word, delete them one by one — and deletions stick, so a removed word is never silently re-learned. Switching from SwiftKey? Import your vocabulary from a SwiftKey data export in one step. Nothing you type in password, URL, or email fields is ever recorded.
+YOUR VOCABULARY, TRULY YOURS (LYKLABORÐ+)
+The optional Lyklaborð+ subscription adds the personal layer: the keyboard learns the words you type, entirely on your device. You can inspect every learned word, delete them one by one — and deletions stick, so a removed word is never silently re-learned. Switching from SwiftKey? Import your vocabulary from a SwiftKey data export in one step. Nothing you type in password, URL, or email fields is ever recorded. If your subscription ever lapses, nothing is deleted — your learned words stay on your device, paused, and exporting your data is always free.
 
 ZERO NETWORKING CODE
 The keyboard extension contains no network code at all — no phoning home, no analytics, no data collection, no terms to accept. This isn't a promise; it's verifiable in the source. The whole app and keyboard are open source under the MIT license, so you can read exactly what it does. The App Store privacy label is "Data Not Collected."
@@ -61,7 +61,7 @@ Icelandic language data is derived from BÍN, © Árni Magnússon Institute for 
 Made in Iceland.
 
 ## What's New (v1.0)
-First release. One Icelandic-and-English layout with morphology-aware autocorrect built on all 3 million BÍN word forms, automatic accent restoration, on-device learning with a personal dictionary you fully control, SwiftKey import, and a keyboard extension with zero networking code. Open source under MIT.
+First release. One Icelandic-and-English layout with morphology-aware autocorrect built on all 3 million BÍN word forms, automatic accent restoration, a keyboard extension with zero networking code, and an optional Lyklaborð+ subscription for on-device personal-vocabulary learning with SwiftKey import. Open source under MIT.
 
 ## Support URL
 https://lyklabord.solberg.is
@@ -70,9 +70,7 @@ https://lyklabord.solberg.is
 https://lyklabord.solberg.is
 
 ## Privacy Policy URL
-https://github.com/jokull/LyklabordApp/blob/main/docs/PRIVACY.md
-<!-- Interim. PRIVACY.md notes a hosted policy page will replace this before
-     submission; swap to the lyklabord.solberg.is/privacy URL once it exists. -->
+https://lyklabord.solberg.is/privacy
 
 ## Category
 - Primary: **Utilities**
