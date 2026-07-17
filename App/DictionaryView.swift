@@ -14,7 +14,9 @@ import UniformTypeIdentifiers
 
 struct DictionaryView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(SubscriptionManager.self) private var subscriptions
 
+    @State private var showingPaywall = false
     @State private var searchText = ""
     @State private var showingAddSheet = false
     @State private var newWordText = ""
@@ -61,7 +63,15 @@ struct DictionaryView: View {
                 case .unavailable:
                     containerUnavailableState
                 case .ready:
-                    if !appModel.hasAnyWords {
+                    // Lyklaborð+ gate: the dictionary editor (personal
+                    // vocabulary) is the subscription's core surface. The
+                    // free keyboard keeps learning into the event log — the
+                    // locked state says so — but browsing/editing/importing
+                    // unlocks with the subscription. Export stays free
+                    // (data ownership is never paywalled; see Settings).
+                    if !subscriptions.isEntitled {
+                        plusLockedState
+                    } else if !appModel.hasAnyWords {
                         emptyState
                     } else {
                         list
@@ -79,7 +89,7 @@ struct DictionaryView: View {
                     } label: {
                         Label(Strings.Dictionary.addWordButton, systemImage: "plus")
                     }
-                    .disabled(appModel.containerState == .unavailable)
+                    .disabled(appModel.containerState == .unavailable || !subscriptions.isEntitled)
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     Button {
@@ -87,7 +97,7 @@ struct DictionaryView: View {
                     } label: {
                         Label(Strings.SwiftKeyImport.actionTitle, systemImage: "square.and.arrow.down")
                     }
-                    .disabled(appModel.containerState == .unavailable)
+                    .disabled(appModel.containerState == .unavailable || !subscriptions.isEntitled)
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     Button {
@@ -111,6 +121,9 @@ struct DictionaryView: View {
             }
             .sheet(isPresented: $showingAddSheet) {
                 addWordSheet
+            }
+            .sheet(isPresented: $showingPaywall) {
+                SubscriptionView()
             }
             .sheet(isPresented: $showingImportSheet) {
                 importSheet
@@ -201,6 +214,40 @@ struct DictionaryView: View {
             if pendingUndo?.id == pending.id {
                 pendingUndo = nil
             }
+        }
+    }
+
+    // MARK: - Lyklaborð+ locked state
+
+    /// Shown instead of the editor when the subscription is not active.
+    /// Honest honor-box copy: the keyboard stays fully free, learning
+    /// history keeps accruing on-device and activates on subscribe.
+    private var plusLockedState: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(Strings.Plus.lockedDictionaryTitle, systemImage: "lock")
+                        .font(.title3.bold())
+                    Text(Strings.Plus.lockedDictionaryBody)
+                        .foregroundStyle(.secondary)
+                }
+
+                Button {
+                    showingPaywall = true
+                } label: {
+                    Label(Strings.Plus.learnMoreButton, systemImage: "plus.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button(Strings.Plus.restoreButton) {
+                    Task { await subscriptions.restorePurchases() }
+                }
+                .font(.callout)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -383,4 +430,5 @@ struct DictionaryView: View {
 #Preview {
     DictionaryView()
         .environment(AppModel())
+        .environment(SubscriptionManager())
 }

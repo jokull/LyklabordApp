@@ -88,7 +88,15 @@ final class SyncCoordinator {
         engine = SyncEngine(
             store: store,
             keyStore: ICloudKeychainStore(),
-            isEnabled: { SyncCoordinator.isSyncEnabled() },
+            // Lyklaborð+ gate: iCloud sync of the personal model is part of
+            // the subscription. Checked per sync round (like the opt-out
+            // toggle) so an entitlement change takes effect on the next
+            // round without restarting anything. Unentitled ⇒ the engine
+            // reports `.disabled` — sync is PAUSED, local data untouched.
+            // Delete-remote is NOT gated (`deleteRemote` ignores
+            // `isEnabled` by design): data-deletion rights are never
+            // paywalled.
+            isEnabled: { SyncCoordinator.isSyncEnabled() && PlusGate.isEntitled() },
             deviceIdentifier: Self.deviceIdentifier()
         )
     }

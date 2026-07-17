@@ -208,6 +208,63 @@ enum Strings {
         static let ok = "Í lagi"
     }
 
+    /// Lyklaborð+ — the annual subscription unlocking the PERSONAL layer
+    /// (personal vocabulary + dictionary editor + SwiftKey import + iCloud
+    /// sync + per-key typo learning). The base keyboard is free forever;
+    /// this copy is deliberately honest about that (honor-box open-core).
+    /// Price is never hardcoded — always `Product.displayPrice`.
+    enum Plus {
+        static let name = "Lyklaborð+"
+
+        // Paywall sheet
+        static let paywallTagline = "Persónulega lagið ofan á ókeypis lyklaborðið."
+        static let paywallIntro = "Lyklaborðið sjálft er ókeypis og verður það áfram — full íslensk og ensk leiðrétting, orðauppástungur og beygingargreind. Lyklaborð+ bætir við laginu sem er persónulegt fyrir þig."
+
+        static let featureVocabTitle = "Persónulegt orðasafn"
+        static let featureVocabDetail = "Lyklaborðið lærir orðin þín — nöfn, slangur, fagorð — og þú stýrir safninu í orðabókarritlinum, með innflutningi úr SwiftKey."
+        static let featureTouchTitle = "Lærir ásláttinn þinn"
+        static let featureTouchDetail = "Lyklaborðið lærir hvar fingurnir þínir lenda í raun og veru á lyklunum og verður nákvæmara fyrir þig með tímanum."
+        static let featureSyncTitle = "iCloud samstilling"
+        static let featureSyncDetail = "Orðasafnið þitt fylgir þér dulkóðað á milli tækja — í þínu eigin iCloud, án reiknings hjá okkur."
+
+        static func subscribeButton(_ price: String) -> String {
+            "Gerast áskrifandi — \(price) á ári"
+        }
+        static let subscribeButtonNoPrice = "Gerast áskrifandi"
+        static let priceLoading = "Sæki verð úr App Store…"
+        static let priceUnavailable = "Ekki tókst að sækja verð úr App Store — athugaðu netsamband og reyndu aftur."
+        static let purchaseFailed = "Kaupin tókust ekki og ekkert var gjaldfært. Reyndu aftur."
+        static let purchasePending = "Beðið eftir samþykki (til dæmis „Ask to Buy“). Áskriftin virkjast sjálfkrafa um leið og kaupin eru staðfest."
+        static let restoreButton = "Endurheimta kaup"
+        static let restoreFailed = "Ekki tókst að endurheimta kaup — athugaðu netsamband og reyndu aftur."
+        static let restoreNothingFound = "Engin fyrri kaup fundust á þessum App Store reikningi."
+        static let legalFooter = "Áskriftin endurnýjast sjálfkrafa árlega þar til henni er sagt upp — það er hægt hvenær sem er í App Store stillingunum þínum."
+        static let termsLinkTitle = "Skilmálar (Apple Standard EULA)"
+        static let privacyLinkTitle = "Persónuverndarstefna"
+        static let closeButton = "Loka"
+        static let thanksTitle = "Takk fyrir stuðninginn!"
+        static let thanksBody = "Lyklaborð+ er virkt — persónulega orðasafnið þitt, innsláttarlærdómurinn og iCloud samstillingin eru í gangi."
+
+        // Settings section
+        static let settingsSectionTitle = "Áskrift"
+        static let statusRowTitle = "Lyklaborð+"
+        static let statusEntitled = "Virk áskrift"
+        static func statusEntitledUntil(_ date: String) -> String {
+            "Virk áskrift — endurnýjast \(date)"
+        }
+        static let statusNotEntitled = "Engin áskrift"
+        static let statusUnknown = "Athuga stöðu…"
+        static let statusDebugNote = "Þróunarsmíð (DEBUG): allir eiginleikar opnir án áskriftar."
+        static let learnMoreButton = "Kynntu þér Lyklaborð+"
+        static let manageButton = "Stjórna eða segja upp áskrift"
+        static let settingsFooter = "Lyklaborð+ opnar persónulega lagið: orðasafnið þitt, innsláttarlærdóm og iCloud samstillingu. Grunnlyklaborðið er ókeypis og opinn hugbúnaður — áskriftin styður áframhaldandi þróun."
+
+        // Locked-feature surfaces
+        static let lockedDictionaryTitle = "Orðasafnið er hluti af Lyklaborð+"
+        static let lockedDictionaryBody = "Lyklaborðið sjálft heldur áfram að virka ókeypis að fullu. Með Lyklaborð+ virkjast persónulega orðasafnið þitt — og allt sem lyklaborðið hefur þegar lært af innslættinum þínum er geymt og virkjast um leið og þú gerist áskrifandi."
+        static let lockedSyncFooter = "iCloud samstilling orðasafnsins er hluti af Lyklaborð+."
+    }
+
     /// Honest Full Access explainer, shown in onboarding and Settings.
     enum FullAccess {
         static let title = "Fullur aðgangur"

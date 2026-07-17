@@ -70,6 +70,10 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// mtime of the personal-model file at the last (re)load, so the
     /// viewWillAppear re-stat only re-reads a genuinely changed file.
     private var personalModelDate: Date?
+    /// Lyklaborð+ entitlement observed at the last snapshot decision, so an
+    /// entitlement flip (app-side purchase/expiry between presentations)
+    /// forces a reload/clear even when the model file's mtime is unchanged.
+    private var personalLayerEntitled: Bool?
 
     // MARK: - Cross-queue fast path (lock-guarded, NOT queue-confined)
 
@@ -543,12 +547,59 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         reloadPersonalSnapshotIfChanged()
     }
 
+    /// Lyklaborð+ gate (the extension side of the entitlement flow). The
+    /// containing app owns StoreKit entirely (this extension has zero
+    /// network entitlements, forever) and mirrors the verified entitlement
+    /// into the App Group via `Learning.PlusEntitlement`; this is the plain,
+    /// honor-system read of that state. Without App Group access (Full
+    /// Access denied) the suite is unavailable → not entitled — consistent,
+    /// since the personal layer needs the container anyway. DEBUG builds
+    /// are always entitled so dogfooding never fights the paywall.
+    ///
+    /// What the gate switches (and what it does NOT):
+    ///   - OFF when unentitled: the personal vocabulary snapshot (no
+    ///     personal boosts/surfaces) and the PersonalTouch per-key Gaussians
+    ///     (TSI-seeded defaults still apply). With both nil the engine is
+    ///     byte-identical to the free path with an empty personal model.
+    ///   - STILL ON when unentitled: learning-event WRITES (`EventLog`) —
+    ///     the keyboard keeps learning locally, so subscribing later
+    ///     inherits the full history instead of starting cold.
+    private static func isPlusEntitled(appGroupId: String?) -> Bool {
+        #if DEBUG
+        return true
+        #else
+        guard
+            let appGroupId,
+            let defaults = UserDefaults(suiteName: appGroupId)
+        else { return false }
+        return PlusEntitlement.read(from: defaults).isEffectivelyEntitled()
+        #endif
+    }
+
     /// Stat the model file; (re)load and inject a fresh snapshot when its
     /// mtime differs from the last load. The app writes the file atomically
     /// and the extension loads its own exclusive `PersonalModel` copy, so a
     /// short coordinated read is all the synchronization needed.
+    ///
+    /// Runs the Lyklaborð+ gate first: unentitled ⇒ clear both personal
+    /// snapshots and skip the load entirely. Called at bootstrap and on
+    /// every keyboard presentation (`viewWillAppear` →
+    /// `refreshPersonalSnapshotIfNeeded`), so entitlement changes take
+    /// effect the next time the keyboard comes up.
     private func reloadPersonalSnapshotIfChanged() {
         guard let engine, let personalModelURL else { return }
+        let entitled = Self.isPlusEntitled(appGroupId: appGroupId)
+        if entitled != personalLayerEntitled {
+            personalLayerEntitled = entitled
+            // Entitlement flipped: invalidate the mtime cache so the load
+            // decision below can't be skipped by an unchanged file.
+            personalModelDate = nil
+        }
+        guard entitled else {
+            engine.setPersonalVocabulary(nil)
+            engine.setPersonalTouch(nil)
+            return
+        }
         let attributes = try? FileManager.default.attributesOfItem(atPath: personalModelURL.path)
         let modified = attributes?[.modificationDate] as? Date
         guard modified != personalModelDate else { return }

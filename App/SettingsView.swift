@@ -16,7 +16,12 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(SubscriptionManager.self) private var subscriptions
     @State private var showDeleteConfirmation = false
+
+    // Lyklaborð+ paywall sheet (opened from the subscription section and
+    // the gated sync section).
+    @State private var showingPaywall = false
 
     // Data export
     @State private var exportDocument: ExportDataDocument?
@@ -67,6 +72,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 spacebarSection
+                subscriptionSection
                 syncSection
                 dataSection
                 fullAccessSection
@@ -76,6 +82,9 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle(Strings.Settings.navigationTitle)
+            .sheet(isPresented: $showingPaywall) {
+                SubscriptionView()
+            }
             .fileExporter(
                 isPresented: $showingExporter,
                 document: exportDocument,
@@ -125,16 +134,85 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Lyklaborð+ (subscription)
+
+    private var subscriptionSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Strings.Plus.statusRowTitle).bold()
+                Text(subscriptionStatusText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                #if DEBUG
+                Text(Strings.Plus.statusDebugNote)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                #endif
+            }
+
+            switch subscriptions.status {
+            case .entitled:
+                // Manage/cancel deep link into the App Store subscription
+                // management screen (required affordance).
+                Link(destination: SubscriptionManager.manageSubscriptionsURL) {
+                    Label(Strings.Plus.manageButton, systemImage: "creditcard")
+                }
+            case .notEntitled, .unknown:
+                Button {
+                    showingPaywall = true
+                } label: {
+                    Label(Strings.Plus.learnMoreButton, systemImage: "plus.circle")
+                }
+                Button(Strings.Plus.restoreButton) {
+                    Task { await subscriptions.restorePurchases() }
+                }
+                if let error = subscriptions.lastActionError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+        } header: {
+            Text(Strings.Plus.settingsSectionTitle)
+        } footer: {
+            Text(Strings.Plus.settingsFooter)
+        }
+    }
+
+    private var subscriptionStatusText: String {
+        switch subscriptions.status {
+        case .unknown:
+            return Strings.Plus.statusUnknown
+        case .notEntitled:
+            return Strings.Plus.statusNotEntitled
+        case .entitled(let expiry):
+            guard let expiry else { return Strings.Plus.statusEntitled }
+            return Strings.Plus.statusEntitledUntil(
+                expiry.formatted(date: .abbreviated, time: .omitted))
+        }
+    }
+
     // MARK: - iCloud sync
 
     private var syncSection: some View {
         Section {
-            Toggle(Strings.Settings.syncToggleTitle, isOn: $syncEnabled)
-                .onChange(of: syncEnabled) { _, isOn in
-                    if isOn {
-                        Task { await appModel.syncCoordinator.syncNow() }
+            if subscriptions.isEntitled {
+                Toggle(Strings.Settings.syncToggleTitle, isOn: $syncEnabled)
+                    .onChange(of: syncEnabled) { _, isOn in
+                        if isOn {
+                            Task { await appModel.syncCoordinator.syncNow() }
+                        }
                     }
+            } else {
+                // Lyklaborð+ gate: sync is paused without the subscription
+                // (SyncCoordinator's engine checks the same gate per round).
+                // The toggle state itself is preserved for when it unlocks.
+                Button {
+                    showingPaywall = true
+                } label: {
+                    Label(Strings.Plus.lockedSyncFooter, systemImage: "lock")
                 }
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(Strings.Settings.syncStatusTitle)
@@ -385,4 +463,5 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
         .environment(AppModel())
+        .environment(SubscriptionManager())
 }

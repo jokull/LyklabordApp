@@ -1,0 +1,62 @@
+{
+  "identifier" : "F7E9C2A4-5B31-4D8E-9A06-3C1D2E4B5F60",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "is_IS",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "8A2F1C64-0D7B-4E93-B5A8-6F0C9D3E2A17",
+      "localizations" : [
+
+      ],
+      "name" : "Lyklaborð+",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "19.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "1D4B7A90-3E2C-4F58-8B16-9C0A5D6E7F21",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Persónulegt orðasafn, innsláttarlærdómur og iCloud samstilling.",
+              "displayName" : "Lyklaborð+",
+              "locale" : "is"
+            },
+            {
+              "description" : "Personal vocabulary, typo learning, and iCloud sync.",
+              "displayName" : "Lyklaborð+",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "is.solberg.lyklabord.plus.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Lyklaborð+ Annual",
+          "subscriptionGroupID" : "8A2F1C64-0D7B-4E93-B5A8-6F0C9D3E2A17",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

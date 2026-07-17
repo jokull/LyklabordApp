@@ -48,6 +48,11 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: App
+        excludes:
+          # StoreKit testing configuration (Lyklaborð+): consumed by the
+          # scheme's run action (see schemes.BetterKeyboard.run below), not
+          # a bundle resource — keep it out of the Copy Resources phase.
+          - "Subscription/Lyklabord.storekit"
     info:
       path: App/Info.plist
       properties:
@@ -268,6 +273,12 @@ schemes:
         BetterKeyboardExt: all
     run:
       config: Debug
+      # Local StoreKit testing for Lyklaborð+ (no App Store Connect round-
+      # trip needed in the Simulator). NOTE: DEBUG builds are always
+      # entitled regardless (dogfood override) — this configuration is for
+      # exercising the purchase/restore UI flows themselves. Sandbox/
+      # TestFlight testing covers the release-build path.
+      storeKitConfiguration: App/Subscription/Lyklabord.storekit
     archive:
       config: Release
 
