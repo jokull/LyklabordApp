@@ -180,9 +180,26 @@ public extension Autocomplete.ToolbarItemStyle {
     /// The standard autocomplete toolbar item style.
     static var standard: Self { .init() }
 
-    /// The standard autocomplete toolbar autocorrect style.
+    /// The autocomplete toolbar style for the space-committable
+    /// (autocorrect-armed) candidate.
+    ///
+    /// FORK PATCH (Lyklaborð — issue #1, "mark the candidate space commits"):
+    /// Lyklaborð deliberately under-corrects, so a #1-ranked candidate that has
+    /// NOT cleared the auto-apply gate looks identical to one that has — users
+    /// tap space expecting a commit and just get a space. iOS/SwiftKey/Gboard
+    /// all mark the space-committable candidate (filled/tinted bubble + bold);
+    /// upstream's subtle `.white.opacity(0.5)` wash is invisible in light mode
+    /// and too weak in dark. Draw it as a filled accent pill with bold white
+    /// text instead. Semantic colors only (`.accentColor` / `.white`) so it
+    /// reads in light AND dark and scales with Dynamic Type. Visual only — the
+    /// autocorrect FLAG (which suggestion space applies) is unchanged.
     static var standardAutocorrect: Self {
-        .init(backgroundColor: .white.opacity(0.5))
+        .init(
+            titleColor: .white,
+            titleFont: .init(.body, .bold),
+            backgroundColor: .accentColor,
+            backgroundCornerRadius: 8
+        )
     }
 }
 
