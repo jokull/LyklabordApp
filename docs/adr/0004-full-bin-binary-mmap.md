@@ -3,6 +3,14 @@
 Status: Accepted
 Date: 2026-07-15
 
+Amendment 2026-07-18: the BÍN source was refreshed from the official
+2026-07-10 Sigrún export. The primary artifact is now 115,189,168 bytes
+(109.9 MiB), with 3,698,020 forms and 347,926 lemmas. This does not change
+the decision—ship the full mmap-backed artifact—but the original 91 MB
+benchmark remains historical evidence and the refreshed artifact must pass
+the same cold-start, touched-page, and lookup-latency gates. Exact provenance
+is in `data/is/LANGUAGE_DATA_MANIFEST.json`.
+
 ## Context
 
 iOS keyboard extensions run under a strict jetsam (dirty-memory) budget —

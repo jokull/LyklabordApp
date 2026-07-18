@@ -28,7 +28,7 @@ Apple's Icelandic keyboard has no real autocorrect (common words get "corrected"
 ## What's different
 
 - **Icelandic + English on one layout** — a two-lane language model absorbs *slettur* (one-off English words mid-Icelandic) without flipping languages, but follows you decisively when you actually switch. Never hijacks your keyboard mid-sentence.
-- **Morphology-aware**: all 3.07M BÍN word forms are valid vocabulary via a memory-mapped binary (built with [lemma-is](https://github.com/jokull/lemma-is)); the ~91MB model costs <1MB of extension memory thanks to mmap.
+- **Morphology-aware**: all 3.70M BÍN word forms are valid vocabulary via a memory-mapped binary (built with [lemma-is](https://github.com/jokull/lemma-is)); the ~110MB model remains file-backed and demand-paged via mmap.
 - **Under-corrects by design**: a word that's valid in either language is never auto-replaced; the literal token you typed always sits in the suggestion bar (quoted) as an escape hatch; URLs, emails, and dotted tokens are never mangled.
 - **Spacebar near-miss correction**: `smelirna` → `smellir á` (the spacebar's neighbors are hypotheses, not typos).
 - **Learning you own (Lyklaborð+)**: words are learned on-device (2 distinct days, or instantly when you tap the verbatim suggestion), individually deletable — deletions stick — and importable from a SwiftKey data export. Nothing you type in password, URL, or email fields is ever recorded.
@@ -42,9 +42,14 @@ Five local Swift packages, no third-party dependencies beyond the vendored [Keyb
 |---|---|
 | `LemmaCore` | mmap reader for the BÍN binary (validity + morphology) |
 | `Lexicon` | mmap frequency lexicons (unigrams/bigrams, IS + EN) |
-| `TypeEngine` | spatial model, corrector, predictor, two-lane language model, typing session |
+| [`TypeEngine`](Packages/TypeEngine/README.md) | spatial model, corrector, predictor, two-lane language model, typing session; start here for the engine architecture and debugging model |
 | `Learning` | crash-safe event log + personal model (learned words, tombstones, touch stats) |
 | `KeyboardKit` | vendored UI/layout framework (MIT) |
+
+For the language side of the system—BÍN and morphology, the Miðeind stack,
+`lemma-is`, corpora, frontier keyboard research, artifact provenance, and the
+incremental intelligence roadmap—read
+[`ICELANDIC_NLP.md`](ICELANDIC_NLP.md).
 
 The extension reads everything from the app bundle and App Group container and never touches the network; the containing app owns compaction, the dictionary editor, and (soon) encrypted CloudKit sync of your personal data to your own iCloud.
 

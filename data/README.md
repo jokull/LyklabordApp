@@ -8,20 +8,20 @@ This directory contains the language models and frequency tables for the better-
 
 These are indexed trie-based binary artifacts generated from BÍN (Beygingarlýsing íslensks nútímamáls) via the lemma-is project. Each maps surface forms to (lemma id, frequency, flags) tuples.
 
-- **lemma-is.bin** (95,416,256 bytes) — **PRIMARY**
-  - Full BÍN: 3,071,066 word forms, 289,124 lemmas, format v2 with morphological data + 414,007 bigrams
-  - Measured (Swift mmap bench, 2026-07-15): phys_footprint +0.28 MB after load + 1000 lookups; 124 µs/lookup; 0.4 ms load
+- **lemma-is.bin** (115,189,168 bytes) — **PRIMARY**
+  - Full BÍN: 3,698,020 word forms, 347,926 lemmas, format v2 with morphological data + 414,007 bigrams
+  - The original 95,416,256-byte artifact measured phys_footprint +0.28 MB after load + 1000 lookups, 124 µs/lookup, and 0.4 ms load on 2026-07-15; rerun the same gate for this refreshed artifact
   - Ship this. mmap makes file size irrelevant to the extension memory cap; only cost is app download size
 
-- **lemma-is.core.bin** (9,669,628 bytes)
+- **lemma-is.core.bin** (10,049,264 bytes)
   - Smaller alternative (350k forms, no morph/bigrams, v1); kept for tests and as a download-size escape hatch
 
-- **lemma-is.core.top_200k.bin** (5,638,556 bytes)
+- **lemma-is.core.top_200k.bin** (5,892,036 bytes)
   - Fallback tier for older/memory-constrained devices
   - Top 200k most frequent Icelandic words by corpus frequency
   - Deployment: A/B test or enable on devices with <2GB available memory
 
-- **lemma-is.core.min_100.bin** (1,932,984 bytes)
+- **lemma-is.core.min_100.bin** (2,012,084 bytes)
   - Emergency floor for extremely constrained environments
   - Minimal vocabulary covering only the most essential words (frequency ≥ 100 in corpus)
   - Deployment: Ultra-low-memory devices, if needed for v1 ship
@@ -46,6 +46,7 @@ All Icelandic data is derived from **BÍN** (Beygingarlýsing íslensks nútíma
 - **Processing pipeline**: lemma-is project (`build-binary.py`, `extract-*grams.py`)
 - **Frequency corpus**: Icelandic web corpus and published texts
 - **Conversion method**: Lemma-indexed trie with frequency ranks; inflected surface forms mapped to lemma IDs
+- **Exact build cohort**: `is/LANGUAGE_DATA_MANIFEST.json` records the BÍN source hash, builder commits, artifact hashes, sizes, and record counts
 
 ### License & Attribution
 
@@ -105,14 +106,14 @@ See `ATTRIBUTION.md` for full credit text. In brief:
 
 ## Tiering Strategy (obsolete — kept for context)
 
-Device-based tiering was designed before the Swift mmap bench proved footprint is independent of file size (all tiers measure ~+0.25 MB phys_footprint; even the 91 MB full binary measures +0.28 MB). Decision 2026-07-15: **ship the full lemma-is.bin on all devices**. The smaller tiers remain staged only as a download-size escape hatch and for fast unit tests.
+Device-based tiering was designed before the Swift mmap bench demonstrated demand-paged behavior (the original 91 MB full binary measured +0.28 MB after its fixed lookup workload). Decision 2026-07-15: **ship the full lemma-is.bin on all devices**. The smaller tiers remain staged only as a download-size escape hatch and for fast unit tests. The refreshed ~110 MB artifact must be remeasured with the same cold and lookup workloads; total file size alone is not a memory-residency measurement.
 
 | File | Size | Contents (words / lemmas / bigrams) |
 |------|------|--------------------------------------|
-| lemma-is.bin (primary) | 91.0 MB | 3,071,066 / 289,124 / 414,007 (v2, morph) |
-| lemma-is.core.bin | 9.2 MB | 350,000 / 81,587 / 0 (v1) |
-| lemma-is.core.top_200k.bin | 5.4 MB | 200,000 forms (v1) |
-| lemma-is.core.min_100.bin | 1.8 MB | freq ≥ 100 forms (v1) |
+| lemma-is.bin (primary) | 109.9 MiB | 3,698,020 / 347,926 / 414,007 (v2, morph) |
+| lemma-is.core.bin | 9.6 MiB | 350,000 / 99,680 / 0 (v1) |
+| lemma-is.core.top_200k.bin | 5.6 MiB | 200,000 / 80,379 / 0 (v1) |
+| lemma-is.core.min_100.bin | 1.9 MiB | 69,155 / 32,915 / 0 (v1) |
 
 **Note**: mmap pages are file-backed and do not count against the extension dirty-memory (jetsam) limit. Paging is lazy and demand-driven.
 
