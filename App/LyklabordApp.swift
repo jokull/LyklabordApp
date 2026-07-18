@@ -23,10 +23,21 @@ struct LyklabordApp: App {
         ProcessInfo.processInfo.environment["LYKLABORD_COLD_START_PROBE"] == "1"
     }
 
+    /// Present the Lyklaborð+ paywall directly on launch, for capturing the
+    /// App Store IAP review screenshot in the simulator. Tooling-only; a
+    /// normal launch never takes this branch.
+    private var isPaywallCapture: Bool {
+        ProcessInfo.processInfo.environment["LYKLABORD_SHOW_PAYWALL"] == "1"
+    }
+
     var body: some Scene {
         WindowGroup {
             if isColdStartProbe {
                 ColdStartProbeView()
+            } else if isPaywallCapture {
+                SubscriptionView()
+                    .environment(subscriptions)
+                    .task { await subscriptions.start() }
             } else {
                 RootView()
                     .environment(appModel)
