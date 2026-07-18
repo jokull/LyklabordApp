@@ -36,6 +36,11 @@ public extension MorphologyProviding {
 /// All engine tunables in one place. Defaults documented inline; every value
 /// is expected to move once the micro-eval corpus grows.
 public struct EngineConfig: Sendable {
+    /// Evaluation-only candidate-source ablations. Production leaves this
+    /// empty; using a bit mask keeps that check allocation-free on the hot
+    /// path. See `type-eval ab --disable-family`.
+    public var disabledCandidateProviders: CandidateProviderSet = []
+
     /// Spatial model constants (see SpatialModel.Costs).
     public var spatialCosts = SpatialModel.Costs()
 

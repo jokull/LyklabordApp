@@ -277,16 +277,25 @@ public struct Corrector {
         }
 
         // ---- Candidate generation ----------------------------------------
-        // word -> lane-priced channel cost (total + restoration/error split)
-        var candidates: [String: ChannelCost] = [:]
+        // word -> first-wins lane-priced channel cost, with optional
+        // multi-source provenance when a diagnostics trace is requested.
+        // The production extension keeps provenance storage nil.
+        let captureProvenance = trace != nil
+        var candidates = CandidateAdmissionPool(captureProvenance: captureProvenance)
+        let disabledProviders = config.disabledCandidateProviders
 
-        func admit(_ word: String) {
-            guard word != typed, candidates[word] == nil else { return }
+        @discardableResult
+        func admit(_ word: String, from provider: CandidateProvider) -> Bool {
+            guard !disabledProviders.contains(provider), word != typed else { return false }
             // Tombstoned words are never offered, base-lexicon presence
             // notwithstanding (every generation pass funnels through here).
-            guard !model.isPersonalTombstoned(word) else { return }
-            candidates[word] = channelCost(
-                typedChars: typedChars, candidate: word, pricing: pricing, perTap: perTap)
+            guard !model.isPersonalTombstoned(word) else { return false }
+            return candidates.admit(
+                word,
+                cost: channelCost(
+                    typedChars: typedChars, candidate: word, pricing: pricing, perTap: perTap),
+                provider: provider
+            )
         }
 
         // 1. PRIMARY: beam-search spatial decode over both frequency
@@ -308,7 +317,12 @@ public struct Corrector {
         // The beam prices substitutions per position through the provider
         // seam — the per-tap provider when coordinate evidence exists.
         let beamCosts: PositionCostProvider = perTap ?? self.positionCosts
-        func runBeam(maxEdits: Int, multiEditCostCap: Double? = nil) {
+        func runBeam(
+            maxEdits: Int,
+            multiEditCostCap: Double? = nil,
+            provider: CandidateProvider
+        ) {
+            guard !disabledProviders.contains(provider) else { return }
             for (index, lexicon) in [model.icelandic, model.english].enumerated() {
                 guard let searchable = lexicon as? PrefixSearchableLexicon else {
                     beamCoveredLexicons = false
@@ -323,11 +337,11 @@ public struct Corrector {
                     maxEdits: maxEdits,
                     multiEditCostCap: multiEditCostCap
                 ) {
-                    admit(word)
+                    admit(word, from: provider)
                 }
             }
         }
-        runBeam(maxEdits: config.beamShortMaxEdits)
+        runBeam(maxEdits: config.beamShortMaxEdits, provider: .shortBeam)
 
         // 1b. edits1 residue: single-edit candidates the beam cannot see —
         // personal vocabulary and BÍN-only forms (rare valid inflections
@@ -336,12 +350,12 @@ public struct Corrector {
         // only; every in-repo lexicon does), this also restores the full
         // legacy edits1 existence check.
         for word in Self.edits1Costed(of: typedChars, spatial: spatial).keys {
-            guard candidates[word] == nil else { continue }
+            guard captureProvenance || candidates[word] == nil else { continue }
             if model.isPersonalValid(word)
                 || model.morphology?.isKnown(word) == true
                 || (!beamCoveredLexicons && isCandidateWord(word, checkMorphology: false))
             {
-                admit(word)
+                admit(word, from: .edits1Residue)
             }
         }
 
@@ -354,7 +368,7 @@ public struct Corrector {
         // constant, so restored forms rank (and auto-apply) easily.
         for word in Self.diacriticVariants(of: typedChars)
         where isCandidateWord(word, checkMorphology: true) {
-            admit(word)
+            admit(word, from: .diacriticRestoration)
         }
 
         // 2b. Gemination repairs: drop one of a doubled letter and/or double
@@ -364,7 +378,7 @@ public struct Corrector {
         // variant set is tiny (≈ n² worst case) and existence-checked.
         for word in Self.geminationVariants(of: typedChars)
         where isCandidateWord(word, checkMorphology: true) {
-            admit(word)
+            admit(word, from: .gemination)
         }
 
         // 2c. Gemination + accent compositions ("nogg" → dedouble → "nog" →
@@ -374,7 +388,7 @@ public struct Corrector {
         for base in Self.dedoubledVariants(of: typedChars) {
             for word in Self.diacriticVariants(of: base, maxChanges: 2)
             where isCandidateWord(word, checkMorphology: true) {
-                admit(word)
+                admit(word, from: .geminationRestoration)
             }
         }
 
@@ -416,7 +430,7 @@ public struct Corrector {
                         for cj in cheap[j] {
                             variant[j] = cj
                             let word = String(variant)
-                            guard candidates[word] == nil else { continue }
+                            guard captureProvenance || candidates[word] == nil else { continue }
                             let typical =
                                 model.isPersonalValid(word)
                                 || (model.icelandic.frequency(of: word) != nil
@@ -445,7 +459,9 @@ public struct Corrector {
                                             && model.calibratedUnigramScore(of: word, language: .english)
                                                 >= config.shortDoubleSubContextMinZ)
                                 } ?? false
-                            if typical || contextTypical { admit(word) }
+                            if typical || contextTypical {
+                                admit(word, from: .shortDoubleSubstitution)
+                            }
                         }
                         variant[j] = typedChars[j]
                     }
@@ -471,7 +487,8 @@ public struct Corrector {
         // tokens have the deep beam, splits and diacritic completions; on
         // the dev corpus letting this pass run there COST top-1 (bigram-
         // supported near-miss followers outranked honest repairs).
-        if config.contextContinuationEnabled, !typedIsValid, typedChars.count >= 3,
+        if !disabledProviders.contains(.contextContinuation),
+            config.contextContinuationEnabled, !typedIsValid, typedChars.count >= 3,
             typedChars.count < config.beamLongMinLength,
             let prev = contextPrev
         {
@@ -491,7 +508,9 @@ public struct Corrector {
                     })
                 {
                     let word = continuation.word
-                    guard word != typed, word.count > 1, candidates[word] == nil else { continue }
+                    guard word != typed, word.count > 1,
+                        captureProvenance || candidates[word] == nil
+                    else { continue }
                     let wordChars = Array(word)
                     guard abs(wordChars.count - typedChars.count) <= 1,
                         wordChars[0] == first || Self.isRestorationPair(first, wordChars[0])
@@ -508,7 +527,8 @@ public struct Corrector {
                     let cost = channelCost(
                         typedChars: typedChars, candidate: word, pricing: pricing, perTap: perTap)
                     if cost.total <= config.contextContinuationMaxCost {
-                        candidates[word] = cost
+                        candidates.admit(
+                            word, cost: cost, provider: .contextContinuation)
                     }
                 }
             }
@@ -550,7 +570,7 @@ public struct Corrector {
                     || model.calibratedUnigramScore(of: stem, language: .english)
                         >= config.possessiveOfferMinBaseZ
             {
-                admit(candidate)
+                admit(candidate, from: .possessiveRestoration)
             }
         }
 
@@ -565,7 +585,7 @@ public struct Corrector {
             : config.completionPoolLimit
         for lexicon in [model.icelandic, model.english] {
             for completion in lexicon.completions(of: typed, limit: completionLimit) {
-                admit(completion.word)
+                admit(completion.word, from: .lexiconCompletion)
             }
         }
 
@@ -575,7 +595,7 @@ public struct Corrector {
         for completion in model.personal.completions(
             of: typed, limit: config.personalCompletionPoolLimit)
         {
-            admit(completion.word)
+            admit(completion.word, from: .personalCompletion)
         }
 
         // 3c/3d. Case-aware long-word completions (wave 23 — the
@@ -600,14 +620,21 @@ public struct Corrector {
         // when one case form makes the bar under a genuinely split
         // governor, the other rides directly behind it.
         var caseCompanions: [String: String] = [:]
-        func admitSpeculativeCompletion(_ word: String) {
-            guard word != typed, candidates[word] == nil else { return }
+        func admitSpeculativeCompletion(
+            _ word: String, from provider: CandidateProvider
+        ) {
+            guard !disabledProviders.contains(provider), word != typed else { return }
             guard !model.isPersonalTombstoned(word) else { return }
-            candidates[word] = speculativeCompletionCost(
-                typedChars: typedChars, candidate: word, pricing: pricing, perTap: perTap)
-            speculativeCompletions.insert(word)
+            let inserted = candidates.admit(
+                word,
+                cost: speculativeCompletionCost(
+                    typedChars: typedChars, candidate: word, pricing: pricing, perTap: perTap),
+                provider: provider
+            )
+            if inserted { speculativeCompletions.insert(word) }
         }
-        if config.caseCompletionEnabled, governorFit != nil, !typedIsValid,
+        if !disabledProviders.contains(.caseCompletion),
+            config.caseCompletionEnabled, governorFit != nil, !typedIsValid,
             typedChars.count >= config.caseCompletionMinLength,
             typedChars.allSatisfy(\.isLetter)
         {
@@ -629,7 +656,7 @@ public struct Corrector {
                 guard prefixLength >= 4 else { break }
                 let prefix = String(typedChars.prefix(prefixLength))
                 for completion in model.icelandic.completions(of: prefix, limit: completionLimit) {
-                    admitSpeculativeCompletion(completion.word)
+                    admitSpeculativeCompletion(completion.word, from: .caseCompletion)
                     expansionSources.insert(completion.word)
                 }
             }
@@ -662,12 +689,13 @@ public struct Corrector {
                         shared += 1
                     }
                     guard shared >= minShared, wordChars.count > shared else { continue }
-                    admitSpeculativeCompletion(word)
+                    admitSpeculativeCompletion(word, from: .caseCompletion)
                     expansionSources.insert(word)
                 }
             }
         }
-        if config.caseCompletionEnabled, let fit = governorFit,
+        if !disabledProviders.contains(.caseSibling),
+            config.caseCompletionEnabled, let fit = governorFit,
             let paradigms = model.inflection.model?.paradigms
         {
             // 3d. Case-sibling expansion: every pooled completion whose
@@ -704,7 +732,7 @@ public struct Corrector {
                             && group.genderCode == analysis.genderCode
                         {
                             for form in group.forms where form.bundle == target {
-                                admitSpeculativeCompletion(form.form)
+                                admitSpeculativeCompletion(form.form, from: .caseSibling)
                                 if form.form != typed, form.form != source,
                                     !model.isPersonalTombstoned(form.form),
                                     caseCompanions[source] == nil
@@ -744,13 +772,13 @@ public struct Corrector {
                 let prefix = String(typedChars.prefix(length))
                 for lexicon in [model.icelandic, model.english] {
                     for completion in lexicon.completions(of: prefix, limit: config.completionPoolLimit) {
-                        admit(completion.word)
+                        admit(completion.word, from: .shorterPrefixCompletion)
                     }
                 }
                 for completion in model.personal.completions(
                     of: prefix, limit: config.personalCompletionPoolLimit)
                 {
-                    admit(completion.word)
+                    admit(completion.word, from: .shorterPrefixCompletion)
                 }
             }
         }
@@ -765,7 +793,7 @@ public struct Corrector {
         // candidate, so BÍN-floored junk ("garalega") cannot suppress the
         // honest repair it is junk relative to.
         if !typedIsValid, typedChars.count >= 5,
-            bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+            bestAttestedCost(in: candidates.costs, excluding: speculativeCompletions)
                 > config.diacriticCompletionGate
         {
             // Shortest prefix first: it has the fewest variants and the
@@ -783,7 +811,7 @@ public struct Corrector {
                     for completion in model.icelandic.completions(
                         of: variant, limit: config.completionPoolLimit)
                     {
-                        admit(completion.word)
+                        admit(completion.word, from: .diacriticPrefixCompletion)
                     }
                 }
             }
@@ -808,7 +836,7 @@ public struct Corrector {
         if !typedIsValid,
             typedChars.count >= config.beamLongMinLength,
             config.beamMaxEdits > config.beamShortMaxEdits,
-            bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+            bestAttestedCost(in: candidates.costs, excluding: speculativeCompletions)
                 > config.beamDeepGate
         {
             // Mash recovery (wave 30, the tilsbæðrum→tilsvörum shape): when
@@ -823,7 +851,7 @@ public struct Corrector {
             let mashRecovery =
                 config.mashRecoveryEnabled
                 && typedChars.count >= config.mashRecoveryMinLength
-                && bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+                && bestAttestedCost(in: candidates.costs, excluding: speculativeCompletions)
                     > config.mashRecoveryGate
             if mashRecovery {
                 trace?.note(
@@ -834,7 +862,8 @@ public struct Corrector {
                 let before = Set(candidates.keys)
                 runBeam(
                     maxEdits: config.beamMaxEdits,
-                    multiEditCostCap: config.mashRecoveryCostCap)
+                    multiEditCostCap: config.mashRecoveryCostCap,
+                    provider: .mashRecoveryBeam)
                 // Words only the WIDENED cone admitted: eligible for the
                 // fire-suppression rule below (pre-wave, they could not
                 // even be pooled — widening the search must not widen the
@@ -843,7 +872,7 @@ public struct Corrector {
                     mashRecoveryAdmissions.insert(word)
                 }
             } else {
-                runBeam(maxEdits: config.beamMaxEdits)
+                runBeam(maxEdits: config.beamMaxEdits, provider: .deepBeam)
             }
         }
 
@@ -876,7 +905,7 @@ public struct Corrector {
             typedChars.allSatisfy(\.isLetter),
             let morphology = model.morphology,
             let paradigms = model.inflection.model?.paradigms,
-            bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+            bestAttestedCost(in: candidates.costs, excluding: speculativeCompletions)
                 > config.compoundRepairGate
         {
             let minModifier = config.compoundMinModifierLength
@@ -984,7 +1013,7 @@ public struct Corrector {
                         else { continue }
                         lookupBudget -= 1
                         if generatedHeadOK(headWord) {
-                            admit(candidateWord)
+                            admit(candidateWord, from: .compoundRepair)
                         }
                     }
                 }
@@ -1007,19 +1036,26 @@ public struct Corrector {
                         lookupBudget -= 1
                         guard generatedHeadOK(completion.word) else { continue }
                         let candidateWord = modifier + completion.word
-                        guard candidateWord != typed,
+                        guard !disabledProviders.contains(.compoundCompletion),
+                            candidateWord != typed,
                             candidateWord.count > typed.count,
                             candidates[candidateWord] == nil,
                             !model.isPersonalTombstoned(candidateWord)
                         else { continue }
                         let extensionCount = candidateWord.count - typed.count
-                        candidates[candidateWord] = ChannelCost(
-                            total: config.compoundCompletionBasePenalty
-                                + Double(extensionCount) * config.completionCharCost,
-                            errorOps: extensionCount + 1,
-                            restorationOps: 0
+                        let inserted = candidates.admit(
+                            candidateWord,
+                            cost: ChannelCost(
+                                total: config.compoundCompletionBasePenalty
+                                    + Double(extensionCount) * config.completionCharCost,
+                                errorOps: extensionCount + 1,
+                                restorationOps: 0
+                            ),
+                            provider: .compoundCompletion
                         )
-                        compoundCompletionHeads[candidateWord] = completion.word
+                        if inserted {
+                            compoundCompletionHeads[candidateWord] = completion.word
+                        }
                     }
                 }
             }
@@ -1032,10 +1068,14 @@ public struct Corrector {
         // lane-priced total, so restoration-class edits cost ~ε inside a
         // saturated lane while error-class edits keep their full prices.
         //
-        var scored: [(word: String, cost: ChannelCost, score: Double)] = candidates.map {
+        var scored: [RankedCandidate] = candidates.map {
             word, cost in
             let s = model.blendedScore(of: word, previous: contextPrev, pIcelandic: pIcelandic)
-            var score = -cost.total + config.languageWeight * s
+            let channelContribution = -cost.total
+            let languageContribution = config.languageWeight * s
+            var score = channelContribution + languageContribution
+            var morphologyContribution = 0.0
+            var compoundContribution = 0.0
             // The morph term applies to strict-prefix COMPLETIONS of the
             // typed word only (the Stage-B #1 shape: "typed frá hest| →
             // candidate forms get + λ_morph·log P(features | governor)").
@@ -1050,7 +1090,9 @@ public struct Corrector {
                 word.hasPrefix(typed) || speculativeCompletions.contains(word),
                 model.icelandic.bigramFrequency(fit.previousWord, word) == nil
             {
-                score += fit.fitNats(for: word)
+                let contribution = fit.fitNats(for: word)
+                score += contribution
+                morphologyContribution += contribution
             }
             // Compound completions rank WITHIN the pool by their head
             // (wave 23): the whole word sits at the shared compound floor,
@@ -1060,18 +1102,33 @@ public struct Corrector {
             // punished for being attested nowhere by construction) and its
             // governor case fit (the head carries the compound's case).
             if let head = compoundCompletionHeads[word] {
-                score +=
+                let headContribution =
                     config.compoundCompletionHeadZWeight
                     * max(
                         model.calibratedUnigramScore(of: head, language: .icelandic),
                         config.compoundHeadMinZ)
+                score += headContribution
+                compoundContribution += headContribution
                 if let fit = governorFit,
                     model.icelandic.bigramFrequency(fit.previousWord, word) == nil
                 {
-                    score += fit.fitNats(for: head)
+                    let contribution = fit.fitNats(for: head)
+                    score += contribution
+                    morphologyContribution += contribution
                 }
             }
-            return (word, cost, score)
+            return RankedCandidate(
+                word: word,
+                cost: cost,
+                providers: candidates.providers(for: word),
+                languageScore: s,
+                channelContribution: channelContribution,
+                languageContribution: languageContribution,
+                morphologyContribution: morphologyContribution,
+                compoundContribution: compoundContribution,
+                precedenceContribution: 0,
+                score: score
+            )
         }
 
         // 6. Space-miss splits (PLAN.md "Space-miss correction"): an unknown
@@ -1084,7 +1141,7 @@ public struct Corrector {
         // split pass outright. Split candidates join the same
         // scored pool: the channel cost (penalty + half repairs) plays the
         // spatial-cost role in ranking, conservatism and confidence.
-        if !typedIsValid,
+        if !disabledProviders.contains(.spaceMissSplit), !typedIsValid,
             typedChars.count >= config.splitMinLength,
             typedChars.allSatisfy(\.isLetter),
             bestSoFar > config.splitGate
@@ -1100,9 +1157,16 @@ public struct Corrector {
                 ).map {
                     // Splits are error-class rewrites by definition (a
                     // missed keystroke, never restoration).
-                    (
+                    RankedCandidate(
                         word: $0.word,
                         cost: ChannelCost(total: $0.spatialCost, errorOps: 1, restorationOps: 0),
+                        providers: CandidateProviderSet(.spaceMissSplit),
+                        languageScore: $0.languageScore,
+                        channelContribution: -$0.spatialCost,
+                        languageContribution: config.languageWeight * $0.languageScore,
+                        morphologyContribution: 0,
+                        compoundContribution: 0,
+                        precedenceContribution: 0,
                         score: $0.score
                     )
                 }
@@ -1121,27 +1185,46 @@ public struct Corrector {
         {
             for index in scored.indices
             where compoundCompletionHeads[scored[index].word] != nil {
-                scored[index].score = min(
-                    scored[index].score, worstSplitScore - 1e-9)
+                let oldScore = scored[index].score
+                let newScore = min(oldScore, worstSplitScore - 1e-9)
+                scored[index].precedenceContribution = newScore - oldScore
+                scored[index].score = newScore
             }
         }
 
         scored.sort { $0.score > $1.score || ($0.score == $1.score && $0.word < $1.word) }
 
         if let trace {
-            // Language contribution backed out of the final score (covers
-            // split candidates' pair scores and the morph term uniformly):
-            // score = -cost + languageWeight·S  =>  S = (score+cost)/weight.
             trace.candidates = scored.prefix(8).map { entry in
-                CorrectionTrace.Candidate(
+                let diagnostics = languageDiagnostics(
+                    for: entry.word,
+                    previousWord: contextPrev,
+                    pIcelandic: pIcelandic)
+                return CorrectionTrace.Candidate(
                     word: entry.word,
+                    providers: entry.providers.providers,
                     costTotal: entry.cost.total,
                     errorOps: entry.cost.errorOps,
                     restorationOps: entry.cost.restorationOps,
-                    languageScore: config.languageWeight != 0
-                        ? (entry.score + entry.cost.total) / config.languageWeight
-                        : 0,
+                    channelContribution: entry.channelContribution,
+                    languageScore: entry.languageScore,
+                    languageContribution: entry.languageContribution,
+                    unigramLanguageScore: diagnostics.unigram,
+                    contextEvidence: diagnostics.context,
+                    personalEvidence: diagnostics.personal,
+                    morphologyContribution: entry.morphologyContribution,
+                    compoundContribution: entry.compoundContribution,
+                    precedenceContribution: entry.precedenceContribution,
                     score: entry.score
+                )
+            }
+            trace.providerSummaries = CandidateProvider.allCases.map { provider in
+                CorrectionTrace.ProviderSummary(
+                    provider: provider,
+                    admittedCandidateCount: scored.reduce(into: 0) { count, candidate in
+                        if candidate.providers.contains(provider) { count += 1 }
+                    },
+                    disabled: disabledProviders.contains(provider)
                 )
             }
         }
@@ -1401,7 +1484,7 @@ public struct Corrector {
                 if config.vacuumAutoApplyEnabled,
                     !typicalityOK, !farRepair, !short,
                     model.morphology?.isKnown(best.word) == true,
-                    bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+                    bestAttestedCost(in: candidates.costs, excluding: speculativeCompletions)
                         > config.closeCandidateGate
                 {
                     vacuum = true
@@ -2030,6 +2113,41 @@ public struct Corrector {
 
     // MARK: - Space-miss splits
 
+    /// Diagnostics-only decomposition of the blended language term. Ranking
+    /// still consumes the original aggregate score; these values expose the
+    /// unigram baseline, contextual lift, and additive personal evidence for
+    /// a human trace without perturbing the hot-path arithmetic.
+    private func languageDiagnostics(
+        for renderedWord: String,
+        previousWord: String?,
+        pIcelandic: Double
+    ) -> (unigram: Double?, context: Double?, personal: Double) {
+        let parts = renderedWord.lowercased().split(separator: " ", maxSplits: 1).map(String.init)
+        if parts.count == 2 {
+            let unigram = model.blendedPairScore(
+                first: parts[0], second: parts[1], previous: nil,
+                pIcelandic: pIcelandic)
+            let contextual = model.blendedPairScore(
+                first: parts[0], second: parts[1], previous: previousWord,
+                pIcelandic: pIcelandic)
+            return (
+                unigram,
+                contextual - unigram,
+                model.personalBoost(of: parts[0], previous: previousWord)
+                    + model.personalBoost(of: parts[1], previous: parts[0])
+            )
+        }
+        let unigram = model.blendedScore(
+            of: renderedWord, previous: nil, pIcelandic: pIcelandic)
+        let contextual = model.blendedScore(
+            of: renderedWord, previous: previousWord, pIcelandic: pIcelandic)
+        return (
+            unigram,
+            contextual - unigram,
+            model.personalBoost(of: renderedWord, previous: previousWord)
+        )
+    }
+
     /// Split hypotheses for an unknown token (see `correct` step 6). Two
     /// generation classes, explored best-evidence-first under a wall-clock
     /// budget:
@@ -2072,7 +2190,7 @@ public struct Corrector {
         pIcelandic: Double,
         taps: [TapSample?] = [],
         rawChars: [Character] = []
-    ) -> [(word: String, spatialCost: Double, score: Double)] {
+    ) -> [(word: String, spatialCost: Double, languageScore: Double, score: Double)] {
         let n = typedChars.count
         guard n >= config.splitMinLength else { return [] }
 
@@ -2187,7 +2305,7 @@ public struct Corrector {
             return admitted
         }
 
-        var best: [String: (spatialCost: Double, score: Double)] = [:]
+        var best: [String: (spatialCost: Double, languageScore: Double, score: Double)] = [:]
         var halfCache: [String: [(word: String, cost: Double)]] = [:]
         func resolvedHalves(for half: [Character]) -> [(word: String, cost: Double)] {
             let key = String(half)
@@ -2227,7 +2345,8 @@ public struct Corrector {
                         previous: previousWord,
                         pIcelandic: pIcelandic
                     )
-                    best[text] = (channel, -channel + config.languageWeight * language)
+                    best[text] = (
+                        channel, language, -channel + config.languageWeight * language)
                 }
             }
         }
@@ -2235,7 +2354,14 @@ public struct Corrector {
         // lexicographic): the caller's final ranking has its own tie-break,
         // but the pool must never leak per-process hash order downstream.
         return best
-            .map { (word: $0.key, spatialCost: $0.value.spatialCost, score: $0.value.score) }
+            .map {
+                (
+                    word: $0.key,
+                    spatialCost: $0.value.spatialCost,
+                    languageScore: $0.value.languageScore,
+                    score: $0.value.score
+                )
+            }
             .sorted { $0.score > $1.score || ($0.score == $1.score && $0.word < $1.word) }
     }
 

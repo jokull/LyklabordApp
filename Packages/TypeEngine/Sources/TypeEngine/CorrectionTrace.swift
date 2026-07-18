@@ -16,6 +16,10 @@ public final class CorrectionTrace {
     /// One scored candidate (top of the pool).
     public struct Candidate: Sendable {
         public let word: String
+        /// Every bounded generation pass that reached this word. The first
+        /// provider owns the channel cost; later providers only add
+        /// provenance, so diagnostics never reprice a candidate.
+        public let providers: [CandidateProvider]
         /// Lane-priced channel cost (nats).
         public let costTotal: Double
         /// Error-class ops on the optimal alignment.
@@ -23,10 +27,37 @@ public final class CorrectionTrace {
         /// Restoration-class ops (acute folds, directional confusions,
         /// apostrophe insertions).
         public let restorationOps: Int
+        /// Additive channel contribution to the ranker (= -costTotal).
+        public let channelContribution: Double
         /// Blended language score S_lang (calibrated, posterior-blended).
         public let languageScore: Double
-        /// Final ranking score = -costTotal + languageWeight·S_lang (+ morph).
+        /// Additive weighted language contribution (= λ·S_lang).
+        public let languageContribution: Double
+        /// Context-free blended language score, exposed for comparison.
+        public let unigramLanguageScore: Double?
+        /// Contextual score minus the context-free score. Diagnostic evidence
+        /// already included in `languageContribution`, not an extra addend.
+        public let contextEvidence: Double?
+        /// Additive personal prior before language weighting. Diagnostic
+        /// evidence already included in `languageScore`.
+        public let personalEvidence: Double
+        /// Additive governor/case-fit contribution.
+        public let morphologyContribution: Double
+        /// Additive compound-head typicality contribution.
+        public let compoundContribution: Double
+        /// Additive hard-precedence adjustment (zero unless a compound
+        /// completion is demoted behind a space split).
+        public let precedenceContribution: Double
+        /// Final ranking score. The additive contributions above (excluding
+        /// the diagnostic context/personal evidence) reconstruct this value.
         public let score: Double
+    }
+
+    /// Pool-wide visibility into one provider, including an active ablation.
+    public struct ProviderSummary: Sendable {
+        public let provider: CandidateProvider
+        public let admittedCandidateCount: Int
+        public let disabled: Bool
     }
 
     /// One evaluated gate: value vs threshold, pass/fail.
@@ -55,6 +86,7 @@ public final class CorrectionTrace {
     public internal(set) var autocorrect = false
     public internal(set) var notes: [String] = []
     public internal(set) var candidates: [Candidate] = []
+    public internal(set) var providerSummaries: [ProviderSummary] = []
 
     public init() {}
 
@@ -85,11 +117,33 @@ public final class CorrectionTrace {
             }
             lines.append(
                 "  #\(index + 1) \(c.word)"
+                    + "  via=\(c.providers.map(\.rawValue).joined(separator: ","))"
                     + "  cost=\(String(format: "%.3f", c.costTotal))"
                     + " (err=\(c.errorOps) rest=\(c.restorationOps))"
                     + "  lang=\(String(format: "%+.3f", c.languageScore))"
                     + "  score=\(String(format: "%+.3f", c.score))"
                     + marginText)
+            lines.append(
+                "       signals channel=\(String(format: "%+.3f", c.channelContribution))"
+                    + " language=\(String(format: "%+.3f", c.languageContribution))"
+                    + " morph=\(String(format: "%+.3f", c.morphologyContribution))"
+                    + " compound=\(String(format: "%+.3f", c.compoundContribution))"
+                    + " precedence=\(String(format: "%+.3f", c.precedenceContribution))"
+                    + "  evidence context=\(c.contextEvidence.map { String(format: "%+.3f", $0) } ?? "-")"
+                    + " personal=\(String(format: "%+.3f", c.personalEvidence))"
+            )
+        }
+        let activeProviders = providerSummaries.filter { $0.admittedCandidateCount > 0 }
+        if !activeProviders.isEmpty {
+            lines.append(
+                "  providers "
+                    + activeProviders.map {
+                        "\($0.provider.rawValue)=\($0.admittedCandidateCount)"
+                    }.joined(separator: " "))
+        }
+        let disabled = providerSummaries.filter(\.disabled).map { $0.provider.rawValue }
+        if !disabled.isEmpty {
+            lines.append("  ablated \(disabled.joined(separator: ","))")
         }
         var decision = "  rule=\(rule)"
         if let requiredMargin {

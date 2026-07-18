@@ -60,9 +60,12 @@ dependency planning, not a competing active queue.
    queue, shared production request sequencer/apply guard, separately published
    bar, and final proxy text gate delimiter application, stale delivery,
    fast-input queueing, and backspace/revert. Four of four cases pass.
-4. **Wave 42 — decoder consolidation phase 1 (in progress):** candidate provenance, named
-   score contributions, trace visibility, and pass-family ablations with
-   byte-identical behavior.
+4. **Wave 42 — decoder consolidation phase 1 (complete):** 19 stable bounded
+   candidate-provider identities now feed a first-wins admission pool; named
+   rank contributions and contextual/personal evidence are visible in
+   `CorrectionTrace`; eight provider families and every exact provider are
+   dev-A/B ablatable. Default suggestions, actions, scenarios, dev/heldout
+   scores, and latency remain unchanged.
 5. **Wave 43 — decoder consolidation phase 2:** extract action policy and
    group configuration domains, again with no intended behavior movement.
 
@@ -75,6 +78,53 @@ long-press-eject confirmation and Wave 36's real `„völd` literal-revert path
 remain open until their exact interactions are tested. The
 2026-07-18T00-56-44 recording exercised neither exact check. Wave 39's physical
 cohort is closed below.
+
+## 2026-07-18 — Wave 42: candidate provenance, named signals and ablations (complete)
+
+- **Trigger:** `Corrector` had accumulated bounded search passes, but several
+  wrote directly into either the channel-cost dictionary or scored tuple list.
+  A missing candidate still required code archaeology, and the old trace
+  backed morphology/compound/precedence into a misleading synthetic
+  “language” score. There was no uniform way to measure a source's causal
+  quality/safety contribution.
+- **Provider contract:** `CandidateProvider` gives 19 search sources stable
+  diagnostic names, from shallow/deep beam through restoration, completions,
+  context, morphology, compounds and space splits. `CandidateAdmissionPool`
+  preserves the historical first-wins channel cost while unioning overlapping
+  provenance only when a trace is requested; production allocates no
+  provenance dictionary. The scored split path carries the same provenance
+  contract despite its pair-language score.
+- **Named rank ledger:** every `RankedCandidate` records exact additive channel,
+  weighted blended-language, morphology, compound-head and hard-precedence
+  terms while assembling the score in the original floating-point operation
+  order. `CorrectionTrace` now shows those terms, true raw blended language,
+  context-free baseline/context lift, personal prior, per-candidate `via=`
+  sources, pool-wide provider counts, and active ablations. Context/personal
+  values are explicitly diagnostic evidence already contained in the blended
+  language term, not double-counted addends.
+- **Ablation surface:** the allocation-free `CandidateProviderSet` defaults
+  empty in shipping config. `type-eval ab --disable-family` covers eight
+  disjoint families (`beam`, `lexical-repair`, `restoration`, `context`,
+  `completion`, `morphology`, `compound`, `split`), and
+  `--disable-provider` targets one stable source; either composes with JSON
+  config overrides. The context-family smoke run completed and reported dev
+  top-1 +0.03 pp, top-3/false-autoapply ±0.00 pp when disabled. This is a
+  diagnostic result, not a tuning decision—the provider protects observed
+  short-token context cases outside the generated corpus distribution.
+- **Behavior/latency parity:** the accepted scorecard is byte-identical to the
+  Wave 41 floor: dev 2,338/3,000 top-1, 2,541 top-3, 121 false auto-applies;
+  safety 16 expected hard-negative fires; compounds 208/233 with 17 false
+  auto-applies; all 251 scenarios and 4/4 last-mile cases pass. Release bench
+  worst keystroke was 9.42 ms (<30 ms), last-mile request p95 1.44 ms / drain
+  1.32 ms, process-cold artifact load 148.1 ms / 14.5 MiB. The local 70-row
+  personal gate has no regressions and all 3 intentional slang rows remain
+  unforced. Package tests are 479/479 and the generic iPhone Release app plus
+  keyboard-extension build succeeds.
+- **Heldout (single report-only run):** unchanged at 2,289/3,000 top-1,
+  2,506 top-3 and 159 false auto-applies (EN 1,080/1,190/108; IS
+  1,209/1,316/51), with stages success 1,772, discovery 336, ranking 216,
+  action abstention 517, action error 159 and zero session/proxy failures. No
+  post-heldout behavior change or tuning was made.
 
 ## 2026-07-18 — Wave 41: timed last-mile replay gate (complete)
 

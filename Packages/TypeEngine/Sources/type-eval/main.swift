@@ -16,8 +16,9 @@ import TypeEngine
 //                                     failed hard gate. --heldout adds a
 //                                     REPORT-ONLY heldout section;
 //                                     --note <text> annotates the history line.
-//   type-eval ab --config <over.json> baseline vs EngineConfig-override diff on
-//                                     corpus dev + micro-eval
+//   type-eval ab [--config <over.json>] [--disable-family <family>]
+//                                     baseline vs config/provider-source
+//                                     ablation on corpus dev + micro-eval
 //   type-eval personal [--update-baseline] [--corpus p] [--baseline p]
 //                                     [--confirmed-intents p]
 //                                     hard wave gate over the LOCAL personal

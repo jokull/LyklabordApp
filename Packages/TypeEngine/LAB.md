@@ -56,6 +56,10 @@ swift run -c release type-repl
 Type the failing phrase exactly as a user would. Use `:why` to separate
 discovery, ranking, and action-policy failures; use `:context`, `:posterior`,
 `:word`, `:bigram`, `:gov`, and `:timing` to inspect the responsible evidence.
+For each top candidate, `:why` prints stable `via=` provider provenance; exact
+channel, weighted language, morphology, compound, and precedence
+contributions; and contextual/personal evidence already contained in the
+language term.
 The REPL also accepts tap hypotheses, long-press intent, cursor movement, host
 mutations, and truncated proxy windows.
 
@@ -90,6 +94,8 @@ Useful commands:
 swift test
 swift run -c release type-eval corpus dev
 swift run -c release type-eval ab --config /path/to/overrides.json
+swift run -c release type-eval ab --disable-family restoration
+swift run -c release type-eval ab --disable-provider context-continuation
 swift run -c release type-eval personal
 swift run -c release type-repl bench
 swift run -c release type-repl last-mile

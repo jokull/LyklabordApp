@@ -2,7 +2,8 @@ import EvalKit
 import Foundation
 import TypeEngine
 
-// `type-eval ab --config <overrides.json>` — baseline vs override diff.
+// `type-eval ab [--config <overrides.json>] [--disable-family <name>]`
+// — baseline vs override/provider-family ablation diff.
 //
 // Applies an EngineConfig override set (explicit key→setter map, see
 // EvalKit/ConfigOverrides + scores/README.md) and runs corpus dev + the
@@ -10,22 +11,60 @@ import TypeEngine
 // table. Only DEV corpus is used — A/B tuning must never touch heldout.
 
 func runABCommand(_ args: [String]) {
-    guard let ci = args.firstIndex(of: "--config"), ci + 1 < args.count else {
-        stderr("usage: type-eval ab --config <overrides.json>")
-        exit(2)
+    var overrideConfig = EngineConfig()
+    var requestedDisabled: CandidateProviderSet = []
+    var appliedKeys: [String] = []
+    var labels: [String] = []
+    var index = 0
+    while index < args.count {
+        let flag = args[index]
+        guard index + 1 < args.count else {
+            stderr("missing value after \(flag)")
+            printABUsageAndExit()
+        }
+        let value = args[index + 1]
+        switch flag {
+        case "--config":
+            do {
+                let loaded = try ConfigOverrides.load(from: URL(fileURLWithPath: value))
+                overrideConfig = loaded.config
+                appliedKeys = loaded.keys
+                labels.append("config \(value)")
+            } catch {
+                stderr("config error: \(error)")
+                stderr("supported keys: \(ConfigOverrides.supportedKeys.joined(separator: ", "))")
+                exit(2)
+            }
+        case "--disable-family":
+            guard let family = CandidateProviderFamily(rawValue: value) else {
+                stderr("unknown provider family: \(value)")
+                stderr(
+                    "families: "
+                        + CandidateProviderFamily.allCases.map(\.rawValue).joined(separator: ", "))
+                exit(2)
+            }
+            requestedDisabled.formUnion(family.providers)
+            labels.append("disable-family \(family.rawValue)")
+        case "--disable-provider":
+            guard let provider = CandidateProvider(rawValue: value) else {
+                stderr("unknown candidate provider: \(value)")
+                stderr(
+                    "providers: "
+                        + CandidateProvider.allCases.map(\.rawValue).joined(separator: ", "))
+                exit(2)
+            }
+            requestedDisabled.insert(CandidateProviderSet(provider))
+            labels.append("disable-provider \(provider.rawValue)")
+        default:
+            stderr("unknown A/B option: \(flag)")
+            printABUsageAndExit()
+        }
+        index += 2
     }
-    let configPath = args[ci + 1]
-
-    let overrideConfig: EngineConfig
-    let appliedKeys: [String]
-    do {
-        (overrideConfig, appliedKeys) = try ConfigOverrides.load(
-            from: URL(fileURLWithPath: configPath))
-    } catch {
-        stderr("config error: \(error)")
-        stderr("supported keys: \(ConfigOverrides.supportedKeys.joined(separator: ", "))")
-        exit(2)
+    guard !labels.isEmpty else {
+        printABUsageAndExit()
     }
+    overrideConfig.disabledCandidateProviders.formUnion(requestedDisabled)
 
     guard let repoRoot = ArtifactLoader.repoRoot() else {
         stderr("cannot locate repo root")
@@ -52,8 +91,14 @@ func runABCommand(_ args: [String]) {
     let corpusOver = CorpusEval.run(engine: overEngine, pairs: pairs, split: "dev")
 
     // --- Report -----------------------------------------------------------
-    print("A/B — config \(configPath)")
-    print("overrides applied (\(appliedKeys.count)): \(appliedKeys.joined(separator: ", "))")
+    print("A/B — \(labels.joined(separator: "; "))")
+    if !appliedKeys.isEmpty {
+        print("overrides applied (\(appliedKeys.count)): \(appliedKeys.joined(separator: ", "))")
+    }
+    let disabled = overrideConfig.disabledCandidateProviders.providers
+    if !disabled.isEmpty {
+        print("providers disabled (\(disabled.count)): \(disabled.map(\.rawValue).joined(separator: ", "))")
+    }
     print("")
     print("metric                     baseline   override      delta")
     func row(_ name: String, _ base: Double, _ over: Double, _ suffix: String = "%") {
@@ -93,6 +138,13 @@ func runABCommand(_ args: [String]) {
                 + String(format: "  %8.2f%%", o)
                 + String(format: "  %+8.2f%%", o - b))
     }
+}
+
+private func printABUsageAndExit() -> Never {
+    stderr(
+        "usage: type-eval ab [--config <overrides.json>]"
+            + " [--disable-family <family>] [--disable-provider <provider>]")
+    exit(2)
 }
 
 func loadABEngine(config: EngineConfig) -> TypeEngine {

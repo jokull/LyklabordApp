@@ -67,6 +67,10 @@ swift run -c release --package-path Packages/TypeEngine type-eval generate-safet
 # A/B: baseline vs an EngineConfig override set, on corpus dev + micro-eval.
 swift run -c release --package-path Packages/TypeEngine type-eval ab --config overrides.json
 
+# A/B one bounded candidate-source family (or use --disable-provider for one
+# exact provider). Ranking/action settings are unchanged.
+swift run -c release --package-path Packages/TypeEngine type-eval ab --disable-family context
+
 # Legacy micro-eval (DictLexicon fixture doubles, no corpus).
 swift run -c release --package-path Packages/TypeEngine type-eval
 
@@ -151,6 +155,12 @@ key to print the full supported list. Example:
 ```json
 { "autocorrectMargin": 2.0, "beamMaxEdits": 2 }
 ```
+
+Candidate discovery has a separate allocation-free ablation mask. The family
+names are `beam`, `lexical-repair`, `restoration`, `context`, `completion`,
+`morphology`, `compound`, and `split`; `CandidateProvider` raw values are the
+stable exact-provider names printed by `:why`. Config and provider ablations
+may be combined in one command.
 
 ## Reproducibility & determinism
 

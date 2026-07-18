@@ -311,6 +311,11 @@ candidate competes in the same scored pool.
 | Compound repair/completion | Hold legal modifiers fixed and repair or complete a plausible head |
 | Space-miss split | Gated two-word readings, including substitution of a near-spacebar character for the missing space |
 
+Every bounded source has a stable `CandidateProvider` identifier. The common
+first-wins admission pool keeps the historical channel cost when more than one
+source reaches the same word, while a requested `CorrectionTrace` records all
+of those sources. Production does not allocate provenance storage.
+
 Important properties:
 
 - Search is evidence proposal, not truth. A specialized pass may admit a
@@ -467,7 +472,7 @@ The REPL loads the production artifacts and types through `ProxySimulator` and
 the same `TypingSession` used by the extension. Useful commands include:
 
 ```text
-:why                 scored pool, costs, margins, policy branch and gates
+:why                 provider provenance, named score signals, margins, policy branch and gates
 :word <word>         IS/EN frequency, calibrated z, BÍN and lane evidence
 :bigram <prev> <w>   exact counts and contextual calibrated scores
 :gov <word>          governor case distribution
@@ -512,6 +517,7 @@ Use the evaluation tools before accepting ranking or policy movement:
 swift run -c release type-eval
 swift run -c release type-eval corpus dev
 swift run -c release type-eval ab --config /path/to/overrides.json
+swift run -c release type-eval ab --disable-family context
 swift run -c release type-eval personal
 swift run -c release type-eval scorecard
 swift run -c release type-repl bench
@@ -522,6 +528,13 @@ The held-out corpus is report-only and is not a tuning surface. See
 [`scores/README.md`](../../scores/README.md) and
 [`data/eval/README.md`](../../data/eval/README.md) for the evaluation
 discipline.
+
+Provider-family ablations accept `beam`, `lexical-repair`, `restoration`,
+`context`, `completion`, `morphology`, `compound`, and `split`. Use
+`--disable-provider <stable-provider-name>` for a narrower diagnosis; the
+trace prints those names after `via=`. Ablations change discovery only—ranking
+and action policy remain the same—so their dev-corpus delta measures the value
+and risk of that candidate source.
 
 ## Where an improvement belongs
 
@@ -577,6 +590,7 @@ When introducing a new evidence source, prefer this shape:
 | [`TypingSession.swift`](Sources/TypeEngine/TypingSession.swift) | Full text-window lifecycle, commits, bar assembly, learning and revert behavior |
 | [`TypeEngine.swift`](Sources/TypeEngine/TypeEngine.swift) | Public facade, lane updates, personal/inflection injection, diagnostics |
 | [`Corrector.swift`](Sources/TypeEngine/Corrector.swift) | Candidate passes, exact scoring, confidence and autocorrect policy |
+| [`CandidateProvider.swift`](Sources/TypeEngine/CandidateProvider.swift) | Stable source provenance, common admission, rank signal ledger and ablation families |
 | [`LanguageModel.swift`](Sources/TypeEngine/LanguageModel.swift) | Tunables, validity, calibration, bilingual/context/personal scoring |
 | [`BeamDecoder.swift`](Sources/TypeEngine/BeamDecoder.swift) | Prefix-range spatial search and its budgets |
 | [`SpatialModel.swift`](Sources/TypeEngine/SpatialModel.swift) | Static Icelandic key geometry and edit costs |
