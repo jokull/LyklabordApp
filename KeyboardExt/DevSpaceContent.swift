@@ -21,9 +21,15 @@ import SwiftUI
 import KeyboardKit
 
 extension AutocompleteContext {
-    /// The text an armed autocorrect will commit on space, if any.
+    /// The text an armed autocorrect will commit on space, if any — EXCEPT
+    /// personal-learned words, which are never hoisted: the spacebar has no
+    /// long-press surface, so hoisting a personal word would remove its only
+    /// quick-evict affordance (dogfood decision 2026-07-19). A personal
+    /// armed word stays in the bar as a highlighted chip (with the wave-37
+    /// eject long-press) and space still commits it — the apply machinery
+    /// reads `suggestions` directly and is unaffected by this exclusion.
     var armedAutocorrectText: String? {
-        suggestions.first(where: { $0.isAutocorrect })?.text
+        suggestions.first(where: { $0.isAutocorrect && !$0.isPersonalLearned })?.text
     }
 }
 

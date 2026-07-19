@@ -26,6 +26,10 @@ import KeyboardKit
 ///   verbatim escape hatch + two more — instead of duplicating the spacebar.
 ///   Filtering happens HERE only; `autocompleteContext.suggestions` keeps the
 ///   armed suggestion, which is what the space-commit path reads.
+///   PERSONAL-LEARNED armed words are exempt from hoisting entirely
+///   (`armedAutocorrectText` excludes them): the spacebar has no long-press,
+///   so hoisting would remove the eject affordance — they stay in the bar as
+///   a highlighted chip and `armed` is false here, taking the prefix(3) path.
 struct LyklabordToolbar<Standard: View>: View {
 
     @ObservedObject var autocompleteContext: AutocompleteContext
