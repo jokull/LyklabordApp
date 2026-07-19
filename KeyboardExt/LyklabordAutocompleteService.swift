@@ -539,6 +539,15 @@ final class LyklabordAutocompleteService: AutocompleteService {
         }
     }
 
+    /// Running Icelandic-lane belief (P(IS) ≥ 0.5), for smart-punctuation
+    /// gating (D1): Icelandic quotes „ " only fire in the Icelandic lane, so
+    /// English passages keep straight/English quotes. Synchronous queue read —
+    /// fine for the infrequent quote/comma keystrokes it gates; defaults to
+    /// Icelandic (this is an Icelandic keyboard) when there's no session yet.
+    var isIcelandicLane: Bool {
+        queue.sync { (session?.probabilityIcelandic ?? 1.0) >= 0.5 }
+    }
+
     // MARK: - Word learning (M2)
 
     // KeyboardKit's `StandardActionHandler.tryAutolearnSuggestion` calls

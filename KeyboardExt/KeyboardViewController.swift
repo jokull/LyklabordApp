@@ -707,6 +707,41 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
             if ledgerHandleDepth == 0 { recordPendingSelfEdit() }
         }
 
+        // Smart punctuation (D1, docs/PUNCTUATION_BEHAVIOR.md): Icelandic
+        // quotes „ ". Gated to the quote/comma keystrokes only (the switch's
+        // default arm is free, so letters/space pay nothing), then to the
+        // Icelandic lane + standard fields (English passages and
+        // URL/email/password keep straight quotes). A straight " opens with „ /
+        // closes with " only when a matching „ is open (else left untouched);
+        // the ,,gæsalappir" habit — a double comma at an opening position —
+        // becomes „. The rewritten action flows through the normal path
+        // (ledger, autocomplete, insert); the ,,→„ delete is captured by the
+        // outer ledger snapshot taken at handle entry.
+        var action = action
+        if gesture == .release {
+            let proxy = keyboardContext.textDocumentProxy
+            switch action {
+            case .character("\""):
+                if LyklabordAutocompleteService.fieldKind(for: keyboardContext) == .standard,
+                    lyklabordAutocompleteService?.isIcelandicLane == true,
+                    let quote = SmartPunctuation.icelandicDoubleQuote(
+                        before: proxy.documentContextBeforeInput ?? "") {
+                    action = .character(quote)
+                }
+            case .character(","):
+                let before = proxy.documentContextBeforeInput ?? ""
+                if before.hasSuffix(","),
+                    SmartPunctuation.opensNewQuote(before: String(before.dropLast())),
+                    LyklabordAutocompleteService.fieldKind(for: keyboardContext) == .standard,
+                    lyklabordAutocompleteService?.isIcelandicLane == true {
+                    proxy.deleteBackward()
+                    action = .character(SmartPunctuation.open)
+                }
+            default:
+                break
+            }
+        }
+
         // Spacebar mode 2 ("always insert a prediction", PLAN.md "Spacebar
         // behavior — three user-selectable modes"): on a `.space` release
         // with NO word in progress, insert the top bar prediction BEFORE the
