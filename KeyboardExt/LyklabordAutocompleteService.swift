@@ -89,6 +89,13 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// Latest known field kind, kept even while the session is still
     /// bootstrapping so it can be applied the moment the session exists.
     private var fieldKind: FieldKind = .standard
+    /// System text-replacement table (issue #5), nil until the controller's
+    /// `requestSupplementaryLexicon` completion delivers it via
+    /// `setTextReplacements`. Read once per autocomplete pass in
+    /// `performAutocomplete`; queue-confined like `fieldKind` (the setter
+    /// marshals). Privacy: includes contact names — in-memory only, never
+    /// logged or persisted (see `TextReplacements` header).
+    private var textReplacements: TextReplacements?
 
     // Personal learning (M2). All nil/absent when the App Group container
     // is unavailable (Full Access denied, simulator oddities): the engine
@@ -404,6 +411,19 @@ final class LyklabordAutocompleteService: AutocompleteService {
             self.flushLearningEventsOnQueue()
             self.fieldKind = kind
             self.session?.fieldKind = kind
+        }
+    }
+
+    /// Inject the system text-replacement lexicon (issue #5). Called from
+    /// the controller once `requestSupplementaryLexicon` completes — that
+    /// completion arrives on an ARBITRARY queue, so this marshals onto the
+    /// engine queue where `performAutocomplete` reads the table (the same
+    /// confinement pattern as `updateFieldKind`; no lock needed because the
+    /// table is only ever touched on `queue`). Typing before the lexicon
+    /// lands simply sees no replacements — correct-by-default, no waiting.
+    func setTextReplacements(_ replacements: TextReplacements) {
+        queue.async { [weak self] in
+            self?.textReplacements = replacements
         }
     }
 
@@ -1065,7 +1085,47 @@ final class LyklabordAutocompleteService: AutocompleteService {
         // tap/revert) is the pass whose drain carries those events.
         flushLearningEventsOnQueue()
         let pendingToken = TypingSession.splitCurrentWord(of: text).currentWord
-        let mapped = suggestions.map { Self.bridge($0, pendingToken: pendingToken) }
+        // System text replacements (issue #5): when the pending token is,
+        // whole and case-insensitively, a `UILexicon` shortcut, arm the
+        // expansion as the TOP `.autocorrect` suggestion instead of proxy-
+        // editing it in some delimiter hook. Riding the armed-autocorrect
+        // machinery buys everything the hand-rolled path would have to
+        // reimplement: the space-commit apply (with the blue-spacebar
+        // hoisted-slot hint), the apply-time staleness guard (`bridge`
+        // stamps `pendingTokenInfoKey` on this suggestion like any other),
+        // correct proxy-edit ledger attribution, and the verbatim
+        // escape-hatch slot staying available to keep the literal shortcut.
+        //
+        // Ordering/privacy note: injected AFTER `recorder.recordPass` above,
+        // deliberately — the lexicon includes contact names, and an armed
+        // expansion the user never commits must not reach the dev-mode
+        // JSONL. (A committed expansion becomes document text and shows up
+        // in later windows like any typed text — unavoidable and fine.)
+        //
+        // Rules (issue #5 + field-kind doctrine):
+        // - Only one armed candidate at a time: every engine `.autocorrect`
+        //   is demoted to a plain tappable candidate.
+        // - Duplicates of the expansion are dropped (the engine often also
+        //   suggests "iPad" for "ipad"); the verbatim slot survives.
+        // - Skipped in URL/email/secure fields. `.webSearch` is allowed:
+        //   unlike engine corrections (which the session strips there), a
+        //   replacement is the user's own explicit definition, and the
+        //   native keyboard expands shortcuts in search fields too.
+        // - Spacebar mode 3 ("always insert a space") demotes this
+        //   suggestion with all others via `withAutocorrectEnabled` below —
+        //   the user opted out of ANY auto-commit on space, so the
+        //   expansion stays tap-only there.
+        var ranked = suggestions
+        if fieldKind != .url, fieldKind != .email, fieldKind != .secure,
+            let expansion = textReplacements?.match(token: pendingToken)
+        {
+            ranked =
+                [Suggestion(text: expansion, isAutocorrect: true, confidence: 1.0)]
+                + suggestions
+                    .filter { $0.isVerbatim || $0.text != expansion }
+                    .map { $0.demotingAutocorrect() }
+        }
+        let mapped = ranked.map { Self.bridge($0, pendingToken: pendingToken) }
         // Spacebar mode 3 ("always insert a space", PLAN.md "Spacebar
         // behavior"): the bar still shows every suggestion, but nothing may
         // auto-commit on space — so demote every `.autocorrect` to `.regular`
@@ -1128,6 +1188,25 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// `String.wordFragmentAtEnd`, where '.' is always a delimiter).
     private static func keyboardKitCurrentWord(of token: String) -> Substring {
         token.suffix(while: { !"\($0)".isWordDelimiter })
+    }
+}
+
+private extension Suggestion {
+
+    /// A copy with `isAutocorrect` stripped, all other fields preserved
+    /// byte-for-byte (fields are `let`, so demotion means rebuilding).
+    /// Used by the text-replacement injection (issue #5) to enforce the
+    /// one-armed-candidate invariant when the expansion takes the slot.
+    func demotingAutocorrect() -> Suggestion {
+        guard isAutocorrect else { return self }
+        return Suggestion(
+            text: text,
+            isAutocorrect: false,
+            confidence: confidence,
+            isVerbatim: isVerbatim,
+            isRestoration: isRestoration,
+            isPersonalLearned: isPersonalLearned
+        )
     }
 }
 
