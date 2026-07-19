@@ -890,6 +890,38 @@ public final class TypingSession {
             }
         }
 
+        // Quoted-term relaxation (issue #3): a token typed immediately after
+        // an opening double quote — „ (Icelandic low-9), " (straight) or
+        // " (curly, U+201C) — is very often a deliberate foreign/technical
+        // term or a quoted sletta ("deployaðu „feature branch" núna"), and
+        // force-correcting it into an unrelated Icelandic word is exactly
+        // wrong (dogfood: „vold [c→v miss for "cold"] auto-applied to „völd
+        // at confidence 1.0). The quote characters became word delimiters in
+        // the tokenization pass (see `delimiterPunctuation`), so the quote
+        // sits at the END of the committed context and the check is one
+        // character. Suggestions stay OFFERED — ranking, confidence and the
+        // bar are untouched — only the auto-apply flag is stripped, so the
+        // spacebar never force-replaces a quoted token; legitimate quoted
+        // Icelandic words are equally left alone (offer, don't force).
+        // Learning paths are untouched: a quoted term the user keeps commits
+        // and learns exactly as before. A closing quote directly before a
+        // token doesn't occur in real text (closing quotes end quotations),
+        // and U+201D would be caught by the same "adjacent to a quote"
+        // reasoning if a host ever produced it — the set below covers the
+        // three openers iOS smart punctuation / the IS layout actually emit.
+        if Self.isQuotedTermContext(context) {
+            if engineSuggestions.contains(where: \.isAutocorrect) {
+                trace?.note("auto-apply flag stripped: quoted term (opening quote before token)")
+            }
+            engineSuggestions = engineSuggestions.map {
+                $0.isAutocorrect
+                    ? Suggestion(
+                        text: $0.text, isAutocorrect: false, confidence: $0.confidence,
+                        isRestoration: $0.isRestoration)
+                    : $0
+            }
+        }
+
         // Own-learned flag (wave 37, long-press eject): mark every non-
         // verbatim suggestion whose text is a word the user's personal
         // vocabulary alone taught the engine (not is.lex/en.lex/BÍN/compound),
@@ -1423,6 +1455,27 @@ public final class TypingSession {
     /// token `orð`, not `„orð`. Single quotes/apostrophes are deliberately NOT
     /// delimiters: they are word-internal in English ("don't", "it's").
     private static let delimiterPunctuation: Set<Character> = Set(".,:;!¡?¿()[]{}<>«»་།\u{200B}\"\u{201E}\u{201C}\u{201D}")
+
+    /// Opening double quotes that mark the pending token as a quoted term
+    /// (issue #3): the Icelandic low-9 „ (U+201E, what the IS layout and
+    /// iOS smart punctuation open Icelandic quotations with), the straight
+    /// " (U+0022, hardware keyboards / smart punctuation off), and the
+    /// English curly " (U+201C — the CLOSER of an Icelandic „…" pair, but
+    /// the OPENER of an English "…" pair, so before a token it reads as an
+    /// opener). All three are already word delimiters (see
+    /// `delimiterPunctuation`), which is what puts them at the end of the
+    /// committed context when a quoted token is being typed.
+    private static let quotedTermOpeners: Set<Character> = ["\u{201E}", "\"", "\u{201C}"]
+
+    /// Whether the committed context ends with an opening double quote —
+    /// i.e. the pending token is being typed IMMEDIATELY inside quotes
+    /// („orð / "orð). Only adjacency counts: a quotation closed earlier in
+    /// the sentence („orð" næsta) leaves a delimiter/space before the new
+    /// token and does not suppress anything.
+    static func isQuotedTermContext(_ context: String) -> Bool {
+        guard let last = context.last else { return false }
+        return quotedTermOpeners.contains(last)
+    }
 
     /// Is this character a word delimiter, judged by character class alone?
     /// NOTE: '.' is context-dependent — inside a token ("tilvinstri.is",
