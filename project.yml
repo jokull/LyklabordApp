@@ -243,6 +243,28 @@ targets:
         # wave (real iPad key arrangement + testing), then flip to "1,2".
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES
+    preBuildScripts:
+      # Stamp the git commit into KeyboardExt/BuildInfo.swift — the EXTENSION's
+      # own build id (App/BuildInfo is the app's). iOS caches the running appex,
+      # so this is how a DEBUG build self-identifies on the spacebar which commit
+      # is actually live. Mirrors the App-target script; in place, only on change.
+      - name: Stamp keyboard commit
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          OUT="$SRCROOT/KeyboardExt/BuildInfo.swift"
+          if COMMIT="$(cd "$SRCROOT" && git rev-parse --short HEAD 2>/dev/null)"; then
+            if [ -n "$(cd "$SRCROOT" && git status --porcelain 2>/dev/null)" ]; then
+              COMMIT="${COMMIT}+dirty"
+            fi
+          else
+            COMMIT="unknown"
+          fi
+          NEW="    static let engineCommit = \"${COMMIT}\""
+          if ! grep -qF "$NEW" "$OUT" 2>/dev/null; then
+            /usr/bin/sed -i '' -E "s|^    static let engineCommit = \".*\"|${NEW}|" "$OUT"
+            echo "BuildInfo(kb): stamped engineCommit=${COMMIT}"
+          fi
     dependencies:
       - package: KeyboardKit
         product: KeyboardKit

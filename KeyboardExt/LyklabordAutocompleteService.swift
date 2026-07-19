@@ -1007,7 +1007,11 @@ final class LyklabordAutocompleteService: AutocompleteService {
         guard let session else {
             return .init(inputText: text, suggestions: [])
         }
-        let suggestions = session.suggestions(for: text, limit: 3)
+        // limit 4, not 3: the spacebar acts as a HOISTED SLOT for the armed
+        // autocorrect (blue key carries the word — see DevSpaceContent), so the
+        // bar filters that suggestion out and needs one extra candidate to keep
+        // three visible slots (LyklabordToolbar caps the un-armed bar at 3).
+        let suggestions = session.suggestions(for: text, limit: 4)
         let elapsedMs = (AutocompleteColdStartTracker.now - serviceCreatedAt) * 1000
         if !hasRecordedFirstAutocompletePass {
             hasRecordedFirstAutocompletePass = true

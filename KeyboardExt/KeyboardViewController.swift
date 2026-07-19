@@ -130,6 +130,10 @@ final class KeyboardViewController: KeyboardInputViewController {
         // after an autocorrect), which is harmless here — our service's
         // `ignoreWord` is a documented no-op.
         state.autocompleteContext.settings.isAutolearnEnabled = true
+        // Let the 4th candidate through the context cap: the bar shows at most
+        // three (LyklabordToolbar), but when an autocorrect is armed the
+        // spacebar hoists it and the bar backfills with the extra candidate.
+        state.autocompleteContext.settings.suggestionsDisplayCount = 4
 
         // Verbatim escape hatch + URL handling (PLAN.md): our
         // `StandardActionHandler` subclass (below) excludes '.' from the
@@ -139,6 +143,14 @@ final class KeyboardViewController: KeyboardInputViewController {
         // executes revert-on-continuation proxy edits, and forwards
         // verbatim-suggestion taps to the session.
         services.actionHandler = LyklabordActionHandler(controller: self)
+
+        // D2/D3 (docs/PUNCTUATION_BEHAVIOR.md): a period preceded by a digit is
+        // an ordinal/decimal, not a sentence end — don't auto-cap the next word
+        // ("þann 21. mars" stays lowercase). Everything else is stock behavior.
+        services.keyboardBehavior = LyklabordKeyboardBehavior(
+            keyboardContext: state.keyboardContext
+        )
+
     }
 
     // MARK: - Appearance
@@ -215,10 +227,30 @@ final class KeyboardViewController: KeyboardInputViewController {
             // above (viewDidLoad). That's what produces the full keyboard
             // (space/backspace/shift/123/globe/return), not just the letter
             // rows.
+            //
+            // SpaceCommitHintContainer: observed wrapper that injects the
+            // button-style ENVIRONMENT builder turning the spacebar blue while
+            // an autocorrect is armed — env changes re-render the keys in
+            // lockstep with the word label (a style-service override lagged one
+            // interaction; see DevSpaceContent).
+            SpaceCommitHintContainer(
+                autocompleteContext: controller.state.autocompleteContext,
+                keyboardContext: controller.state.keyboardContext
+            ) {
             KeyboardView(
                 state: controller.state,
                 services: controller.services,
-                buttonContent: { $0.view },
+                // Spacebar signal surface (DevSpaceContent): armed autocorrect
+                // → the word space will commit (key turns blue via the
+                // SpaceCommitHintContainer env builder above); idle DEBUG →
+                // the extension's build commit. Release idle = standard "Bil".
+                buttonContent: { params in
+                    DevSpaceContent(
+                        action: params.item.action,
+                        standard: params.view,
+                        autocompleteContext: controller.state.autocompleteContext
+                    )
+                },
                 buttonView: { params in
                     // Accessibility: override the vendored defaults where
                     // they're wrong for this keyboard (see
@@ -241,14 +273,13 @@ final class KeyboardViewController: KeyboardInputViewController {
                         actionHandler: controller.services.actionHandler
                     )
                 },
-                // Autocomplete toolbar, but its empty state becomes a quick
-                // strip of the user's most-used emoji (frecency) instead of a
-                // blank bar. Standard toolbar returns as soon as there are
-                // suggestions. See `LyklabordToolbar`.
+                // Autocomplete toolbar with the frecency empty state and the
+                // spacebar hoisted-slot filtering. See `LyklabordToolbar`.
                 toolbar: { params in
                     LyklabordToolbar(
                         autocompleteContext: controller.state.autocompleteContext,
                         actionHandler: controller.services.actionHandler,
+                        suggestionAction: params.autocompleteAction,
                         standard: params.view
                     )
                 }
@@ -287,6 +318,7 @@ final class KeyboardViewController: KeyboardInputViewController {
                         )
                     }
             )
+            } // SpaceCommitHintContainer
         }
     }
 }

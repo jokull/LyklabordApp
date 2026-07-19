@@ -16,19 +16,38 @@
 import SwiftUI
 import KeyboardKit
 
-/// Wraps KeyboardKit's standard autocomplete toolbar, swapping in a frecency
-/// emoji strip whenever the suggestion list is empty.
+/// The autocomplete toolbar with two Lyklaborð twists:
+///
+/// - **Empty state** → a frecency emoji strip instead of a blank bar.
+/// - **Hoisted slot** → when an autocorrect is armed, that word already lives
+///   on the (blue) spacebar — see DevSpaceContent — so the bar drops it and
+///   backfills with the next candidate (the service publishes 4 for this).
+///   Net effect: the bar always shows up to three *distinct* suggestions —
+///   verbatim escape hatch + two more — instead of duplicating the spacebar.
+///   Filtering happens HERE only; `autocompleteContext.suggestions` keeps the
+///   armed suggestion, which is what the space-commit path reads.
 struct LyklabordToolbar<Standard: View>: View {
 
     @ObservedObject var autocompleteContext: AutocompleteContext
     let actionHandler: KeyboardActionHandler
+    let suggestionAction: (Autocomplete.Suggestion) -> Void
     let standard: Standard
 
     var body: some View {
-        if autocompleteContext.suggestions.isEmpty {
+        let all = autocompleteContext.suggestions
+        if all.isEmpty {
             EmojiFrecencyRow(actionHandler: actionHandler)
         } else {
-            standard
+            let plain = all.filter { $0.type != .emoji }
+            let emoji = all.filter { $0.type == .emoji }
+            let armed = autocompleteContext.armedAutocorrectText != nil
+            let bar = armed
+                ? plain.filter { !$0.isAutocorrect }
+                : Array(plain.prefix(3))
+            Autocomplete.Toolbar(
+                suggestions: Array(bar.prefix(3)) + emoji,
+                suggestionAction: suggestionAction
+            )
         }
     }
 }
