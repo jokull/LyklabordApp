@@ -658,8 +658,15 @@ SCENARIO quoted English fragment never loses its quote to Icelandic autocorrect 
 # `„vold` was forced to Icelandic `völd`, deleting the opening quote. Quoted
 # spans are code-switching evidence; a candidate that drops the typed quote
 # may remain in the bar but must never auto-apply.
+#
+# Wave A (2026-07-19) made double quotes word DELIMITERS, so the quote now
+# lives OUTSIDE the token: the pending word is `vold` and the `„` stays in
+# the document as committed punctuation (verified: document ends
+# "…prófa „vold "). The protection this scenario exists for is unchanged —
+# no autocorrect may fire and eat the quote — only the token-boundary
+# bookkeeping moved.
 T "er ég að prófa „vold"
 EXPECT_NO_AUTOCORRECT
-EXPECT_VERBATIM „vold
+EXPECT_VERBATIM vold
 T " "
-EXPECT_LAST_COMMIT „vold
+EXPECT_LAST_COMMIT vold

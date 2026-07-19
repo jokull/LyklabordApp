@@ -55,10 +55,10 @@
     },
     "is.lex": {
       "formatVersion": 2,
-      "bytes": 9658112,
-      "sha256": "bbc3ed07f88afc290be1aa7abb46a84fd9bf79e9ee6106793c884a81ca29e93a",
-      "unigrams": 242835,
-      "bigrams": 380092
+      "bytes": 9659060,
+      "sha256": "7ca27e977cf243be4a6f8d3d3ce26218bbc2ecac0000080e5a996f0d598d3c0c",
+      "unigrams": 242882,
+      "bigrams": 380094
     },
     "bin-morph.bin": {
       "formatVersion": 2,

@@ -168,6 +168,21 @@ see "Contraction inventory extension (en.lex v4)" below. 80,000 →
 **4,267,800 bytes**; bigrams and scale divisors unchanged; is.lex
 untouched.
 
+**Rebuilt again 2026-07-19 (is.lex only, format unchanged)** for the
+date-vocabulary frequency repair (dogfood: "17. juni" autocorrected to
+"muni" instead of restoring "júní"). The icegrams-derived unigram source
+was counted after Greynir's tokenizer merged date expressions into
+composite DATE tokens, so month names — which occur almost exclusively
+inside dates — survived at noise level or not at all (júní=353, six months
+absent entirely), and weekday nominatives took collateral damage. The
+builder now applies curated frequency floors (`ICELANDIC_DATE_VOCAB_FLOORS`
+in `build-lexicon.py`: months 400,000, weekday nominatives 25,000) on the
+Icelandic path before the BÍN prunes. 242,835 → **242,882** unigrams
+(re-surviving months), 380,092 → **380,094** bigrams, 9,658,112 →
+**9,659,060 bytes**. Corpus baseline re-blessed for 2 new safety
+"false"-ACs (`juli`→`júlí`, `november`→`nóvember` — desired accent
+restorations, same class as the 16 already-blessed rows); en.lex untouched.
+
 ### Contraction fix (en.lex)
 
 **Root cause**: format v1's builder filter (`WORD_RE = ^[a-zþðæöáéíóúý]+$`)

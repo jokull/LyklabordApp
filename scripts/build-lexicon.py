@@ -566,6 +566,57 @@ def accent_dominance_filter(unigram_counts, ratio):
     return dropped
 
 
+# Icelandic date-vocabulary frequency floors (2026-07-19 dogfood: "17. juni"
+# autocorrected to "muni" instead of restoring "júní"). The unigram source
+# (lemma-is `unigrams.json.gz`, extracted from icegrams) was counted AFTER
+# Greynir's tokenizer merged date expressions ("17. júní 2024", "í júní")
+# into composite DATE tokens — and month names occur almost exclusively
+# inside such expressions, so their surviving counts are noise-level or
+# zero (observed: janúar/febrúar/mars/apríl/júlí/nóvember absent, júní=353,
+# maí=135, september=48, desember=20; ágúst=28,015 only because the personal
+# name Ágúst lowercases into it). Weekday nominatives take collateral damage
+# from merged "mánudagurinn 17. júní"-style spans (observed ~400-1,000),
+# while their accusatives survive on bare "á mánudaginn" (mánudaginn=20,639).
+#
+# Floors, not replacements: max(observed, floor), applied only on the
+# Icelandic (--bin-lookup) path. Calibration: the source corpus is ~1B
+# tokens (í=25.4M ≈ 25k/M matches its known rate), and month names run
+# ~300-800 per million in Icelandic news/web text, so a flat 400,000
+# lands mid-range — comparable to gær=499,503 and safely above competing
+# rewrite candidates like muni=172,582, which is what lets the near-free
+# diacritic restoration win the margin. Weekday nominatives are floored
+# just above their surviving accusative sibling's observed count.
+ICELANDIC_MONTH_FREQ_FLOOR = 400_000
+ICELANDIC_WEEKDAY_FREQ_FLOOR = 25_000
+ICELANDIC_DATE_VOCAB_FLOORS = {
+    **{month: ICELANDIC_MONTH_FREQ_FLOOR for month in (
+        'janúar', 'febrúar', 'mars', 'apríl', 'maí', 'júní',
+        'júlí', 'ágúst', 'september', 'október', 'nóvember', 'desember',
+    )},
+    **{day: ICELANDIC_WEEKDAY_FREQ_FLOOR for day in (
+        'mánudagur', 'þriðjudagur', 'miðvikudagur', 'fimmtudagur',
+        'föstudagur', 'laugardagur', 'sunnudagur',
+    )},
+}
+
+
+def repair_icelandic_date_vocabulary(unigram_counts):
+    """Raise date-vocabulary unigrams to ICELANDIC_DATE_VOCAB_FLOORS (see the
+    constant's comment for the icegrams DATE-token root cause). Runs before
+    the BÍN prunes so the accent-dominance filter sees the repaired
+    frequencies (e.g. a repaired "júní" correctly dominates any residual
+    unaccented "juni" noise). Returns (word, observed, floored) rows for
+    reporting; observed is 0 for words absent from the source.
+    """
+    rows = []
+    for word, floor in sorted(ICELANDIC_DATE_VOCAB_FLOORS.items()):
+        observed = unigram_counts.get(word, 0)
+        if observed < floor:
+            unigram_counts[word] = floor
+            rows.append((word, observed, floor))
+    return rows
+
+
 def scale_to_u32(counts_by_key):
     """counts_by_key: dict key -> int count (arbitrary size).
     Returns (dict key -> scaled UInt32-safe count, divisor used)."""
@@ -629,6 +680,13 @@ def build(
             )
 
     if bin_lookup_path and bin_lemmas_path:
+        date_repairs = repair_icelandic_date_vocabulary(unigram_counts)
+        if date_repairs:
+            print(
+                'date-vocabulary frequency repair (icegrams DATE-token undercount): '
+                + ', '.join(f'{w} {old}->{new}' for w, old, new in date_repairs)
+            )
+
         bin_forms = load_bin_forms(bin_lookup_path, bin_lemmas_path)
         dropped_non_bin, kept_non_bin = prune_non_bin_unigrams(
             unigram_counts, bin_forms, topk=bin_topk, high_freq_threshold=bin_high_freq,

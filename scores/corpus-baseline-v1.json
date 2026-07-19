@@ -7,21 +7,21 @@
           "falseAc" : 72,
           "n" : 1500,
           "top1" : 1117,
-          "top3" : 1229
+          "top3" : 1228
         },
         "is" : {
-          "falseAc" : 49,
+          "falseAc" : 41,
           "n" : 1500,
-          "top1" : 1221,
-          "top3" : 1312
+          "top1" : 1234,
+          "top3" : 1319
         }
       },
       "categories" : {
         "accent_drop" : {
-          "falseAc" : 9,
+          "falseAc" : 4,
           "n" : 240,
-          "top1" : 216,
-          "top3" : 228
+          "top1" : 224,
+          "top3" : 231
         },
         "contraction_damage" : {
           "falseAc" : 14,
@@ -30,10 +30,10 @@
           "top3" : 161
         },
         "deletion" : {
-          "falseAc" : 36,
+          "falseAc" : 34,
           "n" : 510,
-          "top1" : 290,
-          "top3" : 365
+          "top1" : 293,
+          "top3" : 369
         },
         "gemination" : {
           "falseAc" : 3,
@@ -56,21 +56,21 @@
         "substitution" : {
           "falseAc" : 9,
           "n" : 840,
-          "top1" : 755,
-          "top3" : 772
+          "top1" : 756,
+          "top3" : 771
         },
         "transposition" : {
-          "falseAc" : 11,
+          "falseAc" : 10,
           "n" : 210,
-          "top1" : 169,
+          "top1" : 170,
           "top3" : 182
         }
       },
       "overall" : {
-        "falseAc" : 121,
+        "falseAc" : 113,
         "n" : 3000,
-        "top1" : 2338,
-        "top3" : 2541
+        "top1" : 2351,
+        "top3" : 2547
       }
     },
     "safety" : {
@@ -82,7 +82,7 @@
           "top3" : 0
         },
         "is" : {
-          "falseAc" : 15,
+          "falseAc" : 17,
           "n" : 300,
           "top1" : 0,
           "top3" : 0
@@ -96,14 +96,14 @@
           "top3" : 0
         },
         "valid_word_hard_negative" : {
-          "falseAc" : 16,
+          "falseAc" : 18,
           "n" : 200,
           "top1" : 0,
           "top3" : 0
         }
       },
       "overall" : {
-        "falseAc" : 16,
+        "falseAc" : 18,
         "n" : 600,
         "top1" : 0,
         "top3" : 0
