@@ -122,8 +122,11 @@ struct DevSpaceContent<Standard: View>: View {
             } else {
                 #if DEBUG
                 // Idle spacebar in a DEBUG build: the extension's build stamp,
-                // readable (replaces "Bil" — this is a dev instrument).
-                Text(BuildInfo.engineCommit)
+                // readable (replaces "Bil" — this is a dev instrument). The
+                // build TIME is the stale-appex tell: iOS caching the old
+                // extension through a reinstall is invisible to the commit
+                // stamp when both builds are dirty on the same commit.
+                Text("\(BuildInfo.engineCommit) \(BuildInfo.builtAt)")
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)

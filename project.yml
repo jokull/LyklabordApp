@@ -265,6 +265,12 @@ targets:
             /usr/bin/sed -i '' -E "s|^    static let engineCommit = \".*\"|${NEW}|" "$OUT"
             echo "BuildInfo(kb): stamped engineCommit=${COMMIT}"
           fi
+          # builtAt changes every build BY DESIGN (it's what tells two dirty
+          # builds of the same commit apart on the spacebar — stale-appex
+          # detection), so no only-on-change guard: always rewrite.
+          BUILT_AT="$(date +%H:%M)"
+          /usr/bin/sed -i '' -E "s|^    static let builtAt = \".*\"|    static let builtAt = \"${BUILT_AT}\"|" "$OUT"
+          echo "BuildInfo(kb): stamped builtAt=${BUILT_AT}"
     dependencies:
       - package: KeyboardKit
         product: KeyboardKit

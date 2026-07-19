@@ -20,5 +20,12 @@
 enum BuildInfo {
     /// Short git commit the extension binary was built from; "+dirty" if the
     /// tree had uncommitted changes at build time.
-    static let engineCommit = "fddbed8+dirty"
+    static let engineCommit = "200572f+dirty"
+
+    /// Local wall-clock time (HH:mm) the extension binary was compiled.
+    /// Two dirty builds of the same commit stamp identically on
+    /// `engineCommit` — this is what disambiguates them (2026-07-19: a
+    /// dogfood recording ran on a stale cached appex and the commit stamp
+    /// couldn't prove it).
+    static let builtAt = "21:32"
 }
