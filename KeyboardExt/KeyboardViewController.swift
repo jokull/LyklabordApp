@@ -883,6 +883,21 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
             if ledgerHandleDepth == 0 { recordPendingSelfEdit() }
         }
 
+        // KeyboardKit 9.9.1 bug (dogfood 2026-07-19, "armed word doesn't
+        // commit"): `SpaceDragGestureHandler.currentDragTextPositionOffset`
+        // is only zeroed when the NEXT drag starts (`tryStartNewDragGesture`)
+        // — never when a drag ends. After one spacebar cursor-drag the stale
+        // offset makes `isSpaceCursorDrag` true for every later space, and
+        // `shouldApplyAutocorrectSuggestion` then silently vetoes EVERY
+        // armed space-commit (blue spacebar promised, plain space delivered;
+        // recorder shows applied:none — neither the apply nor the stale-skip
+        // hook fires). Reset on each fresh space PRESS: a genuine drag
+        // re-accumulates its offset between press and release, so the
+        // drag-release veto still works; a plain tap now starts clean.
+        if gesture == .press, action == .space {
+            spaceDragGestureHandler.currentDragTextPositionOffset = 0
+        }
+
         // Space-commit dot attachment (issue #4). Three phases around super:
         //
         //  CAPTURE (here): for a released space, note the armed autocorrect
