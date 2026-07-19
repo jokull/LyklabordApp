@@ -40,6 +40,15 @@ packages:
     # resolved via SPM against the upstream tag, so we're no longer at the
     # mercy of the remote repo's tags. We own this fork going forward; there
     # is no `swift package update` for KeyboardKit in this project's future.
+  ISEmojiView:
+    path: Packages/ISEmojiView
+    # Vendored emoji keyboard (isaced/ISEmojiView @ 0.3.5, MIT). iOS gives a
+    # custom keyboard extension no API to switch to the SYSTEM emoji keyboard
+    # (advanceToNextInputMode only cycles; there is no pick-a-keyboard API), so
+    # third-party keyboards must ship their own emoji grid. Vendored in-repo
+    # (not SPM-resolved) and privacy-audited to zero network/analytics calls,
+    # so the extension's "no networking code, verifiable in source" guarantee
+    # holds. See Packages/ISEmojiView/VENDORED_VERSION.txt.
 
 targets:
   Lyklabord:
@@ -240,6 +249,8 @@ targets:
         product: Learning
       - package: TypeEngine
         product: TypeEngine
+      - package: ISEmojiView
+        product: ISEmojiView
 
   # --- Last-mile replay rig (PLAN.md testing pyramid tier 3) ------------------
   # Additive-only: neither Lyklabord nor LyklabordKeyboard is modified.

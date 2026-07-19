@@ -236,16 +236,35 @@ final class KeyboardViewController: KeyboardInputViewController {
                 // (a) keeps the `.keyboardType(.emojis)` key in the layout
                 // instead of stripping it and (b) shows this view when the
                 // emoji key is tapped. See `LyklabordEmojiKeyboard`.
-                emojiKeyboard: { params in
+                emojiKeyboard: { _ in
                     LyklabordEmojiKeyboard(
-                        actionHandler: controller.services.actionHandler,
-                        style: params.style
+                        actionHandler: controller.services.actionHandler
                     )
                 },
-                toolbar: { $0.view }
+                // Autocomplete toolbar, but its empty state becomes a quick
+                // strip of the user's most-used emoji (frecency) instead of a
+                // blank bar. Standard toolbar returns as soon as there are
+                // suggestions. See `LyklabordToolbar`.
+                toolbar: { params in
+                    LyklabordToolbar(
+                        autocompleteContext: controller.state.autocompleteContext,
+                        actionHandler: controller.services.actionHandler,
+                        standard: params.view
+                    )
+                }
             )
             .keyboardCalloutActions { params in
-                Callouts.Actions.icelandic.actions(for: params.action)
+                // Long-press the emoji key → a quick row of the user's top-10
+                // emoji by frecency (seeded with popular defaults), rendered by
+                // the same callout UI as the á/é/í diacritic menus. Selecting
+                // one inserts it (and records the use). Every other key keeps
+                // its Icelandic long-press actions.
+                if params.action == .keyboardType(.emojis) {
+                    return EmojiFrequencyStore.shared.top(10).map {
+                        .emoji(KeyboardKit.Emoji($0))
+                    }
+                }
+                return Callouts.Actions.icelandic.actions(for: params.action)
             }
             // Wave 37: long-press a suggestion that is the user's OWN learned
             // vocabulary to eject it (tap teaches, long-press forgets). Only
@@ -708,6 +727,14 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         // the engine queue); never records anything itself.
         if gesture == .release, action == .backspace {
             lyklabordAutocompleteService?.noteRecordedBackspace()
+        }
+
+        // Emoji frecency: every emoji insertion — from the full emoji keyboard,
+        // the long-press quick-row, or the empty-state suggestion strip — bumps
+        // its decayed score in the on-device store, so those surfaces reflect
+        // what THIS user reaches for lately. App Group only, never synced.
+        if gesture == .release, case .emoji(let emoji) = action {
+            EmojiFrequencyStore.shared.record(emoji.char)
         }
 
         // 3. Revert-on-continuation: before a letter/digit is inserted, the
