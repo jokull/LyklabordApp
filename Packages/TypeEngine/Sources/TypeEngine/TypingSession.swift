@@ -742,11 +742,14 @@ public final class TypingSession {
         // Empty current word: next-word prediction (no verbatim slot).
         if currentWord.isEmpty {
             let effectiveContext = context.isEmpty ? (carriedContext ?? "") : context
-            return engine.suggestions(
-                context: effectiveContext,
-                currentWord: "",
-                limit: limit,
-                trace: trace
+            return Self.titleCaseNameSuggestions(
+                engine.suggestions(
+                    context: effectiveContext,
+                    currentWord: "",
+                    limit: limit,
+                    trace: trace
+                ),
+                context: effectiveContext
             )
         }
 
@@ -844,6 +847,20 @@ public final class TypingSession {
             }
         }
 
+        // Numeric guard (issue #8, dogfood 2026-07-19): a digit-leading token
+        // is a number in progress — "21.000,5" tokenizes to stem "5" — and
+        // letter vocabulary must not compete with digits there ("5" offered
+        // curated "5G" and it won over the intended "50"). Keep only
+        // suggestions that stay purely numeric (digits + number separators).
+        // Deliberately typed letter-tokens like "5G" are unaffected: typed
+        // characters are never replaced by this filter, it only stops the bar
+        // from PROPOSING letters after digits.
+        if let first = stem.first, first.isNumber {
+            engineSuggestions.removeAll { suggestion in
+                !suggestion.text.allSatisfy { $0.isNumber || ".,:".contains($0) }
+            }
+        }
+
         // Lane-relaxation field gate (PLAN.md invariant "URL/email/secure
         // fields: no restoration at all"): restoration-class suggestions
         // are DROPPED, not just de-flagged — domains, e-mail localparts and
@@ -909,7 +926,50 @@ public final class TypingSession {
             )
         }
         bar.append(contentsOf: engineSuggestions)
-        return Array(bar.prefix(limit))
+        return Self.titleCaseNameSuggestions(Array(bar.prefix(limit)), context: context)
+    }
+
+    // MARK: - Patronymic title-casing (issue #9)
+
+    /// Title-case patronymic suggestions after a capitalized word: "Katrín" →
+    /// suggest "Jakobsdóttir", not the corpus-lowercased "jakobsdóttir".
+    ///
+    /// Deliberately narrow: the previous committed word must start uppercase
+    /// AND the suggestion must be an unambiguous Icelandic patronymic/
+    /// matronymic — suffix "sson" or "dóttir" (genitive + son/dóttir:
+    /// Jónsson, Jakobsdóttir). Bare "-son" is excluded on purpose: it would
+    /// wrongly capitalize English "season"/"person"/"reason" after any
+    /// sentence-start capital. Verbatim slots keep the user's typed casing.
+    static func titleCaseNameSuggestions(
+        _ suggestions: [Suggestion], context: String
+    ) -> [Suggestion] {
+        guard
+            let previous = wordTokens(in: context).last,
+            previous.first?.isUppercase == true
+        else { return suggestions }
+        return suggestions.map { suggestion in
+            guard
+                !suggestion.isVerbatim,
+                suggestion.text.first?.isLowercase == true,
+                isPatronymic(suggestion.text)
+            else { return suggestion }
+            return Suggestion(
+                text: suggestion.text.prefix(1).uppercased() + suggestion.text.dropFirst(),
+                isAutocorrect: suggestion.isAutocorrect,
+                confidence: suggestion.confidence,
+                isVerbatim: suggestion.isVerbatim,
+                isRestoration: suggestion.isRestoration,
+                isPersonalLearned: suggestion.isPersonalLearned
+            )
+        }
+    }
+
+    /// Unambiguous Icelandic patronymic/matronymic shape ("Jónsson",
+    /// "Jakobsdóttir"): long enough to carry a name stem + the genitive
+    /// -sson / -dóttir suffix.
+    static func isPatronymic(_ word: String) -> Bool {
+        let lower = word.lowercased()
+        return lower.count >= 6 && (lower.hasSuffix("sson") || lower.hasSuffix("dóttir"))
     }
 
     // MARK: - Window-change classification
@@ -1358,7 +1418,11 @@ public final class TypingSession {
     /// stay one word. '@' is not a delimiter either (e-mail addresses stay
     /// one token), and '.' is only a delimiter position-dependently — see
     /// `isDelimiter(at:in:)`.
-    private static let delimiterPunctuation: Set<Character> = Set(".,:;!¡?¿()[]{}<>«»་།\u{200B}")
+    /// Double-quote characters are delimiters (straight, Icelandic „ ", and
+    /// English curly " ") so quoted words tokenize cleanly — `„orð` is the
+    /// token `orð`, not `„orð`. Single quotes/apostrophes are deliberately NOT
+    /// delimiters: they are word-internal in English ("don't", "it's").
+    private static let delimiterPunctuation: Set<Character> = Set(".,:;!¡?¿()[]{}<>«»་།\u{200B}\"\u{201E}\u{201C}\u{201D}")
 
     /// Is this character a word delimiter, judged by character class alone?
     /// NOTE: '.' is context-dependent — inside a token ("tilvinstri.is",
@@ -1400,9 +1464,13 @@ public final class TypingSession {
 
     /// Is this pending token verbatim-class (layer 3)? True when it
     /// contains a word-internal '.' or '@' — letter/digit on both sides —
-    /// i.e. it has URL/domain/e-mail/file shape. Verbatim-class tokens are
-    /// never auto-corrected.
+    /// i.e. it has URL/domain/e-mail/file shape, OR when it BEGINS with a
+    /// non-letter/non-digit ("/goal", "#tag", "~/path", "-flag"): a leading
+    /// symbol marks a command/tag/path-like token, and "correcting" it would
+    /// eat the prefix (issue #6: "/goal" must never become "goal"). Verbatim-
+    /// class tokens are never auto-corrected.
     public static func isVerbatimClassToken(_ token: String) -> Bool {
+        if let first = token.first, !isWordable(first) { return true }
         var index = token.startIndex
         while index < token.endIndex {
             let ch = token[index]
@@ -1455,10 +1523,11 @@ public final class TypingSession {
     }
 
     /// Trailing segment of a verbatim-class token: the part after the last
-    /// '.' or '@' ("profilmynd.tilvinstri" → "tilvinstri"). Suggestions for
-    /// it may still be offered, tap-only.
+    /// non-wordable character ("profilmynd.tilvinstri" → "tilvinstri",
+    /// "/goal" → "goal", "#tag" → "tag"). Suggestions for it may still be
+    /// offered, tap-only, mapped back onto the full token.
     static func trailingSegment(of token: String) -> String {
-        guard let index = token.lastIndex(where: { $0 == "." || $0 == "@" }) else {
+        guard let index = token.lastIndex(where: { !isWordable($0) }) else {
             return token
         }
         return String(token[token.index(after: index)...])
