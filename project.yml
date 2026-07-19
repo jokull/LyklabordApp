@@ -313,6 +313,13 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: ReplayRig/ReplayRigUITests
+      # Production long-press callout data (issue #7), compiled directly
+      # into this bundle so IcelandicCalloutMappingTests asserts the exact
+      # shipping menus without a fixture copy. KeyboardExt has no unit-test
+      # target and app-extension code can't be @testable-imported by a UI
+      # test bundle, so cross-target source compilation is the seam; the
+      # file is deliberately KeyboardKit-free to keep this possible.
+      - path: KeyboardExt/IcelandicCalloutMappings.swift
     dependencies:
       - target: ReplayHost
     settings:

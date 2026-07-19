@@ -451,37 +451,47 @@ extension KeyboardLayout.InputSet {
 
 /// Long-press callout actions for the Icelandic layout.
 ///
-/// Provides the accented vowels á é í ó ú ý on long-press of their base
-/// letter (per PLAN.md v1 scope), and keeps ð/þ discoverable on long-press
-/// of d/t as a secondary path even though they're also dedicated keys.
+/// Icelandic-first, then useful foreign variants (issue #7): every
+/// alphabetic menu comes from `IcelandicCalloutMappings.alphabetic`, the
+/// pure-data source of truth in `IcelandicCalloutMappings.swift` (kept
+/// KeyboardKit-free so unit tests assert the exact production lists).
 ///
 /// KeyboardKit note: built on `Callouts.Actions` + `View.keyboardCalloutActions(_:)`,
 /// the non-deprecated 9.9.1 value/modifier replacement for the deprecated
 /// `Callouts.BaseCalloutService` subclassing pattern (see
 /// research/keyboardkit-v10-delta.md §1). Starts from the standard English
-/// callout set (base symbols/digits + Latin diacritics) so untouched keys
-/// keep their existing long-press behavior, then overrides the eight
-/// Icelandic-specific keys.
+/// callout set so non-alphabetic keys (digits, currency, punctuation)
+/// keep their existing long-press behavior, then replaces EVERY key the
+/// English alphabetic set defines (a c d e g h i k l n o r s t u w y z,
+/// both cases) with the Icelandic-ordered menus.
+///
+/// The uppercase menus are built from the mapping's EXPLICIT `uppercase`
+/// strings via the raw `actionsDictionary`, deliberately bypassing
+/// KeyboardKit's `Callouts.Actions.init(characters:)`. That initializer
+/// derives uppercase menus by uppercasing the whole lowercase string and
+/// splitting per character — which turns ß into "SS" and would render the
+/// S menu as "S S S Ś Š …". The explicit path yields the correct
+/// one-to-one capital ẞ (U+1E9E) instead.
 extension Callouts.Actions {
     static var icelandic: Self {
         var actions = Self.english
-        let icelandicOverrides = Self(characters: [
-            "a": "aá",
-            "e": "eé",
-            "i": "ií",
-            "o": "oó",
-            "u": "uú",
-            "y": "yý",
-            "d": "dð",
-            "t": "tþ",
-            // Bottom-row affordance #2 (PLAN.md): long-press on the new `.`
-            // key (right of the spacebar — see `LyklabordIPhoneLayoutService`
-            // below) shows this cluster, period nearest/first since that's
-            // the char under the finger. Overrides `Callouts.Actions.base`'s
-            // stock "." -> ".…" mapping.
-            ".": ".,!?@#:;-",
-        ])
-        actions.actionsDictionary.merge(icelandicOverrides.actionsDictionary) { _, new in new }
+        var overrides: [KeyboardAction: [KeyboardAction]] = [:]
+        for mapping in IcelandicCalloutMappings.alphabetic {
+            let lowerKey = String(mapping.base)
+            // Safe single-scalar uppercasing: every base is a–z, where
+            // `uppercased()` is one-to-one (the ß expansion trap only
+            // affects menu OPTION strings, never the base key itself).
+            let upperKey = lowerKey.uppercased()
+            overrides[.character(lowerKey)] = mapping.lowercase.map { .character(char: $0) }
+            overrides[.character(upperKey)] = mapping.uppercase.map { .character(char: $0) }
+        }
+        // Bottom-row affordance #2 (PLAN.md): long-press on the `.` key
+        // (right of the spacebar — see `LyklabordIPhoneLayoutService`
+        // below) shows this cluster, period nearest/first since that's
+        // the char under the finger. Overrides `Callouts.Actions.base`'s
+        // stock "." -> ".…" mapping.
+        overrides[.character(".")] = ".,!?@#:;-".map { .character(char: $0) }
+        actions.actionsDictionary.merge(overrides) { _, new in new }
         return actions
     }
 }
