@@ -46,6 +46,10 @@ struct Trace: Decodable {
     let taps: [Tap]
     let synthetic: Bool?
     let source: String?
+    /// Behavior-catalog only: the reference output we expect (what native
+    /// iOS / SwiftKey does), for pass/fail diffing. Optional — timed human
+    /// traces don't set it.
+    let expected: String?
 }
 
 final class ReplayRigUITests: XCTestCase {
@@ -90,29 +94,44 @@ final class ReplayRigUITests: XCTestCase {
         }
         NSLog("REPLAY_INFO: Lyklaborð confirmed active")
 
+        // Behavior-catalog mode: after every tap, record the buffer so the
+        // step-by-step evolution (double-space, collapse, attachment, deferred
+        // autocorrect) is visible — not just the end state. Reads the mirror
+        // label (`replay-result`), which is the robust channel under replay.
+        let stepCapture = env["REPLAY_STEP_CAPTURE"] == "1"
+
         var jsonlLines: [String] = []
         for (i, trace) in traces.enumerated() {
             clearField(field, in: app)
             let start = Date()
             var tapped = 0
+            var steps: [(key: String, value: String)] = []
             for tap in trace.taps {
                 if replayTap(tap, in: app) { tapped += 1 }
                 let wait = min(tap.dtMs, dtCapMs)
                 if wait > 0 { usleep(useconds_t(wait * 1000)) }
+                if stepCapture {
+                    // Small settle so the async commit is reflected before read.
+                    usleep(140_000)
+                    steps.append((key: tap.key, value: currentText(in: app)))
+                }
             }
             // Let the async autocomplete/commit queue settle before reading.
             usleep(400_000)
             let durationMs = Int(Date().timeIntervalSince(start) * 1000)
-            let resulting = (field.value as? String) ?? ""
+            let resulting = (field.value as? String) ?? currentText(in: app)
 
             let line = encodeLine(intended: trace.intended, resulting: resulting,
                                   taps: tapped, durationMs: durationMs,
                                   synthetic: trace.synthetic ?? false,
-                                  source: trace.source)
+                                  source: trace.source,
+                                  expected: trace.expected,
+                                  steps: stepCapture ? steps : nil)
             jsonlLines.append(line)
             NSLog("REPLAY_JSONL: \(line)")
+            let verdict = trace.expected.map { $0 == resulting ? " [MATCH]" : " [DIFF exp=\($0)]" } ?? ""
             NSLog("REPLAY_INFO: [\(i + 1)/\(traces.count)] intended=\(trace.intended) "
-                + "-> resulting=\(resulting)")
+                + "-> resulting=\(resulting)\(verdict)")
         }
 
         let jsonl = jsonlLines.joined(separator: "\n") + "\n"
@@ -181,11 +200,20 @@ final class ReplayRigUITests: XCTestCase {
         if !app.keyboards.firstMatch.exists { field.tap() }
     }
 
+    /// Current buffer via the `replay-result` mirror label (robust under fast
+    /// replay). The host renders a lone space for empty; normalize that to "".
+    private func currentText(in app: XCUIApplication) -> String {
+        let raw = app.staticTexts["replay-result"].label
+        return raw == " " ? "" : raw
+    }
+
     // MARK: - JSON encoding (manual to avoid pulling in Foundation JSONEncoder
     // ordering quirks; keeps the sentinel line greppable/one-per-line).
 
     private func encodeLine(intended: String, resulting: String, taps: Int,
-                            durationMs: Int, synthetic: Bool, source: String?) -> String {
+                            durationMs: Int, synthetic: Bool, source: String?,
+                            expected: String? = nil,
+                            steps: [(key: String, value: String)]? = nil) -> String {
         var obj: [String: Any] = [
             "intended": intended,
             "resulting": resulting,
@@ -194,6 +222,13 @@ final class ReplayRigUITests: XCTestCase {
             "synthetic": synthetic,
         ]
         if let source { obj["source"] = source }
+        if let expected {
+            obj["expected"] = expected
+            obj["match"] = (expected == resulting)
+        }
+        if let steps {
+            obj["steps"] = steps.map { ["key": $0.key, "value": $0.value] }
+        }
         let data = try! JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
         return String(data: data, encoding: .utf8)!
     }
