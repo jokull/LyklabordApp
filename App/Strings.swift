@@ -92,6 +92,7 @@ enum Strings {
         static let tryHeading = "Prófaðu núna"
         static let tryBody = "Skiptu yfir í Lyklaborð með hnettinum (🌐) og skrifaðu hér:"
         static let tryPlaceholder = "Skrifaðu eitthvað…"
+        static let tryDone = "Lokið"
     }
 
     enum Dictionary {

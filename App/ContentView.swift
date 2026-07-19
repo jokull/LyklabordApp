@@ -364,6 +364,16 @@ struct ContentView: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($isTextFieldFocused)
                 .lineLimit(4...8)
+                // The try-it field is the only focusable thing on this screen,
+                // so once the keyboard is up it covers the app nav with no way
+                // out. A "Lokið" button in the keyboard accessory bar (renders
+                // above ANY keyboard, including Lyklaborð) resigns focus.
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button(Strings.Onboarding.tryDone) { isTextFieldFocused = false }
+                    }
+                }
         }
     }
 }
