@@ -793,6 +793,16 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
     private var ledgerBeforeWindow: String?
     private var ledgerHandleDepth = 0
 
+    /// One-shot causal memo (issue #4): the corrected/completed word whose
+    /// trailing space the PREVIOUS released space action created by
+    /// successfully committing the armed candidate. The very next released
+    /// edit consumes it — a period deletes that one space and attaches
+    /// ("góður " + "." → "góður."); anything else clears it. Main-thread only
+    /// (handle always runs there). Never inferred from the document merely
+    /// ending in a space: armed at the space release itself, verified against
+    /// the proxy suffix again at consumption.
+    private var spaceCommitMemo: String?
+
     private func recordPendingSelfEdit() {
         guard let before = ledgerBeforeWindow else { return }
         ledgerBeforeWindow = nil
@@ -871,6 +881,54 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         defer {
             ledgerHandleDepth -= 1
             if ledgerHandleDepth == 0 { recordPendingSelfEdit() }
+        }
+
+        // Space-commit dot attachment (issue #4). Three phases around super:
+        //
+        //  CAPTURE (here): for a released space, note the armed autocorrect
+        //  candidate BEFORE super applies it — plus the guards that must veto
+        //  arming (mode 2 "always insert a prediction", a spacebar cursor
+        //  drag, non-standard fields).
+        //
+        //  CONSUME (below, before super): if the memo is armed and this is the
+        //  period key, delete the one candidate-owned trailing space so the
+        //  period attaches ("góður " + "." → "góður."). Verified against the
+        //  proxy suffix at consumption, so cursor moves/host mutations after
+        //  the space safely no-op. Any other released edit clears the memo;
+        //  press gestures leave it alone (the dot's release still needs it).
+        //
+        //  ARM (after super): only when the document PROVES the apply landed —
+        //  the window now ends with "candidate + one space". A stale-skipped
+        //  apply, a plain space, or anything else fails that check.
+        let armedCandidateForSpace: String? = {
+            guard gesture == .release, action == .space,
+                spaceDragGestureHandler.currentDragTextPositionOffset == 0,
+                lyklabordAutocompleteService?.spacebarMode != .alwaysInsertPrediction,
+                LyklabordAutocompleteService.fieldKind(for: keyboardContext) == .standard
+            else { return nil }
+            return autocompleteContext.suggestions.first(where: { $0.isAutocorrect })?.text
+        }()
+        if gesture == .release {
+            if case .character(".") = action, let corrected = spaceCommitMemo {
+                spaceCommitMemo = nil
+                let before = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+                if before.hasSuffix(corrected + " ") {
+                    keyboardContext.textDocumentProxy.deleteBackward()
+                }
+            } else if action != .space {
+                // Any other released edit consumes the one-shot without acting.
+                spaceCommitMemo = nil
+            }
+        }
+        defer {
+            // ARM phase — runs after super.handle at the bottom of this method.
+            if let candidate = armedCandidateForSpace {
+                let after = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+                spaceCommitMemo = after.hasSuffix(candidate + " ") ? candidate : nil
+            } else if gesture == .release, action == .space {
+                // A space that committed nothing clears any stale memo.
+                spaceCommitMemo = nil
+            }
         }
 
         // Smart punctuation: the ,,gæsalappir" habit (D1) — a double comma at
