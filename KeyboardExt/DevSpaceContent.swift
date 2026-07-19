@@ -66,13 +66,49 @@ struct SpaceCommitHintContainer<Content: View>: View {
     }
 }
 
+/// The adaptive quote key's teaching face (issue #10). In materialized
+/// Icelandic mode the key shows BOTH real glyphs spatially — „ low/leading,
+/// " high/trailing — with only the character the next tap will insert in the
+/// shared accent blue (the same "contextual/armed result" semantic as the
+/// spacebar hint); the inactive glyph is muted. Glyph position is the primary
+/// signal, blue is reinforcement. Neutral/English states never reach this
+/// view — the key face is the ordinary centered straight quote.
+private struct QuoteKeyFace: View {
+    /// The character the next tap inserts: „ (open) or " (close).
+    let active: String
+
+    var body: some View {
+        ZStack {
+            Text(SmartPunctuation.open) // „ — low, leading
+                .font(.system(size: 20))
+                .foregroundStyle(active == SmartPunctuation.open ? Color.accentColor : Color.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(.leading, 7)
+                .padding(.bottom, 4)
+            Text(SmartPunctuation.close) // " — high, trailing
+                .font(.system(size: 20))
+                .foregroundStyle(active == SmartPunctuation.close ? Color.accentColor : Color.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.trailing, 7)
+                .padding(.top, 2)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 struct DevSpaceContent<Standard: View>: View {
     let action: KeyboardAction
     let standard: Standard
     @ObservedObject var autocompleteContext: AutocompleteContext
 
     var body: some View {
-        if action == .space {
+        // Adaptive quote key (issue #10): when the numeric key's resolved
+        // action is an Icelandic quote, show the two-glyph teaching face; the
+        // straight-quote state keeps the standard centered " label.
+        if case .character(let char) = action,
+            char == SmartPunctuation.open || char == SmartPunctuation.close {
+            QuoteKeyFace(active: char)
+        } else if action == .space {
             if let word = autocompleteContext.armedAutocorrectText {
                 // Space will commit this word — say so on the key itself.
                 // Foreground/background come from LyklabordStyleService (white

@@ -172,6 +172,25 @@ final class LyklabordAutocompleteService: AutocompleteService {
         return attachmentMemoArmed
     }
 
+    /// Mirror of `session.probabilityIcelandic`, updated on `queue` after
+    /// every autocomplete pass. Read from the MAIN thread on every keyboard
+    /// render (the adaptive quote key resolves its face/action per render —
+    /// issue #10), so it must not queue-round-trip. nil until the first pass
+    /// completes ⇒ the quote key fails conservatively to a straight quote.
+    private var _cachedPIcelandic: Double?
+
+    private func setCachedPIcelandic(_ p: Double) {
+        revertMemoLock.lock()
+        _cachedPIcelandic = p
+        revertMemoLock.unlock()
+    }
+
+    private var cachedPIcelandic: Double? {
+        revertMemoLock.lock()
+        defer { revertMemoLock.unlock() }
+        return _cachedPIcelandic
+    }
+
     private func setLiteralRevertArmed(_ armed: Bool) {
         revertMemoLock.lock()
         literalRevertArmed = armed
@@ -546,6 +565,18 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// Icelandic (this is an Icelandic keyboard) when there's no session yet.
     var isIcelandicLane: Bool {
         queue.sync { (session?.probabilityIcelandic ?? 1.0) >= 0.5 }
+    }
+
+    /// Quote-key lane semantic (issue #10) — deliberately STRICTER than
+    /// `isIcelandicLane`: the adaptive quote key shows/inserts Icelandic „ "
+    /// only once the lane has MATERIALIZED. A missing/uninitialized session and
+    /// the exactly-neutral P(IS) == 0.5 tie both fail conservatively to the
+    /// straight quote (a brand-new empty field starts straight; „ is one
+    /// long-press away). Do not reuse for other consumers without auditing —
+    /// the `,,`→„ shortcut intentionally keeps the looser `isIcelandicLane`.
+    var usesIcelandicQuotes: Bool {
+        guard let p = cachedPIcelandic else { return false }
+        return p > 0.5
     }
 
     // MARK: - Word learning (M2)
@@ -1029,6 +1060,7 @@ final class LyklabordAutocompleteService: AutocompleteService {
         setRevertMemoArmed(session.hasPendingContinuationRevert)
         setAttachmentMemoArmed(session.hasPendingPunctuationAttachment)
         setLiteralRevertArmed(session.hasArmedLiteralRevert)
+        setCachedPIcelandic(session.probabilityIcelandic)
         // Word-commit boundary flush: the pass that detected a commit (or a
         // tap/revert) is the pass whose drain carries those events.
         flushLearningEventsOnQueue()

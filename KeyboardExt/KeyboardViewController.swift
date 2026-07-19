@@ -151,6 +151,25 @@ final class KeyboardViewController: KeyboardInputViewController {
             keyboardContext: state.keyboardContext
         )
 
+        // Adaptive quote key (issue #10): the numeric quote key's layout
+        // action is resolved per render from ONE pure resolver (QuoteKey) —
+        // Icelandic „/" only once the lane has MATERIALIZED (P(IS) strictly
+        // > 0.5; missing session and the neutral tie stay straight), straight
+        // " in English/neutral and non-standard fields, open vs close decided
+        // by the document before the cursor.
+        (services.layoutService as? LyklabordLayoutService)?.quoteCharacter = { [weak self] in
+            guard let self else { return "\"" }
+            let usesIcelandic = (self.services.autocompleteService
+                as? LyklabordAutocompleteService)?.usesIcelandicQuotes ?? false
+            let state = QuoteKey.state(
+                usesIcelandicQuotes: usesIcelandic,
+                isStandardField: LyklabordAutocompleteService.fieldKind(
+                    for: self.state.keyboardContext) == .standard,
+                context: self.state.keyboardContext.textDocumentProxy
+                    .documentContextBeforeInput ?? ""
+            )
+            return QuoteKey.character(for: state)
+        }
     }
 
     // MARK: - Appearance
@@ -295,6 +314,23 @@ final class KeyboardViewController: KeyboardInputViewController {
                         .emoji(KeyboardKit.Emoji($0))
                     }
                 }
+                // Adaptive quote key (issue #10): long-press exposes every
+                // quote variant, ordered nearest-first relative to the current
+                // tap result. Explicit selections insert literally — the
+                // handler's replacementAction override keeps stock locale
+                // rewriting away from all quote characters.
+                if case .character(let char) = params.action {
+                    switch char {
+                    case "\"":
+                        return QuoteKey.calloutCharacters(for: .neutral).map { .character($0) }
+                    case SmartPunctuation.open:
+                        return QuoteKey.calloutCharacters(for: .icelandicOpen).map { .character($0) }
+                    case SmartPunctuation.close:
+                        return QuoteKey.calloutCharacters(for: .icelandicClose).map { .character($0) }
+                    default:
+                        break
+                    }
+                }
                 return Callouts.Actions.icelandic.actions(for: params.action)
             }
             // Wave 37: long-press a suggestion that is the user's OWN learned
@@ -386,6 +422,14 @@ private extension KeyboardAction {
             case .emojis: return "Emoji"
             default: return nil
             }
+        case .character("\""):
+            // Adaptive quote key (issue #10): VoiceOver describes the exact
+            // character the tap inserts, per state.
+            return "Gæsalappir"
+        case .character(SmartPunctuation.open):
+            return "Gæsalappir, opnun"
+        case .character(SmartPunctuation.close):
+            return "Gæsalappir, lokun"
         default:
             return nil
         }
@@ -502,6 +546,34 @@ extension Callouts.Actions {
 /// are left untouched.
 final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
 
+    /// Adaptive quote key (issue #10): resolves, at layout time, the exact
+    /// character the numeric quote key will insert next (" „ or "). The
+    /// LAYOUT ACTION carries the resolved character, so the key face, input
+    /// callout preview, VoiceOver label, and insertion all derive from one
+    /// source — a label/output mismatch becomes impossible. The layout is
+    /// re-queried on every keyboard render (each keystroke re-renders via the
+    /// observed autocomplete context), so the key tracks lane/context changes
+    /// immediately and without animation.
+    var quoteCharacter: (() -> String)?
+
+    override func keyboardLayout(for context: KeyboardContext) -> KeyboardLayout {
+        var layout = super.keyboardLayout(for: context)
+        if context.keyboardType == .numeric, let resolve = quoteCharacter {
+            let resolved = resolve()
+            layout.itemRows = layout.itemRows.map { row in
+                row.map { item in
+                    // The stock numeric input set's quote key is the literal
+                    // ” (U+201D); swap in the resolver's truthful character.
+                    guard item.action == .character("\u{201D}") else { return item }
+                    var item = item
+                    item.action = .character(resolved)
+                    return item
+                }
+            }
+        }
+        return layout
+    }
+
     override func bottomActions(
         for context: KeyboardContext
     ) -> KeyboardAction.Row {
@@ -573,6 +645,13 @@ final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
 /// our own iPhone service only for the `.phone` case, deferring to
 /// `super` (which returns the stock `iPadService`) for everything else.
 final class LyklabordLayoutService: KeyboardLayout.DeviceBasedLayoutService {
+
+    /// Forwarded to the iPhone service's adaptive quote key (issue #10).
+    var quoteCharacter: (() -> String)? {
+        didSet {
+            (lyklabordIPhoneService as? LyklabordIPhoneLayoutService)?.quoteCharacter = quoteCharacter
+        }
+    }
 
     private lazy var lyklabordIPhoneService: KeyboardLayoutService = LyklabordIPhoneLayoutService(
         alphabeticInputSet: alphabeticInputSet,
@@ -694,6 +773,24 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         super.tryPerformAutocomplete(after: gesture, on: action)
     }
 
+    /// Quote characters are OWNED by the adaptive quote key's resolver
+    /// (issue #10): the layout action already carries the exact character the
+    /// key face shows, and explicit long-press selections must insert
+    /// literally. Returning nil suppresses KeyboardKit's stock locale-only
+    /// quotation replacement (which would rewrite " / ” into „ / " purely
+    /// because the fixed KeyboardKit locale is Icelandic, even when the
+    /// TypeEngine lane is neutral or English — the too-aggressive behavior
+    /// this override retires). All other characters keep stock replacements.
+    override func replacementAction(
+        for gesture: Keyboard.Gesture,
+        on action: KeyboardAction
+    ) -> KeyboardAction? {
+        if case .character(let char) = action, QuoteKey.ownedCharacters.contains(char) {
+            return nil
+        }
+        return super.replacementAction(for: gesture, on: action)
+    }
+
     override func shouldApplyAutocorrectSuggestion(
         before gesture: Keyboard.Gesture,
         on action: KeyboardAction
@@ -739,38 +836,24 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
             if ledgerHandleDepth == 0 { recordPendingSelfEdit() }
         }
 
-        // Smart punctuation (D1, docs/PUNCTUATION_BEHAVIOR.md): Icelandic
-        // quotes „ ". Gated to the quote/comma keystrokes only (the switch's
-        // default arm is free, so letters/space pay nothing), then to the
-        // Icelandic lane + standard fields (English passages and
-        // URL/email/password keep straight quotes). A straight " opens with „ /
-        // closes with " only when a matching „ is open (else left untouched);
-        // the ,,gæsalappir" habit — a double comma at an opening position —
-        // becomes „. The rewritten action flows through the normal path
-        // (ledger, autocomplete, insert); the ,,→„ delete is captured by the
-        // outer ledger snapshot taken at handle entry.
+        // Smart punctuation: the ,,gæsalappir" habit (D1) — a double comma at
+        // an opening position becomes „. Lane-gated (isIcelandicLane) +
+        // standard fields only; the ,,→„ delete is captured by the outer
+        // ledger snapshot taken at handle entry. NOTE: the straight-quote
+        // rewrite that used to live here moved into the adaptive quote key
+        // (issue #10): the numeric key's layout ACTION now carries the
+        // resolved character, and `replacementAction` below keeps KeyboardKit's
+        // stock locale replacement away from quote characters entirely.
         var action = action
-        if gesture == .release {
+        if gesture == .release, case .character(",") = action {
             let proxy = keyboardContext.textDocumentProxy
-            switch action {
-            case .character("\""):
-                if LyklabordAutocompleteService.fieldKind(for: keyboardContext) == .standard,
-                    lyklabordAutocompleteService?.isIcelandicLane == true,
-                    let quote = SmartPunctuation.icelandicDoubleQuote(
-                        before: proxy.documentContextBeforeInput ?? "") {
-                    action = .character(quote)
-                }
-            case .character(","):
-                let before = proxy.documentContextBeforeInput ?? ""
-                if before.hasSuffix(","),
-                    SmartPunctuation.opensNewQuote(before: String(before.dropLast())),
-                    LyklabordAutocompleteService.fieldKind(for: keyboardContext) == .standard,
-                    lyklabordAutocompleteService?.isIcelandicLane == true {
-                    proxy.deleteBackward()
-                    action = .character(SmartPunctuation.open)
-                }
-            default:
-                break
+            let before = proxy.documentContextBeforeInput ?? ""
+            if before.hasSuffix(","),
+                SmartPunctuation.opensNewQuote(before: String(before.dropLast())),
+                LyklabordAutocompleteService.fieldKind(for: keyboardContext) == .standard,
+                lyklabordAutocompleteService?.isIcelandicLane == true {
+                proxy.deleteBackward()
+                action = .character(SmartPunctuation.open)
             }
         }
 
