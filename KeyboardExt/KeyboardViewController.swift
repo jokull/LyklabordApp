@@ -115,10 +115,37 @@ final class KeyboardViewController: KeyboardInputViewController {
         // the engine's personal vocabulary and appends learning events to
         // learning-events.log. Both fully optional: no App Group access
         // (Full Access denied) degrades to base-model-only, no logging.
-        services.autocompleteService = LyklabordAutocompleteService(
+        let autocompleteService = LyklabordAutocompleteService(
             appGroupId: KeyboardApp.lyklabord.appGroupId,
             activationStartedAt: activationStartedAt
         )
+        services.autocompleteService = autocompleteService
+
+        // System text replacements (issue #5): iOS never auto-applies the
+        // user's Settings → General → Keyboard → Text Replacement shortcuts
+        // inside third-party keyboards — the extension must fetch and apply
+        // them itself. `requestSupplementaryLexicon` works WITHOUT Full
+        // Access and also carries Apple's common-word pairs and unpaired
+        // contact-name pairs; ALL entries are consumed solely as whole-token
+        // replacement matches (no other use). The service arms a matched
+        // expansion as the top `.autocorrect` suggestion, so the existing
+        // space-commit machinery applies it — blue-spacebar hint, staleness
+        // guard, proxy-edit ledger and revert all included (see
+        // `performAutocomplete`). Privacy: contact names ride along in the
+        // lexicon — the reduced table lives in memory only, never logged or
+        // persisted. The completion runs on an arbitrary queue; the UIKit
+        // `UILexicon` is reduced to plain pairs right here at the boundary
+        // (keeping `TextReplacements` pure) and `setTextReplacements`
+        // marshals the table onto the service's engine queue. Weak capture:
+        // `services` owns the service; this completion must not extend the
+        // extension's lifetime if the keyboard is torn down first.
+        requestSupplementaryLexicon { [weak autocompleteService] lexicon in
+            autocompleteService?.setTextReplacements(
+                TextReplacements(
+                    entries: lexicon.entries.map { ($0.userInput, $0.documentText) }
+                )
+            )
+        }
 
         // M2 learning: KeyboardKit auto-learns a tapped `.unknown`
         // suggestion (our quoted verbatim escape-hatch slot) by calling
