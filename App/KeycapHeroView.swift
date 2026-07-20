@@ -77,6 +77,8 @@ struct KeycapHeroView: UIViewRepresentable {
         coordinator.scnView = view
         coordinator.keycapNode = pivot
         coordinator.reduceMotion = reduceMotion
+        coordinator.isActive = isActive
+        coordinator.startIdleSpin() // begin the slow idle turntable at rest
 
         let pan = UIPanGestureRecognizer(
             target: coordinator, action: #selector(Coordinator.handlePan(_:))
@@ -89,17 +91,21 @@ struct KeycapHeroView: UIViewRepresentable {
 
     func updateUIView(_ uiView: SCNView, context: Context) {
         context.coordinator.reduceMotion = reduceMotion
+        context.coordinator.isActive = isActive
         if !isActive {
+            context.coordinator.stopIdleSpin()
             context.coordinator.stopInertia()
             uiView.rendersContinuously = false
             uiView.isPlaying = false
         } else {
             uiView.isPlaying = true
+            context.coordinator.startIdleSpin() // resume idle turntable on return
         }
     }
 
     static func dismantleUIView(_ uiView: SCNView, coordinator: Coordinator) {
         coordinator.stopInertia()
+        coordinator.stopIdleSpin()
     }
 
     // MARK: - Scene construction
@@ -217,11 +223,23 @@ struct KeycapHeroView: UIViewRepresentable {
         weak var scnView: SCNView?
         weak var keycapNode: SCNNode?
         var reduceMotion = false
+        /// Mirrors `KeycapHeroView.isActive` — the idle spin only runs while the
+        /// hero is on-screen/foregrounded so it never renders in the background.
+        var isActive = true
 
         private var startYaw: Float = 0
         private var angularVelocity: Float = 0 // rad/s, for the flick coast
         private var displayLink: CADisplayLink?
         private var lastFrameTime: CFTimeInterval = 0
+
+        // Idle turntable: an "ever so slow" continuous yaw when the user isn't
+        // touching the cap, so the hero always reads as a live 3D object.
+        // Paused on touch-down, resumed once a flick's inertia settles.
+        private var idleLink: CADisplayLink?
+        private var idleLastTime: CFTimeInterval = 0
+        private var isDragging = false
+        /// rad/s — one revolution ≈ 39 s. Deliberately slow; not a spinner.
+        private let idleAngularSpeed: Float = 0.16
 
         /// Radians of yaw per point of horizontal drag. ~200 pt ≈ 130°.
         private let sensitivity: Float = 0.0115
@@ -232,6 +250,8 @@ struct KeycapHeroView: UIViewRepresentable {
 
             switch gesture.state {
             case .began:
+                isDragging = true
+                stopIdleSpin()
                 stopInertia()
                 view.rendersContinuously = true // spin smoothly while dragging
                 startYaw = node.eulerAngles.y
@@ -239,6 +259,7 @@ struct KeycapHeroView: UIViewRepresentable {
                 // Drag right -> spins toward the viewer's right; left the other way.
                 node.eulerAngles.y = startYaw + Float(translation.x) * sensitivity
             case .ended, .cancelled, .failed:
+                isDragging = false
                 let vx = Float(gesture.velocity(in: view).x)
                 beginInertia(velocity: vx * sensitivity)
             default:
@@ -247,9 +268,10 @@ struct KeycapHeroView: UIViewRepresentable {
         }
 
         private func beginInertia(velocity: Float) {
-            // Reduce Motion: no coast — settle immediately, drop back to idle.
+            // Reduce Motion / negligible flick: no coast — settle immediately
+            // and hand straight back to the idle turntable.
             if reduceMotion || abs(velocity) < 0.25 {
-                scnView?.rendersContinuously = false
+                resumeIdleOrRest()
                 return
             }
             angularVelocity = velocity
@@ -271,7 +293,7 @@ struct KeycapHeroView: UIViewRepresentable {
 
             if abs(angularVelocity) < 0.05 {
                 stopInertia()
-                scnView?.rendersContinuously = false
+                resumeIdleOrRest()
             }
         }
 
@@ -279,6 +301,45 @@ struct KeycapHeroView: UIViewRepresentable {
             displayLink?.invalidate()
             displayLink = nil
             angularVelocity = 0
+        }
+
+        // MARK: Idle turntable
+
+        /// Resume the slow idle spin, or — under Reduce Motion / when off-screen
+        /// — settle to the static resting frame instead.
+        private func resumeIdleOrRest() {
+            if reduceMotion || !isActive {
+                scnView?.rendersContinuously = false
+            } else {
+                startIdleSpin()
+            }
+        }
+
+        func startIdleSpin() {
+            // Not while reduced-motion, off-screen, mid-drag, or coasting from a
+            // flick (displayLink != nil), and never a second concurrent link.
+            guard !reduceMotion, isActive, !isDragging,
+                  idleLink == nil, displayLink == nil, keycapNode != nil else { return }
+            scnView?.rendersContinuously = true
+            idleLastTime = CACurrentMediaTime()
+            let link = CADisplayLink(target: self, selector: #selector(stepIdle))
+            link.add(to: .main, forMode: .common)
+            idleLink = link
+        }
+
+        @objc private func stepIdle() {
+            guard let node = keycapNode, isActive else { stopIdleSpin(); return }
+            let now = CACurrentMediaTime()
+            let dt = Float(min(now - idleLastTime, 1.0 / 30.0))
+            idleLastTime = now
+            node.eulerAngles.y += idleAngularSpeed * dt
+        }
+
+        func stopIdleSpin() {
+            idleLink?.invalidate()
+            idleLink = nil
+            // Only drop continuous rendering if a flick coast isn't also using it.
+            if displayLink == nil { scnView?.rendersContinuously = false }
         }
     }
 }
