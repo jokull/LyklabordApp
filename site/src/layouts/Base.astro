@@ -6,7 +6,41 @@ interface Props {
   description?: string;
   ogImage?: string;
 }
-const { title, description, ogImage = "/keycap-fallback.png" } = Astro.props;
+const { title, description, ogImage = "/og.png" } = Astro.props;
+
+// Absolute URLs for canonical + social cards (crawlers and chat/agent
+// unfurlers require absolute image/URL values, not root-relative paths).
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const ogImageURL = new URL(ogImage, Astro.site).href;
+
+// Structured data so search engines and AI agents can read the app as a
+// SoftwareApplication (name, platform, price, download link) rather than
+// inferring it from prose.
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Lyklaborð",
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "iOS 18",
+  description,
+  url: "https://lyklabord.solberg.is",
+  downloadUrl: "https://apps.apple.com/app/id6792012916",
+  image: ogImageURL,
+  author: { "@type": "Person", name: "Jökull Sólberg" },
+  inLanguage: ["is", "en"],
+  isAccessibleForFree: true,
+  license: "https://opensource.org/licenses/MIT",
+  offers: [
+    { "@type": "Offer", price: "0", priceCurrency: "USD", name: "Lyklaborð" },
+    {
+      "@type": "Offer",
+      price: "19.99",
+      priceCurrency: "USD",
+      name: "Lyklaborð+",
+      description: "On-device personal learning; annual subscription.",
+    },
+  ],
+};
 ---
 
 <!doctype html>
@@ -16,11 +50,31 @@ const { title, description, ogImage = "/keycap-fallback.png" } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     {description && <meta name="description" content={description} />}
-    <meta property="og:title" content="Lyklaborð" />
+    <link rel="canonical" href={canonical} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Lyklaborð" />
+    <meta property="og:locale" content="is_IS" />
+    <meta property="og:title" content={title} />
     {description && <meta property="og:description" content={description} />}
-    <meta property="og:image" content={ogImage} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImageURL} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Lyklaborð — íslenskt lyklaborð" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    {description && <meta name="twitter:description" content={description} />}
+    <meta name="twitter:image" content={ogImageURL} />
+
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#faf9f6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1c1b1a" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <link rel="sitemap" href="/sitemap.xml" />
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
     <style is:global>
       :root {
         --plastic: #d7d2c8;

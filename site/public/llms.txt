@@ -1,0 +1,28 @@
+# Lyklaborð
+
+> Lyklaborð is a free, open-source (MIT), privacy-first iOS keyboard for typing Icelandic and English together. It ships bilingual autocorrect that understands Icelandic inflection (grounded in BÍN, the Database of Icelandic Morphology), restores accents/diacritics automatically, and collects no data. An optional subscription, Lyklaborð+, adds on-device personal learning.
+
+## What it is
+
+- **Platform:** iOS 18+, iPhone. Custom keyboard extension.
+- **Languages:** Icelandic and English simultaneously (a two-lane model decides per-word which language you're in; no manual switching).
+- **Autocorrect:** inflection-aware — corrections respect Icelandic grammar (cases, declensions) rather than treating words as flat strings. Built on BÍN surface forms.
+- **Accents:** type `ut i bud`, get `út í búð` — diacritics placed automatically when unambiguous.
+- **Privacy:** no data collection, no telemetry, no network access from the keyboard extension. Personal typing data never leaves the device. App Store privacy label: Data Not Collected.
+- **Open source:** MIT-licensed. The keyboard, its typing engine (TypeEngine), and the data pipeline are public.
+
+## Lyklaborð+ (optional)
+
+- On-device personal vocabulary learning: the keyboard builds a private layer of your own words, names, and neologisms, encrypted and synced across your devices via iCloud. $19.99/year. The base keyboard is free forever; the paywall lives only in the containing app, never in the keyboard.
+
+## Links
+
+- [Home](https://lyklabord.solberg.is): overview and the interactive 3D keycap.
+- [Download on the App Store](https://apps.apple.com/app/id6792012916): free.
+- [GitHub — jokull/LyklabordApp](https://github.com/jokull/LyklabordApp): source (MIT).
+- [Help / Hjálp](https://lyklabord.solberg.is/hjalp): setup and usage, in Icelandic.
+- [Privacy policy](https://lyklabord.solberg.is/privacy): what is (and isn't) collected.
+
+## Attribution
+
+- Icelandic morphology data from [BÍN — Beygingarlýsing íslensks nútímamáls](https://bin.arnastofnun.is/) (CC BY-SA 4.0), The Árni Magnússon Institute for Icelandic Studies.

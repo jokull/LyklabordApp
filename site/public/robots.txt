@@ -1,0 +1,6 @@
+# Lyklaborð — open, privacy-first Icelandic iOS keyboard.
+# Crawlers and AI agents welcome. Structured summary at /llms.txt.
+User-agent: *
+Allow: /
+
+Sitemap: https://lyklabord.solberg.is/sitemap.xml
