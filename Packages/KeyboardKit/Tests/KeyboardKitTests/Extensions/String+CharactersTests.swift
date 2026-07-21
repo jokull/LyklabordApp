@@ -34,6 +34,14 @@ class String_CharactersTests: XCTestCase {
         let wordDelimsPrefix = ".,:;!¡?¿()[]{}<>«»་།"
         XCTAssertTrue(wordDelims.hasPrefix(wordDelimsPrefix))
 
+        // Lyklaborð fork: double quotes are word delimiters, matching
+        // TypeEngine's delimiterPunctuation — otherwise applying a
+        // suggestion right after an opening quote deletes the quote.
+        XCTAssertTrue("\"".isWordDelimiter)
+        XCTAssertTrue("\u{201E}".isWordDelimiter)  // „ Icelandic opener
+        XCTAssertTrue("\u{201C}".isWordDelimiter)  // “
+        XCTAssertTrue("\u{201D}".isWordDelimiter)  // ”
+
         XCTAssertEqual([String].sentenceDelimiters, String.sentenceDelimiters)
         XCTAssertEqual([String].wordDelimiters, String.wordDelimiters)
     }

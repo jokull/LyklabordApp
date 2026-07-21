@@ -14,6 +14,7 @@ Tokens:
   dq       double-quote key (on the numeric layout)
   comma    comma key (on the numeric layout)
   dash     hyphen/minus key (on the numeric layout)
+  bar:X    tap the suggestion-bar button labeled X (waits for the bar refresh)
   <letter> a letter key (a-z + Icelandic þ ð æ ö á é í ó ú ý)
 
 `expected` is a HYPOTHESIS of what native iOS (with the "." shortcut on) /
@@ -71,6 +72,15 @@ SCENARIOS = [
     # D6 dashes/ellipsis.
     ("D6 double dash -> em",          "123 dash dash",         "—"),
     ("D6 triple period -> ellipsis",  "h e s t . . .",         "Hest…"),
+
+    # ── Quote + suggestion apply (session 2026-07-21T11-57-41) ──────────────
+    # Applying a bar suggestion right after an opening quote must not eat the
+    # quote. `fór` is not a layout key: the rig's keyElement falls back to the
+    # suggestion-bar button with that label (the rs restoration for "for").
+    # Pre-fix, KeyboardKit's replaceCurrentWordPreCursorPart saw „for as the
+    # current word and produced "Ég fór " (quote deleted).
+    ("quote then suggestion tap keeps quote",
+                                      "e g _ 123 dq abc f o r bar:fór", "Ég „fór "),
 ]
 
 def expand(seq: str):

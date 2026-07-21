@@ -1100,5 +1100,73 @@
    }
   ],
   "expected": "Hest…"
+ },
+ {
+  "intended": "quote then suggestion tap keeps quote",
+  "synthetic": true,
+  "source": "behavior-catalog",
+  "taps": [
+   {
+    "key": "e",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   },
+   {
+    "key": "g",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   },
+   {
+    "key": "space",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   },
+   {
+    "key": "123",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   },
+   {
+    "key": "\"",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   },
+   {
+    "key": "ABC",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   },
+   {
+    "key": "f",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   },
+   {
+    "key": "o",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   },
+   {
+    "key": "r",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   },
+   {
+    "key": "bar:fór",
+    "dxNorm": 0.0,
+    "dyNorm": 0.0,
+    "dtMs": 220
+   }
+  ],
+  "expected": "Ég „fór "
  }
 ]

@@ -47,7 +47,13 @@ public extension String {
     static let whitespacesAndNewlinesString = " \t\n\u{b}\u{c}\r \u{85}             ​\u{2028}\u{2029}"
 
     /// A list of currently known word delimiters.
-    static let wordDelimiters = ".,:;!¡?¿()[]{}<>«»་།"
+    ///
+    /// Lyklaborð fork: double quotes („ " “ ”) are word delimiters, matching
+    /// TypeEngine's `delimiterPunctuation`. Without them, applying a
+    /// suggestion after an opening quote („for → fór) makes
+    /// `replaceCurrentWordPreCursorPart` see „for as the current word and
+    /// delete the quote along with it.
+    static let wordDelimiters = ".,:;!¡?¿()[]{}<>«»་།\"\u{201E}\u{201C}\u{201D}"
         .appending(whitespacesAndNewlinesString)
         .chars
 }

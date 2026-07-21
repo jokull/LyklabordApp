@@ -85,7 +85,13 @@ final class ReplayRigUITests: XCTestCase {
             throw XCTSkip("No software keyboard appeared. On the simulator, ensure "
                 + "'Connect Hardware Keyboard' is OFF (Simulator > I/O > Keyboard).")
         }
-        let isKeyboardActive = ["ð", "þ", "æ", "ö"].contains { keyElement($0, in: app).exists }
+        // Lyklaborð-UNIQUE markers: the fork's Icelandic VoiceOver labels
+        // (KeyboardViewController.betterAccessibilityLabel). The old ð/þ/æ/ö
+        // heuristic false-positived on Apple's SYSTEM Icelandic keyboard —
+        // which has all four letters — so replays silently measured Apple's
+        // keyboard (every run 2026-07-19 → 2026-07-21 did; their a11y tree
+        // says 'UIKeyboardLayoutStar', labels 'numbers'/'delete', no bar).
+        let isKeyboardActive = ["Tölustafir", "Eyða"].contains { keyElement($0, in: app).exists }
         if !isKeyboardActive {
             throw XCTSkip("Lyklaborð is not the active keyboard (no ð/þ/æ/ö key on "
                 + "screen). One-time manual step required — see replay-run.sh header: "
@@ -161,6 +167,28 @@ final class ReplayRigUITests: XCTestCase {
     /// neighbor by design — the coordinate can sit outside the element bounds.
     @discardableResult
     private func replayTap(_ tap: Tap, in app: XCUIApplication) -> Bool {
+        // "bar:<text>" taps a suggestion-bar button by its label. The bar
+        // refreshes asynchronously after the preceding keystroke, so unlike
+        // layout keys this waits for the button to appear.
+        if tap.key.hasPrefix("bar:") {
+            let label = String(tap.key.dropFirst(4))
+            let predicate = NSPredicate(format: "label ==[c] %@", label)
+            // The bar item may surface as a button, static text, or plain
+            // element depending on how SwiftUI flattens the toolbar.
+            let candidates = [
+                app.keyboards.buttons.matching(predicate).firstMatch,
+                app.buttons.matching(predicate).firstMatch,
+                app.staticTexts.matching(predicate).firstMatch,
+                app.otherElements.matching(predicate).firstMatch,
+            ]
+            for el in candidates where el.waitForExistence(timeout: 2) {
+                el.tap()
+                return true
+            }
+            NSLog("REPLAY_INFO: suggestion '\(label)' not in bar — skipped")
+            NSLog("REPLAY_DEBUG: keyboard tree: \(app.keyboards.firstMatch.debugDescription.prefix(4000))")
+            return false
+        }
         let el = keyElement(tap.key, in: app)
         guard el.exists else {
             NSLog("REPLAY_INFO: key '\(tap.key)' not found on keyboard — skipped")
@@ -178,6 +206,19 @@ final class ReplayRigUITests: XCTestCase {
         let labels: [String]
         if token == "space" {
             labels = ["space", "bil", " "] // en / is / raw
+        } else if token == "123" {
+            // Layout-switch / quote keys carry the fork's localized VoiceOver
+            // labels (KeyboardViewController.betterAccessibilityLabel), not
+            // their visible captions; KeyboardKit's stock synthesized labels
+            // kept as fallbacks.
+            labels = ["Tölustafir", "Keyboard Type - numeric", "123"]
+        } else if token == "ABC" {
+            labels = ["Bókstafir", "Keyboard Type - alphabetic", "ABC"]
+        } else if token == "\"" {
+            // Adaptive quote key: label reflects the character it will insert.
+            labels = ["Gæsalappir, opnun", "Gæsalappir, lokun", "Gæsalappir", "\""]
+        } else if token == "delete" {
+            labels = ["Eyða", "Backspace", "delete"]
         } else {
             labels = [token]
         }

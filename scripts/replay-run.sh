@@ -84,10 +84,15 @@ APP_HOST="$(find "$DD/Build/Products" -maxdepth 2 -name 'ReplayHost.app' | head 
 [ -n "$APP_HOST" ] && xcrun simctl install "$UDID" "$APP_HOST"
 
 echo "== 4. Best-effort keyboard enable + software-keyboard on (fragile; see header) =="
-# Undocumented: append our appex to the enabled-keyboards list. Does NOT grant
-# Full Access. If this fails to take, the UITest skips with instructions.
+# Undocumented: set our appex as the enabled keyboard. Does NOT grant Full
+# Access. If this fails to take, the UITest skips with instructions.
+# NOTE: the extension bundle id is is.solberg.lyklabord.keyboard (project.yml);
+# a wrong id here (pre-2026-07-21 the script wrote …lyklabord.app.keyboard)
+# silently leaves the SYSTEM Icelandic keyboard active — which also has
+# ð/þ/æ/ö, so replays "pass" against Apple's keyboard, not ours. Write the
+# array outright (not -array-add) so stale/bogus entries can't accumulate.
 xcrun simctl spawn "$UDID" defaults write com.apple.Preferences AppleKeyboards \
-  -array-add "is.solberg.lyklabord.app.keyboard" 2>/dev/null || true
+  -array "is.solberg.lyklabord.keyboard" 2>/dev/null || true
 # The on-screen keyboard only appears when the Simulator's "Connect Hardware
 # Keyboard" is OFF. This is a host Simulator.app preference (part of the same
 # one-time setup as enabling Lyklaborð). Best-effort; the UITest reports clearly
