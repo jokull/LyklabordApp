@@ -285,12 +285,20 @@ targets:
       - package: ISEmojiView
         product: ISEmojiView
 
-  # --- Last-mile replay rig (PLAN.md testing pyramid tier 3) ------------------
+  # --- UITest host: App Store screenshots + callout-mapping tests ------------
   # Additive-only: neither Lyklabord nor LyklabordKeyboard is modified.
-  # ReplayHost is a minimal single-TextField app the rig types into; the
+  # ReplayHost is a minimal single-TextField app the tests type into; the
   # Lyklaborð keyboard reaches it system-wide (installed by the main app), so
-  # ReplayHost deliberately does NOT embed the extension. Rig-only — never
-  # shipped to the App Store (SKIP_INSTALL handled per-target).
+  # ReplayHost deliberately does NOT embed the extension. Never shipped to the
+  # App Store (SKIP_INSTALL handled per-target).
+  #
+  # History: this target was the tier-3 "last-mile replay rig" (ADR-0010),
+  # removed 2026-07-21 — it silently drove Apple's system Icelandic keyboard
+  # instead of Lyklaborð (wrong appex id + a ð/þ/æ/ö active-check that also
+  # matches Apple's IS keyboard), so every result was a distorted false pass.
+  # Dogfood recordings (tools/session-analyzer) are the real-typing signal now.
+  # The screenshot driver (ScreenshotUITests) and callout-mapping tests
+  # (IcelandicCalloutMappingTests) kept living here.
   ReplayHost:
     type: application
     platform: iOS

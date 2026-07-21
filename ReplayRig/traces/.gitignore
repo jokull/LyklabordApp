@@ -1,8 +1,0 @@
-# Raw TSI download (re-fetchable via scripts/replay-fetch-tsi.py). touch_data.csv
-# is ~27 MB and is a redistribution of upstream data — keep it out of git.
-# The DERIVED trace files (tsi-en-sample.json, synthetic-is.json,
-# tsi-distributions.json) ARE committed: small, attributed, CC-BY-4.0.
-tsi-raw/
-
-# Per-run rig output (video + JSONL transcripts + report JSON).
-results/

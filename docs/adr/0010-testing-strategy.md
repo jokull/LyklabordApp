@@ -52,18 +52,27 @@ A four-tier pyramid, from fastest/most-isolated to slowest/most-realistic:
    the dogfood-found "profilmynd." verbatim/URL bug, the "smelirna"
    space-miss case) — a regression in a previously-fixed bug is a scenario
    failure, not a rediscovery.
-3. **Last-mile replay rig (planned, not yet built)**: an XCUITest host app
-   that replays *timed*, per-keystroke human typing traces — real touch
-   x/y and timestamps from public datasets (Google TSI, CC-BY-4.0, 43,735
-   touch taps with pixel-level coordinates; Aalto ITE, CC-BY-4.0, tens of
-   thousands of participants with autocorrect-interaction events) — as
-   accessibility-layer taps, since no Icelandic timed-touch dataset exists;
-   Icelandic traces would be synthesized from corpora plus dataset timing
-   distributions plus the engine's own spatial-model noise, and clearly
-   labeled synthetic, never mixed into human-trace metrics
-   (`research/typing-datasets.md`). This tier is designed but not
-   implemented as of this writing — recorded here as planned scope, not a
-   completed decision.
+3. **Last-mile replay rig — BUILT, THEN REMOVED 2026-07-21.** An XCUITest
+   host app that replayed *timed*, per-keystroke human typing traces (Google
+   TSI / Aalto ITE touch coordinates, plus synthetic Icelandic traces) as
+   accessibility-layer taps through the real keyboard in the simulator. It
+   was built after this ADR was first written, but was found to be driving
+   **Apple's system Icelandic keyboard, not Lyklaborð**, for its entire life:
+   `replay-run.sh` registered a wrong appex id (`…lyklabord.app.keyboard`;
+   the real id has no `.app`) and the "is Lyklaborð active?" check keyed on
+   the ð/þ/æ/ö keys — which Apple's Icelandic keyboard also has. Every green
+   run was a false pass against the wrong keyboard; the emitted signal was
+   worse than none because it read as coverage. The `defaults`-write keyboard
+   enablement also cannot actually activate a keyboard extension, so a
+   correct run needed a fragile one-time manual sim setup that a sim erase
+   wipes. Decision: **remove the rig** rather than repair-and-babysit it. The
+   dogfood-recording pipeline (tier 4 below + `tools/session-analyzer`)
+   already captures real-typing ground truth from the device with none of
+   these traps, and the KeyboardKit↔TypeEngine integration seam the rig was
+   meant to guard is better covered by targeted package tests at the actual
+   apply site (e.g. the 2026-07-21 quote-delimiter regression test in
+   `KeyboardKitTests`). The XCUITest host itself survives — it still drives
+   App Store screenshot capture and the callout-mapping tests.
 4. **Device dogfooding** for host-app variance and feel that no simulation
    captures.
 
@@ -112,11 +121,12 @@ A four-tier pyramid, from fastest/most-isolated to slowest/most-realistic:
   this ADR records the rule, not an automated enforcement mechanism — the
   scorecard wiring that would make a heldout regression a hard CI gate is
   not yet built.
-- The last-mile replay rig remains explicitly aspirational; no touch-
-  coordinate plumbing exists in the engine yet (see ADR-0005's "future
-  direction" note on lane relaxation and the separate, unimplemented
-  "touch decoding" work in PLAN.md) — this ADR does not claim that tier is
-  complete.
+- Tier 3 (the replay rig) was tried and removed (see above); the pyramid is
+  effectively three tiers now — packages/eval (1), headless `type-repl` (2),
+  and device dogfood recordings (4). Do not rebuild an XCUITest-driven
+  typing-replay rig without first solving keyboard-extension activation and
+  positive Lyklaborð-vs-system-keyboard detection headlessly; absent that, it
+  emits a confidently-wrong signal.
 - Related: ADR-0006 (the hard gates the scorecard enforces), ADR-0005 (lane
   relaxation and lane-scaling scenarios are a stated future eval category,
   not yet built).
