@@ -335,13 +335,12 @@ enum Strings {
         static let uninstallBody = "Að eyða Lyklaborði fjarlægir öll gögn þess af þessu tæki tafarlaust. Ef þú notar iCloud-samstillingu verður afrit af orðabókinni þinni eftir í þínu eigin iCloud þar til þú eyðir því — ef þú setur smáforritið upp aftur endurheimtist það. Til að hreinsa allt, þar með talið iCloud, notaðu „Eyða öllum gögnum“ áður en þú fjarlægir smáforritið."
     }
 
-    /// DEV-MODE ("Þróunarhamur") copy — the typing-session recorder. Only
-    /// surfaced in DEBUG builds (or dev-signed release via the hidden version
-    /// long-press). Not shown to end users.
+    /// Recording Studio copy. Surfaced to TestFlight testers (and development
+    /// builds); App Store builds retain the hidden developer affordance.
     enum Developer {
         static let sectionTitle = "Þróunarhamur"
-        static let sectionFooter = "Innsláttarupptaka fyrir þróun. Tekur aðeins upp á upptökusvæðinu hér að neðan — aldrei í öðrum forritum. Slökkt sjálfkrafa eftir 10 mínútur og um leið og þú ferð úr forritinu."
-        static let recorderRow = "Innsláttarupptaka"
+        static let sectionFooter = "Taktu upp villu á upptökusvæðinu og sendu hana ef þú vilt. Tekur aðeins upp á þessu svæði — aldrei í öðrum forritum. Slökkt sjálfkrafa eftir 10 mínútur og um leið og þú ferð úr forritinu."
+        static let recorderRow = "Upptökustúdíó"
         static let recorderRowDetail = "Taka upp innslátt á upptökusvæði til greiningar."
 
         static let padTitle = "Upptökusvæði"
@@ -349,11 +348,16 @@ enum Strings {
         static let stopButton = "Stöðva"
         static let recordingActive = "Tek upp"
         static let recordingIdle = "Tilbúið að taka upp"
+        static let startPromptTitle = "Hefja upptöku fyrst?"
+        static let startPromptBody = "Til að skrifa á upptökusvæðið þarf að hefja upptöku. Textinn þinn er aðeins tekinn upp hér og aðeins sendur ef þú velur það sjálf/ur."
+        static let cancelButton = "Hætta við"
 
         static let sessionsButton = "Upptökur"
         static let sessionsTitle = "Upptökur"
         /// VoiceOver label for the icon-only share button on a session row.
         static let shareButton = "Deila upptöku"
+        static let emailButton = "Senda upptöku í tölvupósti"
+        static let emailBody = "Hér er upptaka úr Lyklaborði. Viðhengin innihalda textann sem var skrifaður á upptökusvæðinu og greiningargögn lyklaborðsins."
         static let doneButton = "Lokið"
         static let sessionsEmptyTitle = "Engar upptökur"
         static let sessionsEmptyBody = "Hefðu upptöku og skrifaðu á svæðinu til að búa til upptöku."

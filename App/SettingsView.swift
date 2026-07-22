@@ -35,9 +35,9 @@ struct SettingsView: View {
     @State private var isDeletingAll = false
     @State private var deleteAllMessage: String?
 
-    // Þróunarhamur: shown unconditionally in DEBUG; in a dev-signed release
-    // build it stays hidden until the version row is long-pressed (see
-    // `aboutSection`). Trivial, zero end-user surface.
+    // Recording Studio is available to internal development builds and
+    // TestFlight testers. App Store builds retain the hidden developer
+    // affordance, rather than exposing a typed-data recorder to everyone.
     @State private var devModeRevealed = false
     private var isDebugBuild: Bool {
         #if DEBUG
@@ -46,7 +46,12 @@ struct SettingsView: View {
         return false
         #endif
     }
-    private var showsDeveloperSection: Bool { isDebugBuild || devModeRevealed }
+    private var isTestFlightBuild: Bool {
+        Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+    }
+    private var showsDeveloperSection: Bool {
+        isDebugBuild || isTestFlightBuild || devModeRevealed
+    }
 
     /// Backed by the App Group's shared `UserDefaults` suite (not the
     /// standard suite) so the keyboard extension can read the same value in

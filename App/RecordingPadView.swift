@@ -10,10 +10,12 @@
 //
 
 import SwiftUI
+import MessageUI
 
 struct RecordingPadView: View {
     @State private var store = RecordingStore()
     @State private var showSessions = false
+    @State private var showStartRecordingPrompt = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -21,10 +23,23 @@ struct RecordingPadView: View {
             recordBar
             Divider()
             if store.isAvailable {
-                TextEditor(text: $store.padText)
-                    .font(.body)
-                    .padding(8)
-                    .onChange(of: store.padText) { store.noteTextChanged() }
+                ZStack {
+                    TextEditor(text: $store.padText)
+                        .font(.body)
+                        .padding(8)
+                        .disabled(!store.isRecording)
+                        .onChange(of: store.padText) { store.noteTextChanged() }
+                    if !store.isRecording {
+                        Button {
+                            showStartRecordingPrompt = true
+                        } label: {
+                            Color.clear
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Strings.Developer.startPromptTitle)
+                    }
+                }
             } else {
                 ContentUnavailableView(
                     Strings.Developer.unavailableTitle,
@@ -46,6 +61,14 @@ struct RecordingPadView: View {
         }
         .sheet(isPresented: $showSessions) {
             SessionsListView(store: store)
+        }
+        .alert(Strings.Developer.startPromptTitle, isPresented: $showStartRecordingPrompt) {
+            Button(Strings.Developer.startButton) {
+                store.startRecording()
+            }
+            Button(Strings.Developer.cancelButton, role: .cancel) {}
+        } message: {
+            Text(Strings.Developer.startPromptBody)
         }
         .onChange(of: scenePhase) { _, phase in
             // Residual-risk mitigation: disarm the keyboard the instant the app
@@ -125,6 +148,7 @@ private struct RecordingDot: View {
 private struct SessionsListView: View {
     @Bindable var store: RecordingStore
     @Environment(\.dismiss) private var dismiss
+    @State private var emailSession: Session?
 
     var body: some View {
         NavigationStack {
@@ -151,6 +175,15 @@ private struct SessionsListView: View {
                             }
                             Spacer()
                             SyncBadge(state: store.syncState(for: session.id))
+                            if MFMailComposeViewController.canSendMail() {
+                                Button {
+                                    emailSession = session
+                                } label: {
+                                    Image(systemName: "envelope")
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel(Strings.Developer.emailButton)
+                            }
                             ShareLink(items: session.fileURLs) {
                                 Image(systemName: "square.and.arrow.up")
                             }
@@ -170,6 +203,9 @@ private struct SessionsListView: View {
                     Button(Strings.Developer.doneButton) { dismiss() }
                 }
             }
+        }
+        .sheet(item: $emailSession) { session in
+            RecordingMailComposer(session: session)
         }
     }
 
@@ -218,4 +254,43 @@ private struct SessionsListView: View {
         f.timeStyle = .medium
         return f
     }()
+}
+
+/// Native Mail composer, pre-addressed but never sent without the tester's
+/// explicit confirmation. The recording files remain local until that point.
+private struct RecordingMailComposer: UIViewControllerRepresentable {
+    let session: RecordingStore.Session
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> MFMailComposeViewController {
+        let composer = MFMailComposeViewController()
+        composer.mailComposeDelegate = context.coordinator
+        composer.setToRecipients(["jokull@solberg.is"])
+        composer.setSubject("Lyklaborð upptaka \(session.id)")
+        composer.setMessageBody(Strings.Developer.emailBody, isHTML: false)
+        for url in session.fileURLs {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            composer.addAttachmentData(
+                data,
+                mimeType: "application/x-ndjson",
+                fileName: url.lastPathComponent)
+        }
+        return composer
+    }
+
+    func updateUIViewController(_ uiViewController: MFMailComposeViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(dismiss: dismiss) }
+
+    final class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+        let dismiss: DismissAction
+        init(dismiss: DismissAction) { self.dismiss = dismiss }
+        func mailComposeController(
+            _ controller: MFMailComposeViewController,
+            didFinishWith result: MFMailComposeResult,
+            error: Error?
+        ) {
+            dismiss()
+        }
+    }
 }

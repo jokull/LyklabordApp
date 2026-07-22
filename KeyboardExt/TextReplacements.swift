@@ -66,15 +66,17 @@ struct TextReplacements {
     ///   the user is still typing toward "omg". The caller passes the
     ///   session's complete pending token (`TypingSession.splitCurrentWord`),
     ///   so dotted/'@' tokens compare whole too.
-    /// - Byte-identical expansion ⇒ nil: `UILexicon`'s common-word entries
-    ///   are often identity pairs ("word" → "word"); returning them would
-    ///   arm a no-op autocorrect and light the blue spacebar hint for
-    ///   nothing. A CASE-differing match still fires ("ipad" → "iPad" —
-    ///   exactly the capitalization service those Apple entries exist for).
+    /// - A case-only expansion ⇒ nil. `UILexicon` intermixes its opaque
+    ///   capitalization/contact entries with the user's explicit shortcuts.
+    ///   Treating one as an auto-applied shortcut can turn an ordinary word
+    ///   into an all-caps token on every space (for example, `er` → `ER`).
+    ///   Capitalization is not enough of a semantic change to justify a
+    ///   forced replacement; genuine shortcuts still differ after folding
+    ///   case and continue to expand normally.
     func match(token: String) -> String? {
         guard !token.isEmpty else { return nil }
         guard let replacement = expansions[token.lowercased()] else { return nil }
-        guard replacement != token else { return nil }
+        guard replacement.caseInsensitiveCompare(token) != .orderedSame else { return nil }
         return replacement
     }
 }
