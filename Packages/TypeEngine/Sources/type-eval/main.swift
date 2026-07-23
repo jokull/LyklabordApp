@@ -30,6 +30,9 @@ import TypeEngine
 //   type-eval generate-safety [--output p]
 //                                     deterministic clean-identity + valid-word
 //                                     hard-negative corpus from dev + real artifacts
+//   type-eval export-candidates <dev|safety>
+//                                     JSONL scored candidate export for
+//                                     offline ranker studies (never heldout)
 //
 // The micro-eval uses DictLexicon doubles (curated fixture vocabulary); the
 // corpus / scorecard / A/B corpus runs use the real data/ artifacts. See
@@ -52,6 +55,9 @@ case "personal":
 
 case "generate-safety":
     runGenerateSafetyCommand(Array(arguments.dropFirst()))
+
+case "export-candidates":
+    runExportCandidatesCommand(Array(arguments.dropFirst()))
 
 default:
     // Legacy micro-eval: no subcommand, optional fixture-path override and

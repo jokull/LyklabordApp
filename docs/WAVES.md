@@ -72,16 +72,90 @@ dependency planning, not a competing active queue.
    morphology now have read-only ownership views over the unchanged flat
    shipping defaults. Suggestions, actions, traces, quality, and latency are
    unchanged.
+6. **Wave 44 — compact trigram context (assessment closed):** pinned Icegrams
+   is useful as an offline teacher, but the real three-slot candidate study
+   changed only 25/1,050 reachable context-rich IS decisions. Gate A required
+   100, so no runtime, C++ bridge or shipping artifact is authorized.
 
-The active queue now enters incremental token/span semantics and the modern
-mmap `context3.bin` capability wave. Continue real recordings in parallel;
-they improve the personal gate but do not block engine work.
+Wave 44 is closed without a runtime feature. Continue real recordings in
+parallel; a materially denser frozen context slice or a newer conversational
+corpus can justify reopening it, but `context3.bin` is not in the active queue.
 
 **Device verification debt (does not change the queue):** Wave 37's
 long-press-eject confirmation and Wave 36's real `„völd` literal-revert path
 remain open until their exact interactions are tested. The
 2026-07-18T00-56-44 recording exercised neither exact check. Wave 39's physical
 cohort is closed below.
+
+## 2026-07-23 — Wave 44: compact trigram context (assessment complete; runtime stopped)
+
+- **Trigger:** Miðeind Icegrams exposes real third-order Icelandic context, but
+  product feedback rejects unsolicited n+1 prediction. The useful hypothesis
+  is therefore narrower: previous-two-word evidence can rank the word currently
+  being typed, especially agreement/inflection rivals that share the same
+  immediately previous word.
+- **Research evidence:** Icegrams pinned at
+  `5538250cfcce9faca83cb6a630aed9e838ff1865` contains about 14.18M retained
+  trigrams and 4.90M bigrams in a 43,064,803-byte mmap database derived from a
+  vetted 2017 Icelandic Gigaword Corpus slice. Its current reader inflates a
+  5,526,811-byte vocabulary. Local Mac probes measured 30.5 ms initialization,
+  18.9 µs average exact lookup, and successor queries from 81 µs to 5.06 ms as
+  fan-out rose. Python/CFFI footprint deltas are not iPhone/Swift forecasts.
+- **Sizing evidence:** at context frequency≥200 and top-5 successors, the
+  source shape retains about 216,836 contexts / 999,081 entries. A simple
+  fixed-width representation is roughly 10–11 MB and a purpose-built packed
+  sidecar plausibly 5–8 MB, versus shipping the 43 MB source database.
+- **Assessed architecture:** do not port Icegrams wholesale or surface new
+  default next-word UX. A native C++ bridge would be a benchmark/parity spike
+  only; the preferred shipping path, if this is ever reopened, is separate
+  generation-bound `context3-is.bin` / `context3-en.bin` top-K artifacts and a
+  pure Swift mmap reader. Trigram is a named, ablatable rank contribution;
+  absence is neutral, lanes are blended, and it cannot create a new action
+  policy or arm autocorrect by itself.
+- **Decision gate A (build authorization):** ≥10% attested coverage on
+  context-rich reachable IS rival rows; ≥100 changed orderings at ≥3:1
+  correct:wrong; ≥+0.5pp context-rich dev top-1; aggregate dev top-1/top-3,
+  false auto-apply and protected EN/code-switch/safety slices non-regressing.
+  A miss closes the runtime wave and keeps Icegrams offline-only.
+- **Decision gate B (ranking activation):** compact results reproduce on
+  heldout without any safety/personal regression; artifacts ≤10 MB IS / ≤20 MB
+  combined; reader dirty delta ≤1 MiB and fresh-process peak <50 MiB; added
+  physical-device rank latency ≤0.10 ms p95 / ≤0.50 ms p99; cold, request and
+  last-mile gates remain green; ablation and missing/corrupt artifacts are
+  exactly inert.
+- **C++ bridge stop rule:** direct reuse remains in consideration only if the
+  spike shows ≤8 MiB dirty delta, ≤50 µs p95 exact lookup, no hot-path all-child
+  sort and explicit acceptance of the ~43 MB bundle increase. Even a pass does
+  not displace the compact format without measured end-to-end advantage.
+- **Frozen candidate result:** `type-eval export-candidates dev` now emits the
+  production three-slot call's eight-candidate diagnostic pool and explicitly
+  refuses heldout. The pinned offline study found 1,050 context-rich reachable
+  IS repairs, with the gold trigram attested in 266 (25.3%) and discriminating
+  evidence in 218 (20.8%). The best count signal changed 25 orderings: 21 wins,
+  3 losses and one wrong→different-wrong change (7:1), moving top-1 from
+  957→975 (+1.71pp) and top-3 from 1,026→1,032 (+0.57pp) on that slice.
+  Conditional trigram-vs-bigram lift was weaker: at its best measured weight,
+  20 changes / 15 wins / 3 losses and 957→969 top-1.
+- **Gate A verdict — STOP:** coverage, win:loss and slice-quality thresholds
+  passed, but only 25 decisions moved versus the predeclared ≥100 requirement.
+  Even extreme count weights saturated at 25; extreme conditional-lift weights
+  degraded from 12:1 to 1:1. This is a real but too-sparse gain to justify a
+  new bilingual artifact, reader, scoring seam and device-memory burden today.
+  Heldout was not exported or consulted.
+- **Safety/UX interpretation:** trigram remains ranking evidence only; it may
+  never authorize auto-apply or arm spacebar. The generated safety corpus is
+  action-policy-oriented (the protected typed word is deliberately absent from
+  the raw corrector candidate pool), so it cannot validate rank deltas; keeping
+  action authorization unchanged is the hard protection if this is revisited.
+- **Port decision:** the native C++ bridge was intentionally not built after
+  Gate A failed. It could reduce Python/CFFI overhead, but cannot remove the
+  43 MB source database and buys no additional product accuracy. The compact
+  5–8 MB pure-Swift sidecar remains the right architecture if fresh real-world
+  recordings or a newer conversational corpus make the evidence materially
+  denser. Reopen only with a new frozen slice; do not tune heldout to rescue it.
+- **Artifacts retained:** ignored `PLAN.md` keeps the dormant phase order and
+  gates; `tools/trigram-study.py` plus the dev/safety exporter preserve the
+  reproducible offline analysis path. No keyboard/runtime code changed.
 
 ## 2026-07-18 — Wave 43: action-policy boundary and configuration domains (complete)
 

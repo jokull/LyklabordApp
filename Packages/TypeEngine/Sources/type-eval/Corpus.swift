@@ -82,6 +82,97 @@ func runCorpusCommand(_ args: [String]) {
     printCorpusResult(result)
 }
 
+/// `type-eval export-candidates <dev|safety>` — emit one JSON object per row
+/// with the real corrector's scored candidate pool. This is deliberately
+/// limited to tuning/protection data: offline ranker studies may consume it,
+/// while heldout remains report-only and cannot accidentally become training
+/// data.
+func runExportCandidatesCommand(_ args: [String]) {
+    guard args.count == 1, ["dev", "safety"].contains(args[0]) else {
+        stderr("usage: type-eval export-candidates <dev|safety>")
+        exit(2)
+    }
+    let split = args[0]
+    guard let url = ArtifactLoader.corpusURL(split: split) else {
+        stderr("cannot locate repo root (data/eval/\(split).jsonl)")
+        exit(2)
+    }
+    let pairs: [CorpusPair]
+    let engine: TypeEngine
+    do {
+        pairs = try Corpus.loadCorpus(at: url)
+        engine = try ArtifactLoader.loadEngine(
+            config: ArtifactLoader.deterministicConfig(base: EngineConfig()),
+            log: { stderr($0) })
+    } catch {
+        stderr("\(error)")
+        exit(2)
+    }
+    engine.warmUp()
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+
+    for (index, pair) in pairs.enumerated() {
+        engine.resetLanguagePosterior()
+        for word in pair.context { engine.confirmWord(word) }
+        let trace = CorrectionTrace()
+        let suggestions = engine.suggestions(
+            context: pair.context.joined(separator: " "),
+            currentWord: pair.typo,
+            // Match the keyboard/corpus production surface. CorrectionTrace
+            // still captures up to eight internal candidates for offline
+            // pairwise analysis without widening bounded discovery work.
+            limit: 3,
+            trace: trace)
+        let record = CandidateExportRecord(
+            row: index + 1,
+            typo: pair.typo,
+            intended: pair.intended,
+            context: pair.context,
+            lang: pair.lang,
+            category: pair.category,
+            expectation: pair.expectation.rawValue,
+            pIcelandic: trace.pIcelandic,
+            autocorrect: suggestions.first?.isAutocorrect == true,
+            suggestions: suggestions.map(\.text),
+            candidates: trace.candidates.map {
+                CandidateExportRecord.Candidate(
+                    word: $0.word,
+                    score: $0.score,
+                    languageScore: $0.languageScore,
+                    contextEvidence: $0.contextEvidence)
+            })
+        do {
+            FileHandle.standardOutput.write(try encoder.encode(record))
+            FileHandle.standardOutput.write(Data([0x0A]))
+        } catch {
+            stderr("cannot encode row \(index + 1): \(error)")
+            exit(2)
+        }
+    }
+}
+
+private struct CandidateExportRecord: Encodable {
+    struct Candidate: Encodable {
+        let word: String
+        let score: Double
+        let languageScore: Double
+        let contextEvidence: Double?
+    }
+
+    let row: Int
+    let typo: String
+    let intended: String
+    let context: [String]
+    let lang: String
+    let category: String
+    let expectation: String
+    let pIcelandic: Double
+    let autocorrect: Bool
+    let suggestions: [String]
+    let candidates: [Candidate]
+}
+
 /// Per-pair debug dump (mirrors CorpusEval.run's replay exactly): one line
 /// per selected pair with the typo, intended, tail context and the top
 /// suggestions (with autocorrect flags). `mode` selects which pairs print:
