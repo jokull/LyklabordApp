@@ -122,8 +122,10 @@ cohort is closed below.
   ranking tests; proxy-spy, missing-data and host-mutation tests; <1MB retained
   malloc delta and <1/60s mean query tests; generic Release app+appex build;
   iOS 18.4 ReplayRig browse/`hjarta`/host-leak/insert path with captured
-  storyboard. Physical-device memory and TestFlight status are recorded at
-  publication.
+  storyboard. TestFlight 1.0 (15), built from `f826b68`, processed VALID on
+  2026-07-23, was assigned to internal `Innri prófun` and external `Vinir`;
+  beta review is APPROVED. The simulator memory gate is green; physical-device
+  category-scroll/search cache growth remains an explicit dogfood observation.
 
 ## 2026-07-23 — Wave 44: compact trigram context (assessment complete; runtime stopped)
 
