@@ -75,8 +75,11 @@ final class ScreenshotUITests: XCTestCase {
             return
         }
         try tapFirst([settings.cells.staticTexts["Add New Keyboard…"],
+                      settings.cells.staticTexts["Add New Keyboard"],
                       settings.staticTexts["Add New Keyboard…"],
-                      settings.buttons["Add New Keyboard…"]], "Add New Keyboard…")
+                      settings.staticTexts["Add New Keyboard"],
+                      settings.buttons["Add New Keyboard…"],
+                      settings.buttons["Add New Keyboard"]], "Add New Keyboard")
         try tapFirst([settings.cells.staticTexts["Lyklaborð"],
                       settings.staticTexts["Lyklaborð"]], "Lyklaborð in third-party list")
         // iOS 18 immediately adds it; some builds show a checkmark sheet with
@@ -215,7 +218,14 @@ final class ScreenshotUITests: XCTestCase {
     }
 
     private func isKeyboardActive(_ app: XCUIApplication) -> Bool {
-        ["ð", "þ", "æ", "ö"].contains { keyElement($0, in: app).exists }
+        // iOS 18 can expose a system "English & Icelandic" keyboard with the
+        // Icelandic letters, so those alone no longer identify Lyklaborð.
+        // Our iPhone layout also has a dedicated period key in alphabetic
+        // mode; the system bilingual layout does not.
+        let hasIcelandicLetter = ["ð", "þ", "æ", "ö"].contains {
+            keyElement($0, in: app).exists
+        }
+        return hasIcelandicLetter && keyElement(".", in: app).exists
     }
 
     /// Tap out a string on the on-screen keyboard, dead-center taps, human-ish
