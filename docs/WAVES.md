@@ -76,6 +76,11 @@ dependency planning, not a competing active queue.
    is useful as an offline teacher, but the real three-slot candidate study
    changed only 25/1,050 reachable context-rich IS decisions. Gate A required
    100, so no runtime, C++ bridge or shipping artifact is authorized.
+7. **Wave 45 — Icelandic emoji browse search (release candidate):** explicit
+   offline CLDR search now owns a private `.emojiSearch` query above the
+   ordinary Icelandic keys. Query actions are firewalled from host text,
+   autocomplete, learning and recording; only selected emoji reach the proxy.
+   The compact picker cohort is 85,943 bytes and lazy-loaded.
 
 Wave 44 is closed without a runtime feature. Continue real recordings in
 parallel; a materially denser frozen context slice or a newer conversational
@@ -86,6 +91,39 @@ long-press-eject confirmation and Wave 36's real `„völd` literal-revert path
 remain open until their exact interactions are tested. The
 2026-07-18T00-56-44 recording exercised neither exact check. Wave 39's physical
 cohort is closed below.
+
+## 2026-07-23 — Wave 45: Icelandic emoji browse search
+
+- **Trigger:** suggestion-bar labels solved only the strong single-match case.
+  Testers still needed an explicit Icelandic way to find every emoji without
+  switching keyboards or leaking the phrase into the host field.
+- **Height gate:** chose the fixed one-band layout. KeyboardKit already
+  reserves a 50pt hidden toolbar in `.emojiSearch`, so query + horizontal
+  results occupy that strip and alphabetic key geometry stays unchanged. The
+  clear overlay remainder rejects hit testing; there is no dynamic extension-
+  height transition, clipping or rotation state to fail.
+- **Data/ranking:** the pinned CLDR 48.2 / Emoji 17 builder emits
+  `is-search.json`: 1,586 picker base emoji, 2,798 tokens, 6,024 postings,
+  picker SHA-256, positional name/keyword source, 85,943 bytes. Runtime
+  validates schema/cohort/counts and ranks exact name > exact keyword > name
+  token > name prefix > keyword prefix > accent-fold fallback, then
+  frecency/stable order. `hjarta → ❤️` is the reviewed conventional override.
+- **Privacy/action boundary:** an `@MainActor` session lazy-loads only on search
+  entry. A pure firewall consumes real KeyboardKit character/space/backspace/
+  repeat/Done actions before the proxy ledger, autocorrect, recorder or
+  learning. Emoji taps alone use the existing `.emoji` release path and keep
+  search open. Missing/corrupt data fails closed while retaining query
+  ownership; external host mutations clear search without editing host text.
+- **UX/accessibility:** browse exposes `Leita að emoji`; active search has a
+  private query pill, clear control, frecency empty state, explicit no-match
+  copy, ordered CLDR-named buttons and long-press skin tones. KeyboardKit's
+  erroneous Icelandic “Done” translation is corrected to “Lokið”.
+- **Gates:** deterministic generator check; exact/prefix/fallback/bounded
+  ranking tests; proxy-spy, missing-data and host-mutation tests; <1MB retained
+  malloc delta and <1/60s mean query tests; generic Release app+appex build;
+  iOS 18.4 ReplayRig browse/`hjarta`/host-leak/insert path with captured
+  storyboard. Physical-device memory and TestFlight status are recorded at
+  publication.
 
 ## 2026-07-23 — Wave 44: compact trigram context (assessment complete; runtime stopped)
 

@@ -4,11 +4,17 @@
 and search keywords in Unicode CLDR 48.2, limited and ordered by the complete
 Emoji 17.0 fully-qualified repertoire.
 
-`is-suggestions.json` is the compact runtime artifact bundled with the
-keyboard extension. It maps conservative, exact, single-token Icelandic
-labels to one unambiguous emoji from the bundled picker. The full corpus stays
-available for auditing and future search/ranking without being parsed on each
-keyboard process launch.
+Two compact runtime artifacts are bundled with the keyboard extension:
+
+- `is-suggestions.json` maps conservative, exact, single-token Icelandic
+  labels to one unambiguous emoji for the ordinary suggestion bar;
+- `is-search.json` contains the 1,586 picker-supported base emoji with their
+  CLDR name/keyword source order for explicit browse search. It records the
+  picker SHA-256 and corpus counts, is capped below 100 KB, and loads only when
+  search opens.
+
+The full corpus stays available for auditing and generation without being
+parsed on keyboard activation.
 
 Each of the 3,944 records contains:
 

@@ -33,6 +33,10 @@ extension KeyboardApp {
 
 final class KeyboardViewController: KeyboardInputViewController {
 
+    /// Search text exists only inside the extension UI. The action handler
+    /// consumes it before UITextDocumentProxy/autocomplete/learning see it.
+    private let emojiSearchSession = IcelandicEmojiSearchSession()
+
     override func viewDidLoad() {
         // Wave 39 activation boundary. Capture before KeyboardKit/App Group
         // setup so the cold report includes controller work that happens
@@ -169,7 +173,10 @@ final class KeyboardViewController: KeyboardInputViewController {
         // dot), performs the deferred '.'-apply on the FOLLOWING delimiter,
         // executes revert-on-continuation proxy edits, and forwards
         // verbatim-suggestion taps to the session.
-        services.actionHandler = LyklabordActionHandler(controller: self)
+        services.actionHandler = LyklabordActionHandler(
+            controller: self,
+            emojiSearchSession: emojiSearchSession
+        )
 
         // D2/D3 (docs/PUNCTUATION_BEHAVIOR.md): a period preceded by a digit is
         // an ordinal/decimal, not a sentence end — don't auto-cap the next word
@@ -224,6 +231,10 @@ final class KeyboardViewController: KeyboardInputViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        emojiSearchSession.done()
+        if state.keyboardContext.keyboardType == .emojiSearch {
+            state.keyboardContext.keyboardType = .emojis
+        }
         // M2: don't lose a verbatim tap/commit buffered right before the
         // keyboard is dismissed (events normally flush on the autocomplete
         // pass after each commit; this covers the last one).
@@ -257,12 +268,18 @@ final class KeyboardViewController: KeyboardInputViewController {
     }
 
     private func forwardTextContextChange() {
+        let hostWindow = textDocumentProxy.documentContextBeforeInput ?? ""
+        if MainActor.assumeIsolated({
+            emojiSearchSession.hostContextDidChange(window: hostWindow)
+        }) {
+            state.keyboardContext.keyboardType = .emojis
+        }
         guard let service = services.autocompleteService as? LyklabordAutocompleteService
         else { return }
         // Field-type gate (PLAN.md verbatim/URL layer 2): URL/email/web-
         // search fields must never auto-apply a correction.
         service.updateFieldKind(LyklabordAutocompleteService.fieldKind(for: state.keyboardContext))
-        service.noteTextContextChange(textDocumentProxy.documentContextBeforeInput ?? "")
+        service.noteTextContextChange(hostWindow)
     }
 
     override func viewWillSetupKeyboardView() {
@@ -316,7 +333,17 @@ final class KeyboardViewController: KeyboardInputViewController {
                 // emoji key is tapped. See `LyklabordEmojiKeyboard`.
                 emojiKeyboard: { _ in
                     LyklabordEmojiKeyboard(
-                        actionHandler: controller.services.actionHandler
+                        actionHandler: controller.services.actionHandler,
+                        keyboardContext: controller.state.keyboardContext,
+                        searchSession: self.emojiSearchSession,
+                        beginSearch: {
+                            controller.state.autocompleteContext.reset()
+                            self.emojiSearchSession.begin(
+                                hostWindow: controller.textDocumentProxy
+                                    .documentContextBeforeInput ?? ""
+                            )
+                            controller.state.keyboardContext.keyboardType = .emojiSearch
+                        }
                     )
                 },
                 // Autocomplete toolbar with the frecency empty state and the
@@ -615,6 +642,14 @@ final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
         for context: KeyboardContext
     ) -> KeyboardAction.Row {
         var actions = super.bottomActions(for: context)
+        if context.keyboardType == .emojiSearch {
+            actions.removeAll {
+                if case .keyboardType = $0 { return true }
+                return false
+            }
+            actions.insert(.keyboardType(.alphabetic), at: 0)
+            return actions
+        }
         guard context.keyboardType == .alphabetic else { return actions }
         // Exactly one emoji key, placed immediately to the RIGHT of the 123
         // numeric switch in the bottom-left cluster. KeyboardKit's stock layout
@@ -762,6 +797,26 @@ final class LyklabordLayoutService: KeyboardLayout.DeviceBasedLayoutService {
 /// (`LyklabordAutocompleteService.spacebarMode`).
 final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
 
+    private let emojiSearchSession: IcelandicEmojiSearchSession
+
+    init(
+        controller: KeyboardController,
+        emojiSearchSession: IcelandicEmojiSearchSession
+    ) {
+        self.emojiSearchSession = emojiSearchSession
+        super.init(
+            controller: controller,
+            keyboardContext: controller.state.keyboardContext,
+            keyboardBehavior: controller.services.keyboardBehavior,
+            autocompleteContext: controller.state.autocompleteContext,
+            autocompleteService: controller.services.autocompleteService,
+            emojiContext: controller.state.emojiContext,
+            feedbackContext: controller.state.feedbackContext,
+            feedbackService: controller.services.feedbackService,
+            spaceDragGestureHandler: controller.services.spaceDragGestureHandler
+        )
+    }
+
     private var lyklabordAutocompleteService: LyklabordAutocompleteService? {
         autocompleteService as? LyklabordAutocompleteService
     }
@@ -869,6 +924,46 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         on action: KeyboardAction,
         replaced: Bool
     ) {
+        // Emoji-search firewall. Search keystrokes are private view state,
+        // consumed before the proxy ledger, autocorrect, recorder, touch
+        // evidence, or learning pipeline. Only a selected `.emoji` is ever
+        // allowed to continue through the normal insertion path.
+        switch IcelandicEmojiSearchFirewall.command(
+            isActive: keyboardContext.keyboardType == .emojiSearch,
+            gesture: gesture,
+            action: action
+        ) {
+        case .append(let text):
+            tryTriggerFeedback(for: gesture, on: action)
+            MainActor.assumeIsolated { emojiSearchSession.append(text) }
+            return
+        case .backspace:
+            tryTriggerFeedback(for: gesture, on: action)
+            MainActor.assumeIsolated { emojiSearchSession.backspace() }
+            return
+        case .done:
+            tryTriggerFeedback(for: gesture, on: action)
+            MainActor.assumeIsolated { emojiSearchSession.done() }
+            keyboardContext.keyboardType = .emojis
+            super.tryPerformAutocomplete(after: gesture, on: action)
+            return
+        case .exitAndPass:
+            MainActor.assumeIsolated { emojiSearchSession.exit() }
+            // Continue to super: this action changes the keyboard type
+            // but never edits the host document.
+            break
+        case .pass:
+            break
+        }
+        if keyboardContext.keyboardType == .emojiSearch,
+           gesture == .release,
+           case .emoji(let emoji) = action {
+            let before = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+            MainActor.assumeIsolated {
+                emojiSearchSession.expectEmojiHostInsertion(before: before, emoji: emoji.char)
+            }
+        }
+
         // Proxy-edit ledger: snapshot the window before ANY of this call's
         // proxy edits (including the mode-2 insert below); flushed by the
         // tryPerformAutocomplete override, or at the exit fallback for

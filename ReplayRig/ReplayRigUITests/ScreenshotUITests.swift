@@ -184,6 +184,46 @@ final class ScreenshotUITests: XCTestCase {
         NSLog("SHOT_DEBUG appButtons=\(otherButtons)")
     }
 
+    /// Wave 45 acceptance: search text is owned by the keyboard, never the
+    /// host field; selecting the result inserts only the emoji and leaves the
+    /// search surface active for another pick. Screenshots become the browse
+    /// and active-query storyboard evidence in the xcresult bundle.
+    func testEmojiSearchFirewallAndInsertion() throws {
+        let app = try launchHostWithKeyboard()
+        let field = app.textFields["replay-input"]
+
+        keyElement("Emoji", in: app).tap()
+        let search = app.buttons["emoji-search-button"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5), "emoji browse search affordance missing")
+        attachScreenshot(app, name: "emoji-browse")
+        XCTAssertEqual(field.value as? String, "")
+
+        search.tap()
+        let searchBand = app.descendants(matching: .any)["emoji-search-band"]
+        XCTAssertTrue(searchBand.waitForExistence(timeout: 5))
+        type("hjarta", in: app)
+        XCTAssertEqual(field.value as? String, "", "search query leaked into host text")
+        attachScreenshot(app, name: "emoji-search-hjarta")
+
+        let result = app.buttons["rautt hjarta"]
+        XCTAssertTrue(result.waitForExistence(timeout: 5), "red-heart result missing")
+        result.tap()
+        XCTAssertEqual(field.value as? String, "❤️")
+        XCTAssertTrue(searchBand.exists, "picker closed after insertion")
+
+        app.buttons["Hreinsa emoji-leit"].tap()
+        type("hagfræði", in: app)
+        XCTAssertEqual(field.value as? String, "❤️", "empty-result query leaked into host text")
+        XCTAssertTrue(app.staticTexts["Engin emoji fundust"].waitForExistence(timeout: 5))
+        attachScreenshot(app, name: "emoji-search-empty")
+
+        keyElement("Lokið", in: app).tap()
+        XCTAssertTrue(app.buttons["emoji-search-button"].waitForExistence(timeout: 5))
+        keyElement("ABC", in: app).tap()
+        XCTAssertTrue(keyElement("ð", in: app).waitForExistence(timeout: 5))
+        XCTAssertEqual(field.value as? String, "❤️")
+    }
+
     // MARK: - Helpers
 
     private func launchHostWithKeyboard() throws -> XCUIApplication {
@@ -269,6 +309,13 @@ final class ScreenshotUITests: XCTestCase {
             if button.exists { return button }
         }
         return app.buttons[labels[0]]
+    }
+
+    private func attachScreenshot(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     /// Write the ready-marker for the host capture script, then hold the state.

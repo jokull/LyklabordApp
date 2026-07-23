@@ -212,6 +212,11 @@ targets:
       # in the memory-constrained extension; see data/emoji/README.md.
       - path: data/emoji/is-suggestions.json
         buildPhase: resources
+      # Picker-only Icelandic CLDR search rows (85.9KB). The 535KB authoring
+      # corpus stays outside the appex; this compact artifact loads only when
+      # the user opens emoji search.
+      - path: data/emoji/is-search.json
+        buildPhase: resources
     info:
       path: KeyboardExt/Info.plist
       properties:
@@ -339,8 +344,15 @@ targets:
       # test bundle, so cross-target source compilation is the seam; the
       # file is deliberately KeyboardKit-free to keep this possible.
       - path: KeyboardExt/IcelandicCalloutMappings.swift
+      # Pure search/index/session source is cross-compiled into the test
+      # bundle, following the same app-extension test seam as callout data.
+      - path: KeyboardExt/IcelandicEmojiSearch.swift
+      - path: KeyboardExt/EmojiFrequencyStore.swift
+      - path: KeyboardExt/IcelandicEmojiSearchFirewall.swift
     dependencies:
       - target: ReplayHost
+      - package: KeyboardKit
+        product: KeyboardKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord.replayhost.uitests
