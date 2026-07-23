@@ -215,13 +215,14 @@ public struct EngineConfig: Sendable {
     /// needs).
     public var compoundValidityEnabled = true
     /// Minimum modifier (non-final part) length. Miðeind's prefix list
-    /// bottoms out at 2; 4 is this engine's over-acceptance guard (the
-    /// dev sweep: 3/3 protects 2.7% of typo rows, 4/4 → 1.2% with no loss
-    /// on real-compound positives — short-part compounds live in BÍN
-    /// anyway, so validity only needs the productive long tail).
+    /// bottoms out at 2; 4 is this engine's over-acceptance guard.
     public var compoundMinModifierLength: Int = 4
-    /// Minimum head (final part) length; same sweep as above.
-    public var compoundMinHeadLength: Int = 4
+    /// Minimum head (final part) length. Three-letter open-class heads are
+    /// common and productive (`hagfræði+bók`), and not every resulting
+    /// compound is attested whole in BÍN. Keeping the modifier floor at four
+    /// preserves the over-acceptance guard while preventing a correctly typed
+    /// compound from being force-split (`hagfræðibók` → `hagfræði ók`).
+    public var compoundMinHeadLength: Int = 3
     /// Words longer than this skip compound analysis (pathological-input
     /// latency guard; the split scan is O(length) lookups).
     public var compoundMaxWordLength: Int = 32

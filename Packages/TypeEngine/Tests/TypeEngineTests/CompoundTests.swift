@@ -137,18 +137,46 @@ final class CompoundTests: XCTestCase {
             "skaða+bóta+reglan: every non-final part a legal modifier")
     }
 
-    func testShortPartsAreRejected() {
+    func testThreeCharacterHeadIsAcceptedByDefault() {
         var config = EngineConfig()
-        XCTAssertEqual(config.compoundMinModifierLength, 4)
-        XCTAssertEqual(config.compoundMinHeadLength, 4)
-        // "stökk" + 3-char head: below compoundMinHeadLength.
+        XCTAssertEqual(config.compoundMinHeadLength, 3)
         let corrector = makeCorrector(
             morphology: FakeMorphology(["hús"]), paradigms: makeParadigms(), config: config)
-        XCTAssertFalse(corrector.correct(typed: "stökkhús").typedWordIsValid)
-        config.compoundMinHeadLength = 3
-        let relaxed = makeCorrector(
+        XCTAssertTrue(corrector.correct(typed: "stökkhús").typedWordIsValid)
+
+        config.compoundMinHeadLength = 4
+        let strict = makeCorrector(
             morphology: FakeMorphology(["hús"]), paradigms: makeParadigms(), config: config)
-        XCTAssertTrue(relaxed.correct(typed: "stökkhús").typedWordIsValid)
+        XCTAssertFalse(strict.correct(typed: "stökkhús").typedWordIsValid)
+    }
+
+    func testHagfraedibokIsNeverAutoSplit() {
+        let paradigms = makeParadigms()
+        paradigms.addNoun(
+            lemma: "hagfræði", genderCode: 2,
+            forms: [
+                ("hagfræði", 0, false, false),
+                ("hagfræði", 1, false, false),
+            ])
+        let morphology = FakeMorphology(["bók", "ók"])
+        let inflection = InflectionStore()
+        inflection.setModel(
+            InflectionModel(paradigms: paradigms, governors: GovernorsModel(table: [:])))
+        let model = BlendedLanguageModel(
+            icelandic: DictLexicon(
+                unigrams: ["hagfræði": 1_000, "ók": 800, "bók": 600],
+                bigrams: ["hagfræði ók": 500]),
+            english: Fixtures.english,
+            morphology: morphology,
+            config: EngineConfig(),
+            inflection: inflection)
+        let result = Corrector(model: model, config: EngineConfig()).correct(
+            typed: "hagfræðibók", pIcelandic: 0.9)
+
+        XCTAssertTrue(result.typedWordIsValid, "hagfræði+bók must be compound-protected")
+        XCTAssertFalse(
+            result.suggestions.contains(where: \.isAutocorrect),
+            "valid compound must never auto-split, got \(result.suggestions)")
     }
 
     func testGarbageStaysInvalid() {
