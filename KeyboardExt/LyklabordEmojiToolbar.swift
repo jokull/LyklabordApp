@@ -30,6 +30,10 @@ import KeyboardKit
 ///   (`armedAutocorrectText` excludes them): the spacebar has no long-press,
 ///   so hoisting would remove the eject affordance — they stay in the bar as
 ///   a highlighted chip and `armed` is false here, taking the prefix(3) path.
+/// - **Emoji slot** → a strong label match arrives as `.emoji`; KeyboardKit's
+///   toolbar drops one plain candidate and renders that emoji in its place.
+///   The bar therefore stays at three slots, and emoji never affect the armed
+///   autocorrect/spacebar path.
 struct LyklabordToolbar<Standard: View>: View {
 
     @ObservedObject var autocompleteContext: AutocompleteContext

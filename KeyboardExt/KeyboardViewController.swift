@@ -1112,6 +1112,12 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
             if ledgerHandleDepth == 0 { recordPendingSelfEdit() }
         }
 
+        // A label suggestion is another route to the same emoji as the grid
+        // and quick row, so let it train the shared on-device frecency too.
+        if suggestion.type == .emoji {
+            EmojiFrequencyStore.shared.record(suggestion.text)
+        }
+
         // 4. Verbatim tap: `.unknown` suggestions are produced by our
         // service's verbatim escape-hatch slot AND the wave-36 reserved
         // literal-revert slot. A `.unknown` tap is first offered to the

@@ -102,6 +102,28 @@ Evaluation data only: these files feed `type-eval` and are not part of the shipp
 
 ---
 
+## Icelandic Emoji Labels: Unicode CLDR
+
+The Icelandic emoji names and search keywords in `data/emoji/is.json` are
+extracted from **Unicode Common Locale Data Repository (CLDR) 48.2** and
+matched against the **Unicode Emoji 17.0** fully-qualified repertoire.
+
+Copyright © 1991–2026 Unicode, Inc. Distributed under the permissive
+**Unicode License v3** (`Unicode-3.0`). Source URLs, versions, and SHA-256
+checksums are embedded in the generated file and pinned by
+`scripts/build-emoji-labels.py`.
+
+- https://cldr.unicode.org/
+- https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt
+- https://www.unicode.org/license.txt
+
+Changes made: Icelandic annotation and derived-annotation XML are joined,
+limited and ordered by the Emoji 17.0 fully-qualified sequence list, and
+serialized as deterministic JSON. No labels are machine-translated or
+otherwise altered.
+
+---
+
 ## Summary for App Distribution
 
 ### What we ship

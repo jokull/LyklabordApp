@@ -96,6 +96,10 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// marshals). Privacy: includes contact names — in-memory only, never
     /// logged or persisted (see `TextReplacements` header).
     private var textReplacements: TextReplacements?
+    /// Compact CLDR-derived exact-label index. Queue-confined with the rest of
+    /// the suggestion pipeline; nil is a fully supported missing-resource
+    /// fallback (word completion continues unchanged).
+    private var emojiSuggester: IcelandicEmojiSuggester?
 
     // Personal learning (M2). All nil/absent when the App Group container
     // is unavailable (Full Access denied, simulator oddities): the engine
@@ -771,6 +775,16 @@ final class LyklabordAutocompleteService: AutocompleteService {
                 curatedVocabulary = CuratedVocabulary(contentsOf: extraURL)
                 NSLog("[LyklaborÃ°] curated vocabulary loaded (%d words)", curatedVocabulary?.count ?? 0)
             }
+            if let emojiURL = bundle.url(
+                forResource: "is-suggestions", withExtension: "json"
+            ) {
+                emojiSuggester = IcelandicEmojiSuggester(contentsOf: emojiURL)
+                if emojiSuggester == nil {
+                    NSLog("[LyklaborÃ°] Icelandic emoji suggestion index failed to decode")
+                }
+            } else {
+                NSLog("[LyklaborÃ°] Icelandic emoji suggestion index missing; emoji suggestions stay off")
+            }
             engine.setPersonalVocabulary(combinedVocabulary(personal: nil))
             // Personal learning (M2): resolve the App Group container and
             // load the personal snapshot. Fully graceful — no container,
@@ -1137,7 +1151,23 @@ final class LyklabordAutocompleteService: AutocompleteService {
         // which keys off the suggestion TYPE — exactly how mode 1 works.
         // Modes 1 and 2 keep the autocorrect type untouched.
         let modeAdjusted = mapped.withAutocorrectEnabled(spacebarMode != .alwaysInsertSpace)
-        return .init(inputText: text, suggestions: modeAdjusted)
+        // Emoji use KeyboardKit's dedicated channel. They are always `.emoji`
+        // (never `.autocorrect`), so they cannot arm or apply from space. The
+        // toolbar trades its third textual slot for this one match, keeping the
+        // bar at three total slots. Suppress outside ordinary prose fields.
+        let emojiSuggestions: [Autocomplete.Suggestion]
+        if fieldKind == .standard,
+            let emoji = emojiSuggester?.suggestion(for: pendingToken)
+        {
+            emojiSuggestions = [Autocomplete.Suggestion(text: emoji, type: .emoji)]
+        } else {
+            emojiSuggestions = []
+        }
+        return .init(
+            inputText: text,
+            suggestions: modeAdjusted,
+            emojiSuggestions: emojiSuggestions
+        )
     }
 
     /// Map a TypeEngine suggestion onto KeyboardKit's model.

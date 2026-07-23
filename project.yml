@@ -207,6 +207,11 @@ targets:
       # human-maintained; loaded as free base vocabulary (not Plus-gated).
       - path: data/is/extra-vocab.txt
         buildPhase: resources
+      # Compact exact Icelandic label -> emoji index generated from the full
+      # Unicode CLDR corpus in data/emoji/is.json. Only this 33KB lookup ships
+      # in the memory-constrained extension; see data/emoji/README.md.
+      - path: data/emoji/is-suggestions.json
+        buildPhase: resources
     info:
       path: KeyboardExt/Info.plist
       properties:
