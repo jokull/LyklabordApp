@@ -21,6 +21,10 @@ architecture in `docs/adr/`. Newest first.
   move Unicode boundary work to generation; Foundation substring matching
   avoids both the failed 67 ms/query Swift scan and a memory-heavy runtime
   inverted index. Gates remain one Debug frame/query and <1 MB retained heap.
+- **Publication**: TestFlight 1.0 (16), built from `e48f0c6`, uploaded at
+  2026-07-24 09:54:56 GMT and processed `VALID` with exempt encryption. It was
+  assigned to internal `Innri prófun` and external `Vinir`; Beta App Review was
+  submitted and reached `APPROVED` by 09:57:20 GMT.
 
 ## Standing doctrine (violating these needs an ADR, not a wave)
 
