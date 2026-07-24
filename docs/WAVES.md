@@ -7,6 +7,21 @@ in `scores/history.jsonl`; behavioral contracts live in
 `Packages/TypeEngine/Scenarios/*.scenarios` (scenario comments cite sessions);
 architecture in `docs/adr/`. Newest first.
 
+## 2026-07-24 — Wave 46: bilingual emoji search
+
+- **Trigger**: explicit emoji search only understood Icelandic, despite the
+  keyboard's core promise being mixed Icelandic/English input.
+- **Decided**: merge pinned CLDR 48.2 Icelandic and English names/keywords into
+  one lazy picker-only search artifact. Keep Icelandic result and VoiceOver
+  names, and leave ordinary suggestion-bar emoji Icelandic-only. Exact/prefix
+  ranking is locale-neutral, with `hjarta` and `heart` both strongly mapping
+  to ❤️.
+- **Cost/control**: schema 4 grows the runtime JSON from about 86 KB to 217,888
+  bytes for 1,586 emoji, 6,016 tokens and 14,595 postings. Compact token fields
+  move Unicode boundary work to generation; Foundation substring matching
+  avoids both the failed 67 ms/query Swift scan and a memory-heavy runtime
+  inverted index. Gates remain one Debug frame/query and <1 MB retained heap.
+
 ## Standing doctrine (violating these needs an ADR, not a wave)
 
 - **Conservatism invariant**: a word valid in either language is never

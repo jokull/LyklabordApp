@@ -33,7 +33,7 @@ struct IcelandicEmojiSearchIndex {
 
     private struct Artifact: Decodable {
         let schema: Int
-        let locale: String
+        let locales: [String]
         let cldrVersion: String
         let emojiVersion: String
         let pickerSha256: String
@@ -46,8 +46,10 @@ struct IcelandicEmojiSearchIndex {
 
     private struct Entry {
         let emoji: String
-        let name: String
-        let keywords: ArraySlice<String>
+        let icelandicName: String
+        let englishName: String
+        let nameTokens: NSString
+        let keywordTokens: NSString
         let stableOrder: Int
     }
 
@@ -57,28 +59,38 @@ struct IcelandicEmojiSearchIndex {
 
     init(data: Data) throws {
         let artifact = try JSONDecoder().decode(Artifact.self, from: data)
-        guard artifact.schema == 1 else { throw LoadError.unsupportedSchema }
-        guard artifact.locale == "is" else { throw LoadError.invalidLocale }
+        guard artifact.schema == 4 else { throw LoadError.unsupportedSchema }
+        guard artifact.locales == ["is", "en"] else { throw LoadError.invalidLocale }
         guard artifact.cldrVersion == "48.2",
               artifact.emojiVersion == "17.0",
               artifact.pickerSha256 == "71a20055c75b4351825caf54bb716d87af9968d3490803f6a4c34426f050e172"
         else { throw LoadError.invalidCohort }
         guard artifact.entries.count == artifact.emojiCount,
               artifact.emojiCount == 1_586,
-              artifact.tokenCount == 2_798,
-              artifact.postingCount == 6_024
+              artifact.tokenCount == 6_016,
+              artifact.postingCount == 14_595
         else { throw LoadError.invalidCounts }
 
         var decoded: [Entry] = []
         decoded.reserveCapacity(artifact.entries.count)
         for (order, row) in artifact.entries.enumerated() {
-            guard row.count >= 2, !row[0].isEmpty, !row[1].isEmpty else {
+            guard row.count == 5,
+                  !row[0].isEmpty,
+                  !row[1].isEmpty,
+                  !row[2].isEmpty,
+                  row[3].first == "|",
+                  row[3].last == "|",
+                  row[4].first == "|",
+                  row[4].last == "|"
+            else {
                 throw LoadError.malformedEntry
             }
             decoded.append(Entry(
                 emoji: row[0],
-                name: row[1],
-                keywords: row.dropFirst(2),
+                icelandicName: row[1],
+                englishName: row[2],
+                nameTokens: row[3] as NSString,
+                keywordTokens: row[4] as NSString,
                 stableOrder: order
             ))
         }
@@ -102,7 +114,7 @@ struct IcelandicEmojiSearchIndex {
     }
 
     func name(for emoji: String) -> String? {
-        entries.first { Self.emojiKey($0.emoji) == Self.emojiKey(emoji) }?.name
+        entries.first { Self.emojiKey($0.emoji) == Self.emojiKey(emoji) }?.icelandicName
     }
 
     func frecencyResult(for emoji: String, order: Int) -> IcelandicEmojiSearchResult? {
@@ -110,7 +122,7 @@ struct IcelandicEmojiSearchIndex {
             Self.emojiKey($0.emoji) == Self.emojiKey(emoji)
         }) else { return nil }
         return IcelandicEmojiSearchResult(
-            emoji: entry.emoji, name: entry.name, rank: 0, stableOrder: order
+            emoji: entry.emoji, name: entry.icelandicName, rank: 0, stableOrder: order
         )
     }
 
@@ -122,6 +134,8 @@ struct IcelandicEmojiSearchIndex {
         let query = Self.normalize(rawQuery)
         guard !query.isEmpty, limit > 0 else { return [] }
         let foldedQuery = Self.fold(query)
+        let exactTokenNeedle = "|\(query)|"
+        let tokenPrefixNeedle = "|\(query)"
         var normalizedFrecency: [String: Int] = [:]
         for (emoji, order) in frecencyOrder.sorted(by: { $0.value < $1.value }) {
             if normalizedFrecency[Self.emojiKey(emoji)] == nil {
@@ -133,21 +147,36 @@ struct IcelandicEmojiSearchIndex {
             let isStrongMatch = strongMatches[query].map(Self.emojiKey) == Self.emojiKey(entry.emoji)
             guard let rank = (isStrongMatch
                 ? -1
-                : Self.rank(query: query, name: entry.name, keywords: entry.keywords))
+                : Self.rank(
+                    query: query,
+                    exactTokenNeedle: exactTokenNeedle,
+                    tokenPrefixNeedle: tokenPrefixNeedle,
+                    icelandicName: entry.icelandicName,
+                    englishName: entry.englishName,
+                    nameTokens: entry.nameTokens,
+                    keywordTokens: entry.keywordTokens
+                ))
             else { return nil }
             return IcelandicEmojiSearchResult(
-                emoji: entry.emoji, name: entry.name, rank: rank, stableOrder: entry.stableOrder
+                emoji: entry.emoji,
+                name: entry.icelandicName,
+                rank: rank,
+                stableOrder: entry.stableOrder
             )
         }
         let matched = directResults.isEmpty ? entries.compactMap { entry -> IcelandicEmojiSearchResult? in
             guard let rank = Self.rank(
                         query: foldedQuery,
-                        name: Self.fold(entry.name),
-                        keywords: entry.keywords.map(Self.fold)
+                        exactTokenNeedle: "|\(foldedQuery)|",
+                        tokenPrefixNeedle: "|\(foldedQuery)",
+                        icelandicName: Self.fold(entry.icelandicName),
+                        englishName: Self.fold(entry.englishName),
+                        nameTokens: Self.fold(entry.nameTokens as String) as NSString,
+                        keywordTokens: Self.fold(entry.keywordTokens as String) as NSString
             ) else { return nil }
             return IcelandicEmojiSearchResult(
                 emoji: entry.emoji,
-                name: entry.name,
+                name: entry.icelandicName,
                 rank: rank + 5,
                 stableOrder: entry.stableOrder
             )
@@ -164,32 +193,38 @@ struct IcelandicEmojiSearchIndex {
         .map { $0 }
     }
 
-    private static func rank<C: Collection>(
+    private static func rank(
         query: String,
-        name: String,
-        keywords: C
-    ) -> Int? where C.Element == String {
-        if name == query { return 0 }
-        if keywords.contains(query) { return 1 }
+        exactTokenNeedle: String,
+        tokenPrefixNeedle: String,
+        icelandicName: String,
+        englishName: String,
+        nameTokens: NSString,
+        keywordTokens: NSString
+    ) -> Int? {
+        if icelandicName == query || englishName == query { return 0 }
         let queryTokens = tokens(query)
         guard !queryTokens.isEmpty else { return nil }
-        let nameTokens = tokens(name)
-        let keywordTokens = keywords.flatMap(tokens)
 
-        if queryTokens.count == 1, let queryToken = queryTokens.first {
-            if nameTokens.contains(queryToken) { return 2 }
-            if nameTokens.contains(where: { $0.hasPrefix(queryToken) }) { return 3 }
-            if keywordTokens.contains(where: { $0.hasPrefix(queryToken) }) { return 4 }
+        if queryTokens.count == 1 {
+            if hasExactToken(keywordTokens, exactTokenNeedle) { return 1 }
+            if hasExactToken(nameTokens, exactTokenNeedle) { return 2 }
+            if hasTokenPrefix(nameTokens, tokenPrefixNeedle) { return 3 }
+            if hasTokenPrefix(keywordTokens, tokenPrefixNeedle) { return 4 }
             return nil
         }
 
+        if hasExactToken(keywordTokens, "|#\(query)|") { return 1 }
+
         var worstRank = 2
         for queryToken in queryTokens {
-            if nameTokens.contains(queryToken) {
+            let exactNeedle = "|\(queryToken)|"
+            let prefixNeedle = "|\(queryToken)"
+            if hasExactToken(nameTokens, exactNeedle) {
                 worstRank = max(worstRank, 2)
-            } else if nameTokens.contains(where: { $0.hasPrefix(queryToken) }) {
+            } else if hasTokenPrefix(nameTokens, prefixNeedle) {
                 worstRank = max(worstRank, 3)
-            } else if keywordTokens.contains(where: { $0.hasPrefix(queryToken) }) {
+            } else if hasTokenPrefix(keywordTokens, prefixNeedle) {
                 worstRank = max(worstRank, 4)
             } else {
                 return nil
@@ -216,8 +251,20 @@ struct IcelandicEmojiSearchIndex {
 
     private static func tokens(_ value: String) -> [String] {
         value.split { character in
-            !(character.isLetter || character.isNumber || character == "-")
+            isTokenSeparator(character)
         }.map(String.init)
+    }
+
+    private static func hasExactToken(_ field: NSString, _ needle: String) -> Bool {
+        field.range(of: needle).location != NSNotFound
+    }
+
+    private static func hasTokenPrefix(_ field: NSString, _ needle: String) -> Bool {
+        field.range(of: needle).location != NSNotFound
+    }
+
+    private static func isTokenSeparator(_ character: Character) -> Bool {
+        !(character.isLetter || character.isNumber || character == "-")
     }
 }
 

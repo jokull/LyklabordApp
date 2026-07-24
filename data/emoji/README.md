@@ -9,9 +9,10 @@ Two compact runtime artifacts are bundled with the keyboard extension:
 - `is-suggestions.json` maps conservative, exact, single-token Icelandic
   labels to one unambiguous emoji for the ordinary suggestion bar;
 - `is-search.json` contains the 1,586 picker-supported base emoji with their
-  CLDR name/keyword source order for explicit browse search. It records the
-  picker SHA-256 and corpus counts, is capped below 100 KB, and loads only when
-  search opens.
+  Icelandic and English CLDR names and keywords for explicit browse search.
+  It records both pinned source locales, the picker SHA-256 and corpus counts,
+  is capped below 250 KB, and loads only when search opens. Result labels and
+  accessibility names remain Icelandic; either language can find them.
 
 The full corpus stays available for auditing and generation without being
 parsed on keyboard activation.
@@ -33,10 +34,10 @@ python3 scripts/build-emoji-labels.py
 python3 scripts/build-emoji-labels.py --check
 ```
 
-The builder pins every upstream URL and SHA-256 and fails if any emoji lacks
-an Icelandic name. Variation selectors are removed only when joining Emoji 17
-sequences to CLDR annotation keys, as required by LDML; the emitted emoji
-sequences retain them.
+The builder pins every upstream URL and SHA-256 and fails if any searchable
+emoji lacks an Icelandic or English name. Variation selectors are removed only
+when joining Emoji 17 sequences to CLDR annotation keys, as required by LDML;
+the emitted emoji sequences retain them.
 
 This is the authoritative base layer. Product-specific colloquial aliases or
 inflection expansion should live in a small reviewed overlay, not as edits to

@@ -17,17 +17,23 @@ final class IcelandicEmojiSearchTests: XCTestCase {
     func testArtifactMetadataAndRequiredQueries() throws {
         let index = try index()
         XCTAssertEqual(index.metadata.emojiCount, 1_586)
-        XCTAssertEqual(index.metadata.tokenCount, 2_798)
-        XCTAssertEqual(index.metadata.postingCount, 6_024)
+        XCTAssertEqual(index.metadata.tokenCount, 6_016)
+        XCTAssertEqual(index.metadata.postingCount, 14_595)
         XCTAssertEqual(index.search("hjarta").first?.emoji, "❤️")
+        XCTAssertEqual(index.search("heart").first?.emoji, "❤️")
+        XCTAssertEqual(index.search("heart").first?.name, "rautt hjarta")
         XCTAssertEqual(index.search("kaffi").first?.emoji.replacingOccurrences(of: "\u{FE0F}", with: ""), "☕")
+        XCTAssertEqual(index.search("coffee").first?.emoji.replacingOccurrences(of: "\u{FE0F}", with: ""), "☕")
         XCTAssertFalse(index.search("fáni").isEmpty)
         XCTAssertFalse(index.search("bros").isEmpty)
         XCTAssertFalse(index.search("þumal").isEmpty)
         XCTAssertFalse(index.search("fjölskylda").isEmpty)
         XCTAssertFalse(index.search("rauð").isEmpty)
         XCTAssertEqual(index.search("eldur").first?.emoji, "🔥")
+        XCTAssertEqual(index.search("fire").first?.emoji, "🔥")
         XCTAssertTrue(index.search("bók").contains { $0.name.contains("bók") })
+        XCTAssertFalse(index.search("book").isEmpty)
+        XCTAssertFalse(index.search("family").isEmpty)
         XCTAssertTrue(index.search("hagfræði").isEmpty)
         XCTAssertFalse(index.search("ast").isEmpty)
         XCTAssertLessThanOrEqual(index.search("a").count, 24)
@@ -74,7 +80,10 @@ final class IcelandicEmojiSearchTests: XCTestCase {
 
     func testSearchFitsOneFrameBudget() throws {
         let index = try index()
-        let queries = ["hjarta", "kaffi", "fáni", "bros", "þumal", "fjölskylda", "rauð"]
+        let queries = [
+            "hjarta", "heart", "kaffi", "coffee", "fáni", "flag", "bros",
+            "smile", "þumal", "thumb", "fjölskylda", "family", "rauð", "red",
+        ]
         let clock = ContinuousClock()
         let start = clock.now
         for _ in 0..<20 {

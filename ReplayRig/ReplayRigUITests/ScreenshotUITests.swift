@@ -201,6 +201,12 @@ final class ScreenshotUITests: XCTestCase {
         search.tap()
         let searchBand = app.descendants(matching: .any)["emoji-search-band"]
         XCTAssertTrue(searchBand.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["emoji-search-input-active"]
+                .waitForExistence(timeout: 5),
+            "active emoji query has no visible focus surface"
+        )
+        attachScreenshot(app, name: "emoji-search-armed")
         type("hjarta", in: app)
         XCTAssertEqual(field.value as? String, "", "search query leaked into host text")
         attachScreenshot(app, name: "emoji-search-hjarta")
@@ -236,14 +242,15 @@ final class ScreenshotUITests: XCTestCase {
         guard app.keyboards.firstMatch.waitForExistence(timeout: 10) else {
             throw XCTSkip("No software keyboard appeared (hardware-keyboard mode?)")
         }
-        // Lyklaborð check: ð/þ/æ/ö exist on no system keyboard. If a system
-        // keyboard came up, cycle with the globe key.
+        // The iOS 18 system English–Icelandic keyboard also exposes ð/þ/æ/ö,
+        // so the dedicated period key is the stable Lyklaborð marker in this
+        // ordinary iPhone text field. If a system keyboard came up, cycle.
         for _ in 0..<5 {
             if isKeyboardActive(app) { break }
             let globe = app.buttons["Next keyboard"]
             guard globe.waitForExistence(timeout: 3) else { break }
             globe.tap()
-            // Extension processes cold-start slowly; poll for the ð key.
+            // Extension processes cold-start slowly; poll for its marker.
             for _ in 0..<10 {
                 if isKeyboardActive(app) { break }
                 usleep(600_000)
@@ -258,14 +265,9 @@ final class ScreenshotUITests: XCTestCase {
     }
 
     private func isKeyboardActive(_ app: XCUIApplication) -> Bool {
-        // iOS 18 can expose a system "English & Icelandic" keyboard with the
-        // Icelandic letters, so those alone no longer identify Lyklaborð.
-        // Our iPhone layout also has a dedicated period key in alphabetic
-        // mode; the system bilingual layout does not.
-        let hasIcelandicLetter = ["ð", "þ", "æ", "ö"].contains {
-            keyElement($0, in: app).exists
-        }
-        return hasIcelandicLetter && keyElement(".", in: app).exists
+        // Our iPhone alphabetic layout has a dedicated period key. Neither the
+        // system bilingual layout nor the system English layout does here.
+        keyElement(".", in: app).exists
     }
 
     /// Tap out a string on the on-screen keyboard, dead-center taps, human-ish

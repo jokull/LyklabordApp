@@ -112,15 +112,24 @@ struct LyklabordEmojiKeyboard: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.accentColor)
                     .accessibilityHidden(true)
-                Text(searchSession.query.isEmpty ? "Leita" : searchSession.query)
-                    .foregroundStyle(searchSession.query.isEmpty ? .secondary : .primary)
-                    .lineLimit(1)
-                    .accessibilityLabel("Emoji-leit")
-                    .accessibilityValue(
-                        "\(searchSession.query), \(searchSession.results.count) niðurstöður"
-                    )
+                HStack(spacing: 2) {
+                    Text(searchSession.query.isEmpty ? "Sláðu inn…" : searchSession.query)
+                        .foregroundStyle(searchSession.query.isEmpty ? .secondary : .primary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                    EmojiSearchCaret()
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("emoji-search-input-active")
+                .accessibilityLabel("Emoji-leit, virk")
+                .accessibilityValue(
+                    searchSession.query.isEmpty
+                        ? "Tóm leit, \(searchSession.results.count) niðurstöður"
+                        : "\(searchSession.query), \(searchSession.results.count) niðurstöður"
+                )
+                .accessibilityHint("Sláðu inn leitarorð með lyklaborðinu")
                 if !searchSession.query.isEmpty {
                     Button { searchSession.clear() } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -132,9 +141,13 @@ struct LyklabordEmojiKeyboard: View {
             }
             .font(.system(size: 15))
             .padding(.horizontal, 10)
-            .frame(width: 116, height: 36, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 9))
+            .frame(width: 136, height: 36, alignment: .leading)
+            .background(Color.accentColor.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(Color.accentColor, lineWidth: 1.5)
+            }
 
             if searchSession.loadFailed {
                 status("Emoji-leit er ekki tiltæk")
@@ -188,5 +201,28 @@ struct LyklabordEmojiKeyboard: View {
                 }
             }
         }
+    }
+}
+
+/// A visual insertion point for the private in-keyboard query. The host text
+/// field must remain first responder for a keyboard extension to receive key
+/// events, so iOS cannot move its real caret here; this mirrors that focus
+/// inside our surface without creating a second text field or proxy route.
+private struct EmojiSearchCaret: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = true
+
+    var body: some View {
+        Capsule()
+            .fill(Color.accentColor)
+            .frame(width: 2, height: 18)
+            .opacity(isVisible ? 1 : 0.2)
+            .accessibilityHidden(true)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                    isVisible = false
+                }
+            }
     }
 }

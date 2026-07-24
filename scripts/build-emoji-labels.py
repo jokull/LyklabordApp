@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the complete Icelandic emoji label corpus from Unicode CLDR.
+"""Build Icelandic emoji labels and the bilingual picker-search corpus.
 
 The source versions and hashes are deliberately pinned. Updating the corpus is
 an explicit dependency upgrade, not a network-dependent build step.
@@ -37,6 +37,16 @@ SOURCES = {
         "https://raw.githubusercontent.com/unicode-org/cldr/"
         "release-48-2/common/annotationsDerived/is.xml",
         "5ffa629672a72953a4300f1b7aed706ea19a2df5a97714a014aa5b33cced1510",
+    ),
+    "englishAnnotations": (
+        "https://raw.githubusercontent.com/unicode-org/cldr/"
+        "release-48-2/common/annotations/en.xml",
+        "8511aadd046fdba2f0ffe590266ced8bbf48175ad139b2675d85d7141057b235",
+    ),
+    "englishAnnotationsDerived": (
+        "https://raw.githubusercontent.com/unicode-org/cldr/"
+        "release-48-2/common/annotationsDerived/en.xml",
+        "d76bd041c8c9e7b00b716aff8b7d9dbf509877010e191d5efd068be2553e066e",
     ),
     "emojiTest": (
         "https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt",
@@ -94,6 +104,10 @@ def parse_emoji_test(document: bytes) -> list[str]:
 
 def build() -> tuple[bytes, bytes, bytes]:
     annotations = parse_annotations([fetch("annotations"), fetch("annotationsDerived")])
+    english_annotations = parse_annotations([
+        fetch("englishAnnotations"),
+        fetch("englishAnnotationsDerived"),
+    ])
     emojis = parse_emoji_test(fetch("emojiTest"))
     if len(emojis) != EXPECTED_EMOJI_COUNT:
         raise RuntimeError(
@@ -128,13 +142,16 @@ def build() -> tuple[bytes, bytes, bytes]:
         "emojiVersion": EMOJI_VERSION,
         "license": "Unicode-3.0",
         "count": len(entries),
-        "sources": {name: {"url": url, "sha256": digest} for name, (url, digest) in SOURCES.items()},
+        "sources": {
+            name: {"url": SOURCES[name][0], "sha256": SOURCES[name][1]}
+            for name in ("annotations", "annotationsDerived", "emojiTest")
+        },
         "entries": entries,
     }
     corpus_bytes = (
         json.dumps(corpus, ensure_ascii=False, separators=(",", ":")) + "\n"
     ).encode()
-    return corpus_bytes, build_suggestions(entries), build_search(entries)
+    return corpus_bytes, build_suggestions(entries), build_search(entries, english_annotations)
 
 
 def normalized_term(value: str) -> str:
@@ -143,6 +160,21 @@ def normalized_term(value: str) -> str:
 
 def search_tokens(value: str) -> list[str]:
     return re.findall(r"[^\W_]+(?:-[^\W_]+)*", normalized_term(value), flags=re.UNICODE)
+
+
+def token_field(values: list[str]) -> str:
+    tokens: list[str] = []
+    for value in values:
+        tokens.extend(search_tokens(value))
+    return "|" + "|".join(dict.fromkeys(tokens)) + "|"
+
+
+def keyword_field(values: list[str]) -> str:
+    if any("|" in value or value.startswith("#") for value in values):
+        raise RuntimeError("search term contains reserved field delimiter")
+    tokens = token_field(values).removesuffix("|")
+    phrases = [f"#{value}" for value in values if len(search_tokens(value)) > 1]
+    return tokens + ("|" + "|".join(phrases) if phrases else "") + "|"
 
 
 def picker_emojis() -> set[str]:
@@ -163,8 +195,11 @@ def picker_emojis() -> set[str]:
     return result
 
 
-def build_search(entries: list[dict[str, object]]) -> bytes:
-    """Emit the compact picker-only Icelandic browse-search corpus."""
+def build_search(
+    entries: list[dict[str, object]],
+    english_annotations: dict[str, dict[str, object]],
+) -> bytes:
+    """Emit the compact picker-only Icelandic + English browse-search corpus."""
     supported = picker_emojis()
     picker_by_key = {lookup_key(emoji): emoji for emoji in supported}
     rows: list[list[str]] = []
@@ -177,45 +212,68 @@ def build_search(entries: list[dict[str, object]]) -> bytes:
         emoji = picker_by_key.get(lookup_key(source_emoji))
         if emoji is None:
             continue
+        english = english_annotations.get(lookup_key(source_emoji))
+        if english is None or not english["name"]:
+            raise RuntimeError(f"CLDR {CLDR_VERSION} lacks English label for {source_emoji}")
         name = normalized_term(str(entry["name"]))
+        english_name = normalized_term(str(english["name"]))
         keywords = list(dict.fromkeys(
             normalized_term(str(value))
-            for value in entry["keywords"]
+            for value in [*entry["keywords"], *english["keywords"]]
             if normalized_term(str(value))
             and normalized_term(str(value)) != name
+            and normalized_term(str(value)) != english_name
         ))
         row_index = len(rows)
-        rows.append([emoji, name, *keywords])
-        tokens = set(search_tokens(name))
+        rows.append([
+            emoji,
+            name,
+            english_name,
+            token_field([name, english_name]),
+            keyword_field(keywords),
+        ])
+        tokens = set(search_tokens(name) + search_tokens(english_name))
         for keyword in keywords:
             tokens.update(search_tokens(keyword))
         for token in tokens:
             token_postings.setdefault(token, set()).add(row_index)
 
     posting_count = sum(len(postings) for postings in token_postings.values())
-    expected = (1_586, 2_798, 6_024)
+    expected = (1_586, 6_016, 14_595)
     actual = (len(rows), len(token_postings), posting_count)
     if actual != expected:
         raise RuntimeError(f"search metrics changed: expected {expected}, got {actual}")
 
     artifact = {
-        "schema": 1,
-        "locale": "is",
+        "schema": 4,
+        "locales": ["is", "en"],
         "cldrVersion": CLDR_VERSION,
         "emojiVersion": EMOJI_VERSION,
         "pickerSha256": hashlib.sha256(PICKER_PATH.read_bytes()).hexdigest(),
         "emojiCount": len(rows),
         "tokenCount": len(token_postings),
         "postingCount": posting_count,
+        "sources": {
+            name: {"url": SOURCES[name][0], "sha256": SOURCES[name][1]}
+            for name in (
+                "annotations",
+                "annotationsDerived",
+                "englishAnnotations",
+                "englishAnnotationsDerived",
+            )
+        },
         # Conventional unqualified matches where CLDR intentionally assigns
         # the same generic keyword to a family (e.g. every coloured heart).
-        "strongMatches": {"hjarta": "❤️"},
-        # Positional row: emoji, CLDR display name, then CLDR keywords.
+        "strongMatches": {"hjarta": "❤️", "heart": "❤️"},
+        # Positional row: emoji, Icelandic display name, English name, compact
+        # name-token field, then keyword tokens with marked exact multiword
+        # phrases. Compact fields move Unicode word-boundary work out of the
+        # extension's per-keystroke path without retaining tiny Swift arrays.
         "entries": rows,
     }
     result = (json.dumps(artifact, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
-    if len(result) >= 100_000:
-        raise RuntimeError(f"search artifact exceeds 100KB gate: {len(result)} bytes")
+    if len(result) >= 250_000:
+        raise RuntimeError(f"search artifact exceeds 250KB gate: {len(result)} bytes")
     return result
 
 
