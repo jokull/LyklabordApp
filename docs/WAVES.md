@@ -29,7 +29,12 @@ architecture in `docs/adr/`. Newest first.
   alone remains below the 1 MB retained-heap gate; complete catalog + picker +
   search measured 2,137,744 bytes on iOS 18.4 and is guarded by a 2.5 MB
   replacement ceiling.
-- **Publication**: pending TestFlight release verification.
+- **Publication**: TestFlight 1.0 (17), built from `31066ec`, uploaded at
+  2026-07-30 18:11:41 GMT and processed `VALID` with exempt encryption under
+  build ID `e5d2211f-fa80-4329-89e7-b1bd65b0ffff`. IPA SHA-256 is
+  `fab5de47afecfd6485d0d3a8322ffbdf56de5c2993c80553a3e6a975937e567f`.
+  It was assigned to internal `Innri prófun` and external `Vinir`; Beta App
+  Review reached `APPROVED`.
 
 ## 2026-07-24 — Wave 46: bilingual emoji search
 
