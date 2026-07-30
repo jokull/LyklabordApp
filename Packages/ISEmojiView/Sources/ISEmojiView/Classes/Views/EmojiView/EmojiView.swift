@@ -54,7 +54,9 @@ final public class EmojiView: UIView {
         didSet {
             if countOfRecentsEmojis > 0 {
                 if !emojis.contains(where: { $0.category == .recents }) {
-                    emojis.insert(EmojiLoader.recentEmojiCategory(), at: 0)
+                    emojis.insert(EmojiLoader.recentEmojiCategory(
+                        availabilityFilter: keyboardSettings?.emojiAvailabilityFilter
+                    ), at: 0)
                 }
             } else if let index = emojis.firstIndex(where: { $0.category == .recents }) {
                 emojis.remove(at: index)
@@ -112,7 +114,9 @@ final public class EmojiView: UIView {
         countOfRecentsEmojis = keyboardSettings.countOfRecentsEmojis
         
         if keyboardSettings.countOfRecentsEmojis > 0 {
-            emojis.insert(EmojiLoader.recentEmojiCategory(), at: 0)
+            emojis.insert(EmojiLoader.recentEmojiCategory(
+                availabilityFilter: keyboardSettings.emojiAvailabilityFilter
+            ), at: 0)
         }
         
         setupView()
@@ -161,7 +165,11 @@ extension EmojiView: EmojiCollectionViewDelegate {
     
     func emojiViewDidSelectEmoji(emojiView: EmojiCollectionView, emoji: Emoji, selectedEmoji: String) {
         if RecentEmojisManager.sharedInstance.add(emoji: emoji, selectedEmoji: selectedEmoji, maxCount: countOfRecentsEmojis),(keyboardSettings?.updateRecentEmojiImmediately) ?? true  {
-            emojiCollectionView?.updateRecentsEmojis(RecentEmojisManager.sharedInstance.recentEmojis())
+            let recents = RecentEmojisManager.sharedInstance.recentEmojis().filter { recent in
+                guard let filter = keyboardSettings?.emojiAvailabilityFilter else { return true }
+                return filter(recent.selectedEmoji ?? recent.emoji)
+            }
+            emojiCollectionView?.updateRecentsEmojis(recents)
         }
         
         delegate?.emojiViewDidSelectEmoji(selectedEmoji, emojiView: self)

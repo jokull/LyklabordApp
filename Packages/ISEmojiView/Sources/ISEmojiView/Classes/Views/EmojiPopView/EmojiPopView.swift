@@ -27,13 +27,12 @@ internal class EmojiPopView: UIView {
     
     // MARK: - Private variables
     
-    private var locationX: CGFloat = 0.0
-    
     private var emojiButtons: [UIButton] = []
-    private var emojisView: UIView = UIView()
+    private var emojisView: UIScrollView = UIScrollView()
     
     private var emojisX: CGFloat = 0.0
     private var emojisWidth: CGFloat = 0.0
+    private var anchorX: CGFloat = TopPartSize.width / 2
     
     // MARK: - Init functions
     
@@ -60,12 +59,24 @@ internal class EmojiPopView: UIView {
     // MARK: - Internal functions
     
     internal func move(location: CGPoint, animation: Bool = true) {
-        locationX = location.x
+        let desiredWidth = max(TopPartSize.width, 16 + EmojiSize.width * CGFloat(emojiArray.count))
+        let availableWidth = max(TopPartSize.width, UIScreen.main.bounds.width - 16)
+        emojisWidth = min(desiredWidth, availableWidth)
+        let frameX = min(max(8, location.x), UIScreen.main.bounds.width - emojisWidth - 8)
+        anchorX = min(
+            max(BottomPartSize.width / 2, location.x - frameX + TopPartSize.width / 2),
+            emojisWidth - BottomPartSize.width / 2
+        )
         setupUI()
         
         UIView.animate(withDuration: animation ? 0.08 : 0, animations: {
             self.alpha = 1
-            self.frame = CGRect(x: location.x, y: location.y, width: self.frame.width, height: self.frame.height)
+            self.frame = CGRect(
+                x: frameX,
+                y: location.y,
+                width: self.emojisWidth,
+                height: EmojiPopViewSize.height
+            )
         }, completion: { complate in
             self.isHidden = false
         })
@@ -97,6 +108,7 @@ extension EmojiPopView {
         button.frame = CGRect(x: CGFloat(emojiButtons.count) * EmojiSize.width, y: 0, width: EmojiSize.width, height: EmojiSize.height)
         button.addTarget(self, action: #selector(selectEmojiType(_:)), for: .touchUpInside)
         button.isUserInteractionEnabled = true
+        button.accessibilityLabel = emoji
         return button
     }
     
@@ -112,18 +124,7 @@ extension EmojiPopView {
         
         self.layer.sublayers?.forEach { $0.removeFromSuperlayer() }
         
-        // adjust location of emoji bar if it is off the screen
-        emojisWidth = TopPartSize.width + EmojiSize.width * CGFloat(emojiArray.count - 1)
-        emojisX = 0.0 // the x adjustment within the popView to account for the shift in location
-        let screenWidth = UIScreen.main.bounds.width
-        if emojisWidth + locationX > screenWidth {
-            emojisX = -CGFloat(emojisWidth + locationX - screenWidth + 8) // 8 for padding to border
-        }
-        // readjust in case someone is long-pressing right at the edge of the screen
-        let halfWidth = TopPartSize.width / 2.0 - BottomPartSize.width / 2.0
-        if emojisX + emojisWidth < halfWidth + BottomPartSize.width {
-            emojisX += (halfWidth + BottomPartSize.width) - (emojisX + emojisWidth)
-        }
+        emojisX = 0
         
         // path
         let path = maskPath()
@@ -148,7 +149,19 @@ extension EmojiPopView {
         layer.addSublayer(contentLayer)
         
         emojisView.removeFromSuperview()
-        emojisView = UIView(frame: CGRect(x: emojisX + 8, y: 10, width: CGFloat(emojiArray.count) * EmojiSize.width, height: EmojiSize.height))
+        emojisView = UIScrollView(frame: CGRect(
+            x: 8,
+            y: 10,
+            width: max(0, emojisWidth - 16),
+            height: EmojiSize.height
+        ))
+        emojisView.showsHorizontalScrollIndicator = emojiArray.count > 6
+        emojisView.alwaysBounceHorizontal = emojiArray.count > 6
+        emojisView.contentSize = CGSize(
+            width: CGFloat(emojiArray.count) * EmojiSize.width,
+            height: EmojiSize.height
+        )
+        emojisView.clipsToBounds = true
         
         // add buttons
         emojiButtons = []
@@ -166,7 +179,7 @@ extension EmojiPopView {
         
         path.addRoundedRect(
                  in: CGRect(
-                     x: emojisX,
+                     x: 0,
                      y: 0.0,
                      width: emojisWidth,
                      height: TopPartSize.height
@@ -177,7 +190,7 @@ extension EmojiPopView {
 
         path.addRoundedRect(
             in: CGRect(
-                x: TopPartSize.width / 2.0 - BottomPartSize.width / 2.0,
+                x: anchorX - BottomPartSize.width / 2.0,
                 y: TopPartSize.height - 10,
                 width: BottomPartSize.width,
                 height: BottomPartSize.height + 10

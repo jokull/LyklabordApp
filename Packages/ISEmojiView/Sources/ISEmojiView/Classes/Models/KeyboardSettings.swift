@@ -19,6 +19,11 @@ final public class KeyboardSettings {
     
     /// Array with custom emojis
     public var customEmojis: [EmojiCategory]?
+
+    /// Optional repertoire filter applied to persisted recents. This lets a
+    /// host hide emoji that are newer than the running iOS version without
+    /// deleting history that can become valid after an OS upgrade.
+    public var emojiAvailabilityFilter: ((String) -> Bool)?
     
     /// Long press to pop preview effect like iOS10 system emoji keyboard. Default is true.
     public var isShowPopPreview: Bool = true

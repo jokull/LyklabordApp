@@ -7,6 +7,30 @@ in `scores/history.jsonl`; behavioral contracts live in
 `Packages/TypeEngine/Scenarios/*.scenarios` (scenario comments cite sessions);
 architecture in `docs/adr/`. Newest first.
 
+## 2026-07-30 — Wave 47: version-aware modern emoji repertoire
+
+- **Trigger**: the bundled ISEmojiView plist stopped at 2,501 strings and was
+  missing both modern base emoji and complete modifier/ZWJ families that iOS
+  itself can render.
+- **Decided**: generate one Unicode-authoritative catalog and select its tier
+  from the documented Apple runtime boundary: Emoji 15.1 on iOS 18.0–18.3,
+  Emoji 16.0 on iOS 18.4–26.3 and Emoji 17.0 on iOS 26.4+. The same predicate
+  now controls browse, bilingual search, conservative suggestions, recents,
+  frecency and variants; there is no glyph probing or network path.
+- **Coverage**: the catalog contains 1,914 families and 3,944 exact sequences
+  (3,773 at tier 15.1 and 3,781 at tier 16.0). Search contains 7,202 bilingual
+  tokens and 18,350 postings; ordinary Icelandic suggestions contain 2,164
+  exact matches.
+- **Variant gate**: a screen-bounded horizontal long-press strip won over a
+  tall grid and stateful two-stage picker. It exposes every exact mixed-tone
+  sequence without clipping, using 44-point buttons and accessibility labels.
+- **Cost/control**: generated runtime artifacts are 133,039 bytes for the
+  catalog, 276,399 bytes for search and 50,730 bytes for suggestions. Search
+  alone remains below the 1 MB retained-heap gate; complete catalog + picker +
+  search measured 2,137,744 bytes on iOS 18.4 and is guarded by a 2.5 MB
+  replacement ceiling.
+- **Publication**: pending TestFlight release verification.
+
 ## 2026-07-24 — Wave 46: bilingual emoji search
 
 - **Trigger**: explicit emoji search only understood Icelandic, despite the

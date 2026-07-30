@@ -9,10 +9,15 @@ import Foundation
 
 final public class EmojiLoader {
     
-    public static func recentEmojiCategory() -> EmojiCategory {
+    public static func recentEmojiCategory(
+        availabilityFilter: ((String) -> Bool)? = nil
+    ) -> EmojiCategory {
         return EmojiCategory(
             category: .recents,
-            emojis: RecentEmojisManager.sharedInstance.recentEmojis()
+            emojis: RecentEmojisManager.sharedInstance.recentEmojis().filter { emoji in
+                guard let availabilityFilter else { return true }
+                return availabilityFilter(emoji.selectedEmoji ?? emoji.emoji)
+            }
         )
     }
     

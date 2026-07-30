@@ -20,12 +20,16 @@ public struct EmojiView_SwiftUI: UIViewRepresentable {
     var needToShowDeleteButton: (Bool)?
     var updateRecentEmojiImmediately: (Bool)?
     var countOfRecentsEmojis: (Int)?
+    var customEmojis: [EmojiCategory]?
+    var emojiAvailabilityFilter: ((String) -> Bool)?
     
     public init(
         needToShowAbcButton: (Bool)? = false,
         needToShowDeleteButton: (Bool)? = true,
         updateRecentEmojiImmediately: (Bool)? = true,
         countOfRecentsEmojis: (Int)? = MaxCountOfRecentsEmojis,
+        customEmojis: [EmojiCategory]? = nil,
+        emojiAvailabilityFilter: ((String) -> Bool)? = nil,
         didSelect: ((String) -> Void)? = nil,
         didPressChangeKeyboard: (() -> Void)? = nil,
         didPressDeleteBackward: (() -> Void)? = nil,
@@ -34,6 +38,8 @@ public struct EmojiView_SwiftUI: UIViewRepresentable {
             self.needToShowDeleteButton = needToShowDeleteButton
             self.countOfRecentsEmojis = countOfRecentsEmojis
             self.updateRecentEmojiImmediately = updateRecentEmojiImmediately
+            self.customEmojis = customEmojis
+            self.emojiAvailabilityFilter = emojiAvailabilityFilter
             self.didSelect = didSelect
             self.didPressChangeKeyboard = didPressChangeKeyboard
             self.didPressDeleteBackward = didPressDeleteBackward
@@ -42,12 +48,14 @@ public struct EmojiView_SwiftUI: UIViewRepresentable {
     
     public func makeUIView(context: Context) -> EmojiView {
         let keyboardSettings = KeyboardSettings(bottomType: .categories)
-        keyboardSettings.needToShowAbcButton = needToShowAbcButton!
-        keyboardSettings.needToShowDeleteButton = needToShowAbcButton!
-        keyboardSettings.countOfRecentsEmojis = countOfRecentsEmojis!
-        keyboardSettings.updateRecentEmojiImmediately = updateRecentEmojiImmediately!
+        keyboardSettings.needToShowAbcButton = needToShowAbcButton ?? false
+        keyboardSettings.needToShowDeleteButton = needToShowDeleteButton ?? true
+        keyboardSettings.countOfRecentsEmojis = countOfRecentsEmojis ?? MaxCountOfRecentsEmojis
+        keyboardSettings.updateRecentEmojiImmediately = updateRecentEmojiImmediately ?? true
+        keyboardSettings.customEmojis = customEmojis
+        keyboardSettings.emojiAvailabilityFilter = emojiAvailabilityFilter
         let emojiView = EmojiView(keyboardSettings: keyboardSettings)
-        if (needToShowDeleteButton!){
+        if needToShowDeleteButton ?? true {
             let bottomView = emojiView.subviews.last?.subviews.last
             let collecitonViewToSuperViewTrailingConstraint = bottomView?.value(forKey: "collecitonViewToSuperViewTrailingConstraint") as? NSLayoutConstraint
             collecitonViewToSuperViewTrailingConstraint?.priority = .defaultLow

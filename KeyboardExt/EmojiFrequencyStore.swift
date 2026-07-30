@@ -79,7 +79,7 @@ final class EmojiFrequencyStore {
 
     /// Record one use of `emoji`: decay its prior score to now, then +1.
     func record(_ emoji: String) {
-        guard !emoji.isEmpty else { return }
+        guard !emoji.isEmpty, EmojiCatalog.shared?.isAvailable(emoji) ?? true else { return }
         let now = Date().timeIntervalSince1970
         var dict = load()
         dict[emoji] = [decayedScore(dict[emoji] ?? [], now: now) + 1.0, now]
@@ -94,17 +94,23 @@ final class EmojiFrequencyStore {
 
     /// The user's top emojis by decayed score, padded with popular seed emojis
     /// (never duplicated) so the result always has `count` entries.
-    func top(_ count: Int) -> [String] {
+    func top(
+        _ count: Int,
+        availability: (String) -> Bool = {
+            EmojiCatalog.shared?.isAvailable($0) ?? true
+        }
+    ) -> [String] {
         guard count > 0 else { return [] }
         let now = Date().timeIntervalSince1970
         let personal = load()
             .filter { $0.value.count == 2 }
             .sorted { decayedScore($0.value, now: now) > decayedScore($1.value, now: now) }
             .map { $0.key }
+            .filter(availability)
 
         var result = personal
         if result.count < count {
-            for emoji in Self.seed where !result.contains(emoji) {
+            for emoji in Self.seed where availability(emoji) && !result.contains(emoji) {
                 result.append(emoji)
                 if result.count == count { break }
             }

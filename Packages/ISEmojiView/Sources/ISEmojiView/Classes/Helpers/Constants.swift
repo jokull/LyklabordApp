@@ -8,7 +8,7 @@
 import UIKit
 import Foundation
 
-internal let EmojiSize = CGSize(width: 45, height: 35)
+internal let EmojiSize = CGSize(width: 45, height: 44)
 internal let EmojiFont = UIFont(name: "Apple color emoji", size: 30)
 internal let TopPartSize = CGSize(width: EmojiSize.width * 1.3, height: EmojiSize.height * 1.6)
 internal let BottomPartSize = CGSize(width: EmojiSize.width * 0.8, height: EmojiSize.height + 10)

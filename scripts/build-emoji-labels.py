@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Icelandic emoji labels and the bilingual picker-search corpus.
+"""Build Icelandic emoji labels and the version-aware picker/search corpus.
 
 The source versions and hashes are deliberately pinned. Updating the corpus is
 an explicit dependency upgrade, not a network-dependent build step.
@@ -11,7 +11,6 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import plistlib
 import re
 import sys
 import unicodedata
@@ -22,11 +21,8 @@ import xml.etree.ElementTree as ET
 CLDR_VERSION = "48.2"
 EMOJI_VERSION = "17.0"
 EXPECTED_EMOJI_COUNT = 3_944
-EXPECTED_PICKER_EMOJI_COUNT = 2_501
-PICKER_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "Packages/ISEmojiView/Sources/ISEmojiView/Assets/ISEmojiList.plist"
-)
+EXPECTED_FAMILY_COUNT = 1_914
+EXPECTED_RELEASE_COUNTS = {"15.1": 3_773, "16.0": 3_781, "17.0": 3_944}
 SOURCES = {
     "annotations": (
         "https://raw.githubusercontent.com/unicode-org/cldr/"
@@ -52,6 +48,26 @@ SOURCES = {
         "https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt",
         "1d8a944f88d7952f7ef7c5167fef3c67995bcae24543949710231b03a201acda",
     ),
+    "emojiTest15_1": (
+        "https://www.unicode.org/Public/emoji/15.1/emoji-test.txt",
+        "d876ee249aa28eaa76cfa6dfaa702847a8d13b062aa488d465d0395ee8137ed9",
+    ),
+    "emojiTest16": (
+        "https://www.unicode.org/Public/emoji/16.0/emoji-test.txt",
+        "24f0c534e86cf142e2496953e8f0e46a3e702392911eddcd29c6cced85139697",
+    ),
+}
+
+GROUP_TITLES = {
+    "Smileys & Emotion": "Smileys & People",
+    "People & Body": "Smileys & People",
+    "Animals & Nature": "Animals & Nature",
+    "Food & Drink": "Food & Drink",
+    "Activities": "Activity",
+    "Travel & Places": "Travel & Places",
+    "Objects": "Objects",
+    "Symbols": "Symbols",
+    "Flags": "Flags",
 }
 
 
@@ -92,32 +108,147 @@ def parse_annotations(documents: list[bytes]) -> dict[str, dict[str, object]]:
     return result
 
 
-def parse_emoji_test(document: bytes) -> list[str]:
-    result: list[str] = []
+def parse_emoji_test(document: bytes) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    group = ""
+    subgroup = ""
     for line in document.decode("utf-8").splitlines():
+        if line.startswith("# group:"):
+            group = line.split(":", 1)[1].strip()
+            continue
+        if line.startswith("# subgroup:"):
+            subgroup = line.split(":", 1)[1].strip()
+            continue
         if "; fully-qualified" not in line:
             continue
         codepoints = line.split(";", 1)[0].strip().split()
-        result.append("".join(chr(int(value, 16)) for value in codepoints))
+        comment = line.split("#", 1)[1].strip().split(" ", 2)
+        if len(comment) != 3 or group not in GROUP_TITLES:
+            raise RuntimeError(f"malformed Emoji Test row: {line}")
+        result.append({
+            "emoji": "".join(chr(int(value, 16)) for value in codepoints),
+            "group": group,
+            "subgroup": subgroup,
+            "name": comment[2],
+        })
     return result
 
 
-def build() -> tuple[bytes, bytes, bytes]:
+def contains_skin_tone(emoji: str) -> bool:
+    return any("\U0001f3fb" <= char <= "\U0001f3ff" for char in emoji)
+
+
+def family_name(record: dict[str, str]) -> str:
+    name = record["name"]
+    if "skin tone" in name and ":" in name:
+        return name.split(":", 1)[0]
+    return name
+
+
+def build_catalog(
+    records: list[dict[str, str]],
+    release_records: dict[str, list[dict[str, str]]],
+) -> tuple[bytes, list[dict[str, object]]]:
+    release_keys = {
+        version: {lookup_key(record["emoji"]) for record in values}
+        for version, values in release_records.items()
+    }
+    for version, expected in EXPECTED_RELEASE_COUNTS.items():
+        actual = len(release_records[version])
+        if actual != expected:
+            raise RuntimeError(
+                f"Emoji {version} count changed: expected {expected}, got {actual}"
+            )
+
+    families_by_key: dict[tuple[str, str, str], dict[str, object]] = {}
+    ordered_families: list[dict[str, object]] = []
+    for record in records:
+        key = (record["group"], record["subgroup"], family_name(record))
+        family = families_by_key.get(key)
+        if family is None:
+            family = {
+                "title": GROUP_TITLES[record["group"]],
+                "base": None,
+                "variants": [],
+            }
+            families_by_key[key] = family
+            ordered_families.append(family)
+        emoji = record["emoji"]
+        normalized = lookup_key(emoji)
+        tier = (
+            0 if normalized in release_keys["15.1"]
+            else 1 if normalized in release_keys["16.0"]
+            else 2
+        )
+        family["variants"].append([emoji, tier])
+        if not contains_skin_tone(emoji):
+            if family["base"] is not None:
+                raise RuntimeError(f"duplicate base for emoji family {key}")
+            family["base"] = emoji
+
+    if len(ordered_families) != EXPECTED_FAMILY_COUNT:
+        raise RuntimeError(
+            f"Emoji family count changed: expected {EXPECTED_FAMILY_COUNT}, "
+            f"got {len(ordered_families)}"
+        )
+    missing_bases = [family for family in ordered_families if family["base"] is None]
+    if missing_bases:
+        raise RuntimeError(f"emoji families without a base: {len(missing_bases)}")
+
+    categories: list[dict[str, object]] = []
+    for title in dict.fromkeys(GROUP_TITLES.values()):
+        category_families = [
+            {"base": family["base"], "variants": family["variants"]}
+            for family in ordered_families
+            if family["title"] == title
+        ]
+        categories.append({"title": title, "families": category_families})
+
+    artifact = {
+        "schema": 1,
+        "emojiVersion": EMOJI_VERSION,
+        "sequenceCount": len(records),
+        "familyCount": len(ordered_families),
+        "releaseTiers": [
+            {"emojiVersion": "15.1", "minimumIOS": "18.0", "tier": 0},
+            {"emojiVersion": "16.0", "minimumIOS": "18.4", "tier": 1},
+            {"emojiVersion": "17.0", "minimumIOS": "26.4", "tier": 2},
+        ],
+        "sources": {
+            name: {"url": SOURCES[name][0], "sha256": SOURCES[name][1]}
+            for name in ("emojiTest15_1", "emojiTest16", "emojiTest")
+        },
+        "categories": categories,
+    }
+    result = (json.dumps(artifact, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+    return result, ordered_families
+
+
+def build() -> tuple[bytes, bytes, bytes, bytes]:
     annotations = parse_annotations([fetch("annotations"), fetch("annotationsDerived")])
     english_annotations = parse_annotations([
         fetch("englishAnnotations"),
         fetch("englishAnnotationsDerived"),
     ])
-    emojis = parse_emoji_test(fetch("emojiTest"))
-    if len(emojis) != EXPECTED_EMOJI_COUNT:
+    emoji_records = parse_emoji_test(fetch("emojiTest"))
+    if len(emoji_records) != EXPECTED_EMOJI_COUNT:
         raise RuntimeError(
             f"Emoji {EMOJI_VERSION} count changed: expected {EXPECTED_EMOJI_COUNT}, "
-            f"got {len(emojis)}"
+            f"got {len(emoji_records)}"
         )
+    catalog_bytes, families = build_catalog(
+        emoji_records,
+        {
+            "15.1": parse_emoji_test(fetch("emojiTest15_1")),
+            "16.0": parse_emoji_test(fetch("emojiTest16")),
+            "17.0": emoji_records,
+        },
+    )
 
     entries = []
     missing = []
-    for emoji in emojis:
+    for record in emoji_records:
+        emoji = record["emoji"]
         annotation = annotations.get(lookup_key(emoji))
         if annotation is None or not annotation["name"]:
             missing.append(emoji)
@@ -151,7 +282,13 @@ def build() -> tuple[bytes, bytes, bytes]:
     corpus_bytes = (
         json.dumps(corpus, ensure_ascii=False, separators=(",", ":")) + "\n"
     ).encode()
-    return corpus_bytes, build_suggestions(entries), build_search(entries, english_annotations)
+    entries_by_key = {lookup_key(str(entry["emoji"])): entry for entry in entries}
+    return (
+        corpus_bytes,
+        build_suggestions(families, entries_by_key),
+        build_search(families, entries_by_key, english_annotations),
+        catalog_bytes,
+    )
 
 
 def normalized_term(value: str) -> str:
@@ -177,44 +314,27 @@ def keyword_field(values: list[str]) -> str:
     return tokens + ("|" + "|".join(phrases) if phrases else "") + "|"
 
 
-def picker_emojis() -> set[str]:
-    with PICKER_PATH.open("rb") as file:
-        categories = plistlib.load(file)
-    result: set[str] = set()
-    for category in categories:
-        for value in category["emojis"]:
-            if isinstance(value, list):
-                result.update(value)
-            else:
-                result.add(value)
-    if len(result) != EXPECTED_PICKER_EMOJI_COUNT:
-        raise RuntimeError(
-            "ISEmojiView picker count changed: expected "
-            f"{EXPECTED_PICKER_EMOJI_COUNT}, got {len(result)}"
-        )
-    return result
+def bilingual_name_field(icelandic_name: str, english_name: str) -> str:
+    if "|" in english_name or english_name.startswith("#"):
+        raise RuntimeError("English emoji name contains reserved field delimiter")
+    return token_field([icelandic_name, english_name]).removesuffix("|") + f"|#{english_name}|"
 
 
 def build_search(
-    entries: list[dict[str, object]],
+    families: list[dict[str, object]],
+    entries_by_key: dict[str, dict[str, object]],
     english_annotations: dict[str, dict[str, object]],
 ) -> bytes:
-    """Emit the compact picker-only Icelandic + English browse-search corpus."""
-    supported = picker_emojis()
-    picker_by_key = {lookup_key(emoji): emoji for emoji in supported}
+    """Emit the compact version-aware Icelandic + English search corpus."""
     rows: list[list[str]] = []
     token_postings: dict[str, set[int]] = {}
 
-    for entry in entries:
-        source_emoji = str(entry["emoji"])
-        if any("\U0001f3fb" <= char <= "\U0001f3ff" for char in source_emoji):
-            continue
-        emoji = picker_by_key.get(lookup_key(source_emoji))
-        if emoji is None:
-            continue
-        english = english_annotations.get(lookup_key(source_emoji))
+    for family in families:
+        emoji = str(family["base"])
+        entry = entries_by_key[lookup_key(emoji)]
+        english = english_annotations.get(lookup_key(emoji))
         if english is None or not english["name"]:
-            raise RuntimeError(f"CLDR {CLDR_VERSION} lacks English label for {source_emoji}")
+            raise RuntimeError(f"CLDR {CLDR_VERSION} lacks English label for {emoji}")
         name = normalized_term(str(entry["name"]))
         english_name = normalized_term(str(english["name"]))
         keywords = list(dict.fromkeys(
@@ -225,12 +345,13 @@ def build_search(
             and normalized_term(str(value)) != english_name
         ))
         row_index = len(rows)
+        base_variant = next(value for value in family["variants"] if value[0] == emoji)
         rows.append([
             emoji,
             name,
-            english_name,
-            token_field([name, english_name]),
+            bilingual_name_field(name, english_name),
             keyword_field(keywords),
+            str(base_variant[1]),
         ])
         tokens = set(search_tokens(name) + search_tokens(english_name))
         for keyword in keywords:
@@ -239,17 +360,17 @@ def build_search(
             token_postings.setdefault(token, set()).add(row_index)
 
     posting_count = sum(len(postings) for postings in token_postings.values())
-    expected = (1_586, 6_016, 14_595)
+    expected = (1_914, 7_202, 18_350)
     actual = (len(rows), len(token_postings), posting_count)
     if actual != expected:
         raise RuntimeError(f"search metrics changed: expected {expected}, got {actual}")
 
     artifact = {
-        "schema": 4,
+        "schema": 6,
         "locales": ["is", "en"],
         "cldrVersion": CLDR_VERSION,
         "emojiVersion": EMOJI_VERSION,
-        "pickerSha256": hashlib.sha256(PICKER_PATH.read_bytes()).hexdigest(),
+        "catalogSchema": 1,
         "emojiCount": len(rows),
         "tokenCount": len(token_postings),
         "postingCount": posting_count,
@@ -265,45 +386,43 @@ def build_search(
         # Conventional unqualified matches where CLDR intentionally assigns
         # the same generic keyword to a family (e.g. every coloured heart).
         "strongMatches": {"hjarta": "❤️", "heart": "❤️"},
-        # Positional row: emoji, Icelandic display name, English name, compact
-        # name-token field, then keyword tokens with marked exact multiword
-        # phrases. Compact fields move Unicode word-boundary work out of the
-        # extension's per-keystroke path without retaining tiny Swift arrays.
+        # Positional row: emoji, Icelandic display name, compact bilingual name
+        # field, keyword field, then availability tier. Multiword exact names
+        # are #marked in the compact field, avoiding a retained English-name
+        # Swift string per emoji in the constrained extension.
         "entries": rows,
     }
     result = (json.dumps(artifact, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
-    if len(result) >= 250_000:
-        raise RuntimeError(f"search artifact exceeds 250KB gate: {len(result)} bytes")
+    if len(result) >= 300_000:
+        raise RuntimeError(f"search artifact exceeds 300KB gate: {len(result)} bytes")
     return result
 
 
-def build_suggestions(entries: list[dict[str, object]]) -> bytes:
+def build_suggestions(
+    families: list[dict[str, object]],
+    entries_by_key: dict[str, dict[str, object]],
+) -> bytes:
     """Emit the small, conservative exact-match index shipped in the appex."""
-    supported = picker_emojis()
-    # Emoji/Text presentation selectors differ between Emoji Test and the
-    # picker plist. Join on the CLDR-style selector-free key, but emit the
-    # picker's exact string so insertion matches the grid.
-    picker_by_key = {lookup_key(emoji): emoji for emoji in supported}
     base_entries = [
-        entry
-        for entry in entries
-        if lookup_key(str(entry["emoji"])) in picker_by_key
-        and not any("\U0001f3fb" <= char <= "\U0001f3ff" for char in str(entry["emoji"]))
+        (family, entries_by_key[lookup_key(str(family["base"]))])
+        for family in families
     ]
 
-    names: dict[str, set[str]] = {}
-    keywords: dict[str, set[str]] = {}
-    for entry in base_entries:
-        emoji = picker_by_key[lookup_key(str(entry["emoji"]))]
+    names: dict[str, set[tuple[str, int]]] = {}
+    keywords: dict[str, set[tuple[str, int]]] = {}
+    for family, entry in base_entries:
+        emoji = str(family["base"])
+        tier = int(next(value[1] for value in family["variants"] if value[0] == emoji))
+        candidate = (emoji, tier)
         name = normalized_term(str(entry["name"]))
         if name and " " not in name:
-            names.setdefault(name, set()).add(emoji)
+            names.setdefault(name, set()).add(candidate)
         for raw_keyword in entry["keywords"]:
             keyword = normalized_term(str(raw_keyword))
             if keyword and " " not in keyword:
-                keywords.setdefault(keyword, set()).add(emoji)
+                keywords.setdefault(keyword, set()).add(candidate)
 
-    suggestions: dict[str, str] = {}
+    suggestions: dict[str, tuple[str, int]] = {}
     for term, candidates in names.items():
         if len(candidates) == 1:
             suggestions[term] = next(iter(candidates))
@@ -313,26 +432,27 @@ def build_suggestions(entries: list[dict[str, object]]) -> bytes:
 
     # CLDR applies the generic keyword to every coloured/decorated heart.
     # The conventional strong match in ordinary Icelandic text is red heart.
-    overrides = {"hjarta": "❤️"}
+    overrides = {"hjarta": ("❤️", 0)}
     for term, emoji in overrides.items():
-        if emoji not in supported:
-            raise RuntimeError(f"emoji override is not in the picker: {term} -> {emoji}")
         suggestions[term] = emoji
 
     if (
-        lookup_key(suggestions.get("hjarta", "")) != lookup_key("❤️")
-        or lookup_key(suggestions.get("kaffi", "")) != lookup_key("☕")
+        lookup_key(suggestions.get("hjarta", ("", 0))[0]) != lookup_key("❤️")
+        or lookup_key(suggestions.get("kaffi", ("", 0))[0]) != lookup_key("☕")
     ):
         raise RuntimeError("required Icelandic emoji suggestion smoke checks failed")
 
     artifact = {
-        "schema": 1,
+        "schema": 2,
         "locale": "is",
         "cldrVersion": CLDR_VERSION,
         "emojiVersion": EMOJI_VERSION,
         "match": "exact-single-token",
         "count": len(suggestions),
-        "suggestions": dict(sorted(suggestions.items())),
+        "suggestions": {
+            term: [emoji, tier]
+            for term, (emoji, tier) in sorted(suggestions.items())
+        },
     }
     return (json.dumps(artifact, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
 
@@ -355,12 +475,17 @@ def main() -> int:
         default=Path(__file__).resolve().parents[1] / "data/emoji/is-search.json",
     )
     parser.add_argument(
+        "--catalog-output",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "data/emoji/catalog.json",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="fail if the generated bytes differ from the existing output",
     )
     args = parser.parse_args()
-    generated, generated_suggestions, generated_search = build()
+    generated, generated_suggestions, generated_search, generated_catalog = build()
     if args.check:
         corpus_ok = args.output.exists() and args.output.read_bytes() == generated
         suggestions_ok = (
@@ -371,19 +496,26 @@ def main() -> int:
             args.search_output.exists()
             and args.search_output.read_bytes() == generated_search
         )
+        catalog_ok = (
+            args.catalog_output.exists()
+            and args.catalog_output.read_bytes() == generated_catalog
+        )
         if not corpus_ok:
             print(f"out of date: {args.output}", file=sys.stderr)
         if not suggestions_ok:
             print(f"out of date: {args.suggestions_output}", file=sys.stderr)
         if not search_ok:
             print(f"out of date: {args.search_output}", file=sys.stderr)
-        if not corpus_ok or not suggestions_ok or not search_ok:
+        if not catalog_ok:
+            print(f"out of date: {args.catalog_output}", file=sys.stderr)
+        if not corpus_ok or not suggestions_ok or not search_ok or not catalog_ok:
             return 1
         match_count = len(json.loads(generated_suggestions)["suggestions"])
         print(
             f"ok: {args.output} ({EXPECTED_EMOJI_COUNT} emoji); "
             f"{args.suggestions_output} ({match_count} matches); "
-            f"{args.search_output} ({len(generated_search)} bytes)"
+            f"{args.search_output} ({len(generated_search)} bytes); "
+            f"{args.catalog_output} ({len(generated_catalog)} bytes)"
         )
         return 0
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -392,6 +524,8 @@ def main() -> int:
     args.suggestions_output.write_bytes(generated_suggestions)
     args.search_output.parent.mkdir(parents=True, exist_ok=True)
     args.search_output.write_bytes(generated_search)
+    args.catalog_output.parent.mkdir(parents=True, exist_ok=True)
+    args.catalog_output.write_bytes(generated_catalog)
     print(f"wrote {args.output} ({EXPECTED_EMOJI_COUNT} emoji, {len(generated)} bytes)")
     match_count = len(json.loads(generated_suggestions)["suggestions"])
     print(
@@ -399,6 +533,7 @@ def main() -> int:
         f"({match_count} matches, {len(generated_suggestions)} bytes)"
     )
     print(f"wrote {args.search_output} ({len(generated_search)} bytes)")
+    print(f"wrote {args.catalog_output} ({len(generated_catalog)} bytes)")
     return 0
 
 

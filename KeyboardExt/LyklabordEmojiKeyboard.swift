@@ -79,6 +79,10 @@ struct LyklabordEmojiKeyboard: View {
         EmojiView_SwiftUI(
             needToShowAbcButton: true,      // "ABC" returns to the letter keyboard
             needToShowDeleteButton: true,   // backspace on the emoji keyboard
+            customEmojis: EmojiCatalog.currentPickerCategories,
+            emojiAvailabilityFilter: { emoji in
+                EmojiCatalog.shared?.isAvailable(emoji) ?? true
+            },
             didSelect: { emoji in
                 // Emoji insertion is a RELEASE action in KeyboardKit.
                 actionHandler.handle(.release, on: .emoji(KeyboardKit.Emoji(emoji)))
@@ -178,6 +182,7 @@ struct LyklabordEmojiKeyboard: View {
 
     private func resultButton(_ result: IcelandicEmojiSearchResult) -> some View {
         let emoji = KeyboardKit.Emoji(result.emoji)
+        let variants = EmojiCatalog.shared?.variants(for: result.emoji) ?? [result.emoji]
         return Button {
             actionHandler.handle(.release, on: .emoji(emoji))
         } label: {
@@ -190,12 +195,15 @@ struct LyklabordEmojiKeyboard: View {
         .accessibilityLabel(result.name)
         .accessibilityHint("Setur emoji inn")
         .contextMenu {
-            if emoji.hasSkinToneVariants {
-                ForEach(emoji.skinToneVariants) { variant in
+            if variants.count > 1 {
+                ForEach(variants, id: \.self) { variant in
                     Button {
-                        actionHandler.handle(.release, on: .emoji(variant))
+                        actionHandler.handle(
+                            .release,
+                            on: .emoji(KeyboardKit.Emoji(variant))
+                        )
                     } label: {
-                        Text(variant.char)
+                        Text(variant)
                     }
                     .accessibilityLabel(result.name)
                 }

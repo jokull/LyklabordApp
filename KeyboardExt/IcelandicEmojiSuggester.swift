@@ -15,20 +15,39 @@ struct IcelandicEmojiSuggester {
         let schema: Int
         let locale: String
         let count: Int
-        let suggestions: [String: String]
+        let suggestions: [String: Suggestion]
+    }
+
+    private struct Suggestion: Decodable {
+        let emoji: String
+        let tier: Int
+
+        init(from decoder: Decoder) throws {
+            var values = try decoder.unkeyedContainer()
+            emoji = try values.decode(String.self)
+            tier = try values.decode(Int.self)
+            guard values.isAtEnd, !emoji.isEmpty, (0...2).contains(tier) else {
+                throw DecodingError.dataCorruptedError(
+                    in: values,
+                    debugDescription: "Malformed emoji suggestion"
+                )
+            }
+        }
     }
 
     private let suggestions: [String: String]
 
-    init?(contentsOf url: URL) {
+    init?(contentsOf url: URL, availability: EmojiAvailability = .current) {
         guard
             let data = try? Data(contentsOf: url, options: .mappedIfSafe),
             let artifact = try? JSONDecoder().decode(Artifact.self, from: data),
-            artifact.schema == 1,
+            artifact.schema == 2,
             artifact.locale == "is",
             artifact.count == artifact.suggestions.count
         else { return nil }
-        suggestions = artifact.suggestions
+        suggestions = artifact.suggestions.compactMapValues {
+            availability.supports(tier: $0.tier) ? $0.emoji : nil
+        }
     }
 
     /// Return at most one high-confidence match. Prefixes and fuzzy matches

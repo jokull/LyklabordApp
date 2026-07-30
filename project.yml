@@ -208,14 +208,18 @@ targets:
       - path: data/is/extra-vocab.txt
         buildPhase: resources
       # Compact exact Icelandic label -> emoji index generated from the full
-      # Unicode CLDR corpus in data/emoji/is.json. Only this 33KB lookup ships
+      # Unicode CLDR corpus in data/emoji/is.json. Only this compact lookup ships
       # in the memory-constrained extension; see data/emoji/README.md.
       - path: data/emoji/is-suggestions.json
         buildPhase: resources
-      # Picker-only Icelandic CLDR search rows (85.9KB). The 535KB authoring
+      # Version-aware Icelandic + English CLDR search rows. The 535KB authoring
       # corpus stays outside the appex; this compact artifact loads only when
       # the user opens emoji search.
       - path: data/emoji/is-search.json
+        buildPhase: resources
+      # Complete Unicode Emoji 17 repertoire with per-sequence iOS release
+      # tiers. This replaces ISEmojiView's static plist as the picker authority.
+      - path: data/emoji/catalog.json
         buildPhase: resources
     info:
       path: KeyboardExt/Info.plist
@@ -347,12 +351,16 @@ targets:
       # Pure search/index/session source is cross-compiled into the test
       # bundle, following the same app-extension test seam as callout data.
       - path: KeyboardExt/IcelandicEmojiSearch.swift
+      - path: KeyboardExt/IcelandicEmojiSuggester.swift
       - path: KeyboardExt/EmojiFrequencyStore.swift
       - path: KeyboardExt/IcelandicEmojiSearchFirewall.swift
+      - path: KeyboardExt/EmojiCatalog.swift
     dependencies:
       - target: ReplayHost
       - package: KeyboardKit
         product: KeyboardKit
+      - package: ISEmojiView
+        product: ISEmojiView
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord.replayhost.uitests
