@@ -35,6 +35,15 @@ architecture in `docs/adr/`. Newest first.
   `fab5de47afecfd6485d0d3a8322ffbdf56de5c2993c80553a3e6a975937e567f`.
   It was assigned to internal `Innri prófun` and external `Vinir`; Beta App
   Review reached `APPROVED`.
+- **App Store 1.1 correction**: build 17 was incorrectly attached to App Store
+  version 1.1 while its embedded marketing version remained 1.0, producing
+  `Invalid Binary`. Commit `d9b7616` locks app and extension to 1.1 (18). The
+  replacement build `517572a9-4e30-4aef-98ca-3dc68de96a98` processed `VALID`
+  with IPA SHA-256
+  `a18086afdb01375df3a343a8c3ce475ca039045a1a21d27d97da71173f7cdd31`.
+  The stale rejected review was canceled and submission
+  `579434ec-c5b2-4cf2-a274-6f375f0f99cd` reached `WAITING_FOR_REVIEW` on
+  2026-07-31 00:12:45 GMT.
 
 ## 2026-07-24 — Wave 46: bilingual emoji search
 

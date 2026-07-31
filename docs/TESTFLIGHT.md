@@ -34,10 +34,11 @@ Start in a clean main checkout at the commit to release:
 asccli auth use lyklabord
 asccli auth check --output table
 git status --short
+RELEASE_VERSION=1.1
 
 asccli builds next-number \
   --app-id 6792012916 \
-  --version 1.0 \
+  --version "$RELEASE_VERSION" \
   --platform ios \
   --output table
 ```
@@ -52,6 +53,7 @@ RELEASE_ROOT="$(git rev-parse --show-toplevel)"
 RELEASE_COMMIT="$(git rev-parse HEAD)"
 RELEASE_PARENT="$(mktemp -d /tmp/lyklabord-release.XXXXXX)"
 RELEASE_WORKTREE="$RELEASE_PARENT/checkout"
+RELEASE_VERSION=1.1
 RELEASE_BUILD=7
 
 git worktree add --detach "$RELEASE_WORKTREE" "$RELEASE_COMMIT"
@@ -82,8 +84,20 @@ xcodebuild \
   -authenticationKeyPath "$ASC_KEY_PATH" \
   -authenticationKeyID "$ASC_KEY_ID" \
   -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+  MARKETING_VERSION="$RELEASE_VERSION" \
   CURRENT_PROJECT_VERSION="$RELEASE_BUILD" \
   archive 2>&1 | tee build/archive.log
+```
+
+Before export, verify both embedded bundles match the App Store version. A
+TestFlight build for 1.0 can process as `VALID` but becomes `Invalid Binary`
+when attached to an App Store 1.1 record.
+
+```bash
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+  build/Lyklabord.xcarchive/Products/Applications/Lyklabord.app/Info.plist)" = "$RELEASE_VERSION"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+  build/Lyklabord.xcarchive/Products/Applications/Lyklabord.app/PlugIns/LyklabordKeyboard.appex/Info.plist)" = "$RELEASE_VERSION"
 ```
 
 An Apple Development signature on the intermediate archive is normal. The
@@ -123,14 +137,14 @@ or selects Apple's cloud-managed signing asset.
 ## 5. Preserve and upload the IPA
 
 ```bash
-mkdir -p "$RELEASE_ROOT/.build/testflight-1.0-$RELEASE_BUILD"
+mkdir -p "$RELEASE_ROOT/.build/testflight-$RELEASE_VERSION-$RELEASE_BUILD"
 cp build/export/*.ipa \
-  "$RELEASE_ROOT/.build/testflight-1.0-$RELEASE_BUILD/Lyklaborð-1.0-$RELEASE_BUILD.ipa"
+  "$RELEASE_ROOT/.build/testflight-$RELEASE_VERSION-$RELEASE_BUILD/Lyklaborð-$RELEASE_VERSION-$RELEASE_BUILD.ipa"
 
 asccli builds upload \
   --app-id 6792012916 \
-  --file "$RELEASE_ROOT/.build/testflight-1.0-$RELEASE_BUILD/Lyklaborð-1.0-$RELEASE_BUILD.ipa" \
-  --version 1.0 \
+  --file "$RELEASE_ROOT/.build/testflight-$RELEASE_VERSION-$RELEASE_BUILD/Lyklaborð-$RELEASE_VERSION-$RELEASE_BUILD.ipa" \
+  --version "$RELEASE_VERSION" \
   --build-number "$RELEASE_BUILD" \
   --platform ios \
   --wait \
@@ -157,7 +171,7 @@ resolve export compliance automatically. Verify it rather than assuming:
 asccli builds list \
   --app-id 6792012916 \
   --platform ios \
-  --version 1.0 \
+  --version "$RELEASE_VERSION" \
   --limit 20 \
   --output table
 ```
