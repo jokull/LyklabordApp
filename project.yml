@@ -130,8 +130,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord
         PRODUCT_NAME: Lyklabord
-        MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "1.1"
+        CURRENT_PROJECT_VERSION: "18"
         # iPhone-only for v1 (iPad runs compatibility mode): the keyboard's
         # iPad layout is an uninvested surface — shipping it untested is a
         # review and reputation risk. Proper iPad support is a post-launch
@@ -247,10 +247,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord.keyboard
         PRODUCT_NAME: LyklabordKeyboard
-        MARKETING_VERSION: "1.0"
+        MARKETING_VERSION: "1.1"
         # Keep in lockstep with the app target (App Store requires matching
         # short versions; CFBundleVersion now flows from this setting).
-        CURRENT_PROJECT_VERSION: "4"
+        CURRENT_PROJECT_VERSION: "18"
         # iPhone-only for v1 (iPad runs compatibility mode): the keyboard's
         # iPad layout is an uninvested surface — shipping it untested is a
         # review and reputation risk. Proper iPad support is a post-launch
