@@ -44,6 +44,19 @@ architecture in `docs/adr/`. Newest first.
   The stale rejected review was canceled and submission
   `579434ec-c5b2-4cf2-a274-6f375f0f99cd` reached `WAITING_FOR_REVIEW` on
   2026-07-31 00:12:45 GMT.
+- **App Store 1.1 + first subscription resubmission**: that app-only review was
+  developer-rejected on 2026-07-31 so Lyklaborð+ could ship with 1.1. The
+  subscription was repaired to 175/175 explicit Apple-equalized price records
+  (USD 19.99 USA base; USD 22.99 Iceland), worldwide availability including
+  future territories, complete version-scoped localization/image metadata, and
+  the standard-EULA link in the App Store description. Apple has IAP v2 enabled
+  for this app, so the legacy private-web `submitWithNextAppStoreVersion` path
+  correctly failed with `ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE`; first
+  review instead uses version-scoped public review items. Replacement submission
+  `67438604-e943-4a20-9c08-d889d20936b2` contains App Store version 1.1,
+  subscription version `c6d16588-642c-4295-91f0-a82ef1aa6051`, and subscription
+  group version `c97891d2-f6dc-48d0-b212-a9f21ed3ec76`. All three reached
+  `WAITING_FOR_REVIEW` at 2026-07-31 22:13:02 GMT.
 
 ## 2026-07-24 — Wave 46: bilingual emoji search
 

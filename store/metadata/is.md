@@ -65,6 +65,8 @@ Kunnuglegt vöðvaminni: „.“ takki með greinarmerkjum ef haldið er inni, b
 
 Búið til á Íslandi.
 
+Notkunarskilmálar: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+
 ## What's New (v1.1)
 Emoji talar loksins íslensku.
 

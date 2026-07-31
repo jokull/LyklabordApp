@@ -62,6 +62,8 @@ Icelandic language data is derived from BÍN, © Árni Magnússon Institute for 
 
 Made in Iceland.
 
+Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+
 ## What's New (v1.1)
 Emoji finally speaks Icelandic.
 
