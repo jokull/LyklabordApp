@@ -65,8 +65,16 @@ Kunnuglegt vöðvaminni: „.“ takki með greinarmerkjum ef haldið er inni, b
 
 Búið til á Íslandi.
 
-## What's New (v1.0)
-Fyrsta útgáfa. Ein íslensk-ensk uppsetning með sjálfvirkri leiðréttingu sem skilur beygingar, byggð á öllum þremur milljónum orðmynda BÍN, sjálfvirk endurheimt brodda, nám á tækinu með persónulegri orðabók sem þú stjórnar að fullu, innflutningur úr SwiftKey og lyklaborðsviðbót án nokkurs netkóða. Opinn frumkóði undir MIT-leyfinu.
+## What's New (v1.1)
+Emoji talar loksins íslensku.
+
+• Leitaðu í emoji-lyklaborðinu á íslensku eða ensku: bæði „hjarta“ og „heart“ finna hjarta-emoji.
+• Skoðaðu nýjustu emoji sem þín iOS-útgáfa styður, ásamt öllum fjölskyldu- og húðlitaútgáfum.
+• Fáðu sterka staka emoji-samsvörun í tillögustikunni — án þess að biltakkinn breyti orðum í emoji.
+• Varfærnari sjálfvirk leiðrétting á íslenskum samsettum orðum, hástöfum og texta innan gæsalappa.
+• Lagað: samþykkt tillaga gat gleypt opnunargæsalappir.
+
+Öll emoji-heiti og leitargögn haldast á tækinu, eins og annað í Lyklaborði.
 
 ## Support URL
 https://lyklabord.solberg.is

@@ -62,8 +62,16 @@ Icelandic language data is derived from BÍN, © Árni Magnússon Institute for 
 
 Made in Iceland.
 
-## What's New (v1.0)
-First release. One Icelandic-and-English layout with morphology-aware autocorrect built on all 3 million BÍN word forms, automatic accent restoration, a keyboard extension with zero networking code, and an optional Lyklaborð+ subscription for on-device personal-vocabulary learning with SwiftKey import. Open source under MIT.
+## What's New (v1.1)
+Emoji finally speaks Icelandic.
+
+• Search the emoji keyboard in Icelandic or English: “hjarta” and “heart” both find the heart emoji.
+• Browse the modern emoji supported by your iOS version, with complete family and skin-tone combinations.
+• Get a strong single-emoji match in the suggestion bar — without turning the spacebar into an emoji-replacement button.
+• Safer autocorrect for Icelandic compounds, capitalization, and quoted text.
+• Fixed a bug where accepting a suggestion could swallow an opening quotation mark.
+
+All emoji labels and search data stay on-device, like the rest of Lyklaborð.
 
 ## Support URL
 https://lyklabord.solberg.is
