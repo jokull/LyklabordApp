@@ -18,6 +18,13 @@ const description =
             <span aria-hidden="true">·</span>
             <span>Þú átt gögnin</span>
           </p>
+          <a
+            class="app-store-cta"
+            href="https://apps.apple.com/app/id6792012916"
+            aria-label="Sækja Lyklaborð ókeypis í App Store"
+          >
+            Sækja í App Store
+          </a>
         </header>
 
         <div
@@ -110,8 +117,9 @@ const description =
           zero networking code — a claim you can verify in the source, not just a
           promise. An optional subscription, Lyklaborð+, adds on-device learning
           of your own words and phrases — inspectable and deletable, with
-          SwiftKey import — synced privately to your own iCloud. Coming to the
-          App&nbsp;Store.
+          SwiftKey import — synced privately to your own iCloud. <a
+            href="https://apps.apple.com/app/id6792012916"
+          >Download Lyklaborð free from the App Store.</a>
         </p>
       </section>
     </main>
@@ -183,6 +191,36 @@ const description =
         gap: 0.6em;
         flex-wrap: wrap;
         justify-content: center;
+      }
+
+      .app-store-cta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        margin-top: 1.35rem;
+        padding: 0.7rem 1.1rem;
+        border-radius: 999px;
+        background: var(--ink);
+        color: var(--bg);
+        font-weight: 650;
+        line-height: 1;
+        text-decoration: none;
+        transition: opacity 120ms ease, transform 120ms ease;
+      }
+
+      .app-store-cta:hover {
+        opacity: 0.84;
+        text-decoration: none;
+      }
+
+      .app-store-cta:active {
+        transform: scale(0.98);
+      }
+
+      .app-store-cta:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 3px;
       }
       .hero-stage {
         margin-top: 1rem;

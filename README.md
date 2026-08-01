@@ -10,7 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://lyklabord.solberg.is"><strong>lyklabord.solberg.is</strong></a>
+  <a href="https://lyklabord.solberg.is"><strong>lyklabord.solberg.is</strong></a> ·
+  <a href="https://apps.apple.com/app/id6792012916"><strong>Download free on the App Store</strong></a>
 </p>
 
 <p align="center">
@@ -74,7 +75,7 @@ swift run -c release type-repl bench      # latency percentiles on the real lang
 
 ## Status
 
-Early but daily-drivable: layout, blended autocorrect/prediction, learning + dictionary editor, and SwiftKey import all work. Pre-App-Store. See open items in the [table-stakes roadmap](research/tablestakes-roadmap.md).
+Available on the [App Store](https://apps.apple.com/app/id6792012916). Layout, blended autocorrect/prediction, learning + dictionary editor, and SwiftKey import all work. See open items in the [table-stakes roadmap](research/tablestakes-roadmap.md).
 
 ## Data & licenses
 
