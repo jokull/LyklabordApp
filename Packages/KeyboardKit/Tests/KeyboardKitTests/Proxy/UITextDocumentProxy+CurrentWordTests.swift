@@ -141,18 +141,21 @@ class UITextDocumentProxy_CurrentWordTests: XCTestCase {
 
 
     /// Lyklaborð fork regression (session 2026-07-21T11-57-41): with the
-    /// document at `Ég „for`, applying `fór` must replace only `for` — the
-    /// opening quote is a word delimiter and must survive the replacement.
-    /// Before the fix the current word was seen as `„for` (4 deletes) and
-    /// the quote was eaten: `Ég „for` → `Ég fór`.
-    func testReplacingCurrentWordAfterOpeningQuotePreservesTheQuote() {
-        proxy.documentContextBeforeInput = "Ég \u{201E}for"
-        proxy.replaceCurrentWord(with: "fór")
-        let delete = proxy.calls(to: \.deleteBackwardRef)
-        let insert = proxy.calls(to: \.insertTextRef)
-        XCTAssertEqual(delete.count, 3)
-        XCTAssertEqual(insert.count, 1)
-        XCTAssertEqual(insert[0].arguments, "fór")
+    /// document at `Ég „for`, applying `fór` must replace only `for` — every
+    /// supported double-quote glyph is a word delimiter and must survive the
+    /// replacement. Before the fix the current word was seen as `„for` (4
+    /// deletes) and the quote was eaten: `Ég „for` → `Ég fór`.
+    func testReplacingCurrentWordAfterOpeningQuotePreservesEveryQuoteGlyph() {
+        for quote in ["\"", "\u{201E}", "\u{201C}", "\u{201D}"] {
+            proxy.resetCalls()
+            proxy.documentContextBeforeInput = "Ég \(quote)for"
+            proxy.replaceCurrentWord(with: "fór")
+            let delete = proxy.calls(to: \.deleteBackwardRef)
+            let insert = proxy.calls(to: \.insertTextRef)
+            XCTAssertEqual(delete.count, 3, "quote: \(quote)")
+            XCTAssertEqual(insert.count, 1, "quote: \(quote)")
+            XCTAssertEqual(insert[0].arguments, "fór", "quote: \(quote)")
+        }
     }
 
 
