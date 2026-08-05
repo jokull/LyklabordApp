@@ -325,7 +325,7 @@ public final class TypingSession {
         if backspaceRevertJustArmed {
             backspaceRevertJustArmed = false
         } else {
-            resolveBackspaceRevert(currentWord: currentWord, windowShrank: windowShrank)
+            resolveBackspaceRevert(textBeforeCursor: textBeforeCursor, windowShrank: windowShrank)
         }
 
         // Align the touch record with the new pending word (AFTER commit
@@ -346,6 +346,7 @@ public final class TypingSession {
         let bar = buildSuggestions(
             context: context,
             currentWord: currentWord,
+            textBeforeCursor: textBeforeCursor,
             limit: limit,
             trace: trace
         )
@@ -522,15 +523,28 @@ public final class TypingSession {
 
     /// Keep or drop the backspace-revert memo for THIS pass. The reserved
     /// literal slot survives only while the cursor sits immediately after the
-    /// corrected word AND that word was reached by a deletion (the first
-    /// backspace after the commit). A typed continuation, a fresh word that
-    /// happens to equal the corrected form, or any other shape drops it — the
-    /// literal slot is never offered stale.
-    private func resolveBackspaceRevert(currentWord: String, windowShrank: Bool) {
+    /// corrected word or phrase AND that text was reached by a deletion (the
+    /// first backspace after the commit). A typed continuation, freshly typed
+    /// text that happens to equal the corrected form, or any other shape drops
+    /// it — the literal slot is never offered stale.
+    private func resolveBackspaceRevert(textBeforeCursor: String, windowShrank: Bool) {
         guard let memo = backspaceRevert else { return }
-        if !(currentWord == memo.corrected && windowShrank) {
+        if !(textBeforeCursor.hasSuffix(memo.corrected) && windowShrank) {
             backspaceRevert = nil
         }
+    }
+
+    /// Extra characters KeyboardKit must delete before inserting an armed
+    /// literal revert. Its stock suggestion replacement deletes only the
+    /// trailing current word; a missed-space correction can span several
+    /// words ("smellir á"), so the bridge must additionally delete the
+    /// corrected phrase's preceding words and spaces.
+    public func literalRevertAdditionalDeleteCount(matching text: String) -> Int {
+        guard literalSlotShowing, let memo = backspaceRevert, memo.literal == text else {
+            return 0
+        }
+        let trailingWordCount = Self.splitCurrentWord(of: memo.corrected).currentWord.count
+        return max(memo.corrected.count - trailingWordCount, 0)
     }
 
     /// Consume the reserved literal-revert slot: the user tapped it to swap
@@ -731,6 +745,7 @@ public final class TypingSession {
     private func buildSuggestions(
         context: String,
         currentWord: String,
+        textBeforeCursor: String,
         limit: Int,
         trace: CorrectionTrace? = nil
     ) -> [Suggestion] {
@@ -940,7 +955,7 @@ public final class TypingSession {
         // ordinary verbatim slot (which would show the corrected word itself,
         // already in the document) yields the left slot to it here.
         var bar: [Suggestion] = []
-        if let memo = backspaceRevert, memo.corrected == currentWord {
+        if let memo = backspaceRevert, textBeforeCursor.hasSuffix(memo.corrected) {
             literalSlotShowing = true
             bar.append(
                 Suggestion(text: memo.literal, isAutocorrect: false, confidence: 0, isVerbatim: true)
@@ -1196,6 +1211,14 @@ public final class TypingSession {
             // suggestionAccepted here: the event schema is single-word.
             for (index, token) in appendedTokens.enumerated() {
                 confirm(token, sentenceBoundary: boundary && index == appendedTokens.count - 1)
+            }
+            // The ordinary commit path below arms backspace-revert for a
+            // single corrected word. Preserve the same escape hatch for an
+            // AUTO-APPLIED missed-space split, retaining the entire phrase
+            // so the first backspace can offer the original unsplit token.
+            if joined == lastEmittedAutocorrect, previousCurrentWord != joined {
+                backspaceRevert = (literal: previousCurrentWord, corrected: joined)
+                backspaceRevertJustArmed = true
             }
             return
         }

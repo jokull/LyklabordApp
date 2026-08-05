@@ -1139,7 +1139,16 @@ final class LyklabordAutocompleteService: AutocompleteService {
                     .filter { $0.isVerbatim || $0.text != expansion }
                     .map { $0.demotingAutocorrect() }
         }
-        let mapped = ranked.map { Self.bridge($0, pendingToken: pendingToken) }
+        let mapped = ranked.map {
+            Self.bridge(
+                $0,
+                pendingToken: pendingToken,
+                literalRevertAdditionalDeleteCount:
+                    $0.isVerbatim
+                    ? session.literalRevertAdditionalDeleteCount(matching: $0.text)
+                    : 0
+            )
+        }
         // Spacebar mode 3 ("always insert a space", PLAN.md "Spacebar
         // behavior"): the bar still shows every suggestion, but nothing may
         // auto-commit on space — so demote every `.autocorrect` to `.regular`
@@ -1187,7 +1196,8 @@ final class LyklabordAutocompleteService: AutocompleteService {
     ///   token instead of shearing it at the last dot.
     private static func bridge(
         _ suggestion: Suggestion,
-        pendingToken: String
+        pendingToken: String,
+        literalRevertAdditionalDeleteCount: Int = 0
     ) -> Autocomplete.Suggestion {
         let kkWordCount = Self.keyboardKitCurrentWord(of: pendingToken).count
         return Autocomplete.Suggestion(
@@ -1198,7 +1208,9 @@ final class LyklabordAutocompleteService: AutocompleteService {
             title: suggestion.isVerbatim
                 ? "\u{201C}\(suggestion.text)\u{201D}"
                 : suggestion.text,
-            additionalDeleteCount: max(pendingToken.count - kkWordCount, 0),
+            additionalDeleteCount:
+                max(pendingToken.count - kkWordCount, 0)
+                + literalRevertAdditionalDeleteCount,
             additionalInfo: [
                 "confidence": String(format: "%.3f", suggestion.confidence),
                 Self.pendingTokenInfoKey: pendingToken,

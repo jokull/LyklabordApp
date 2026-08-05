@@ -58,6 +58,10 @@ final class BackspaceRevertTests: XCTestCase {
         @discardableResult
         func tap(_ text: String) -> Bool {
             guard let s = bar.first(where: { $0.text == text }) else { return false }
+            let literalRevertAdditionalDeleteCount =
+                s.isVerbatim
+                ? session.literalRevertAdditionalDeleteCount(matching: s.text)
+                : 0
             if s.isVerbatim {
                 if !session.revertToLiteral(matching: s.text) {
                     session.noteVerbatimChoice(s.text)
@@ -65,7 +69,9 @@ final class BackspaceRevertTests: XCTestCase {
             }
             let before = proxy.trueContextBeforeInput
             let word = TypingSession.splitCurrentWord(of: before).currentWord
-            for _ in 0..<word.count { proxy.deleteBackward() }
+            for _ in 0..<(word.count + literalRevertAdditionalDeleteCount) {
+                proxy.deleteBackward()
+            }
             proxy.insertText(s.text)
             let (b, a) = proxy.contextWindows()
             if !b.hasSuffix(" "), !a.hasPrefix(" ") { proxy.insertText(" ") }
@@ -135,6 +141,43 @@ final class BackspaceRevertTests: XCTestCase {
         XCTAssertEqual(d.leading?.text, "Godan")
         d.tap("Godan")
         XCTAssertEqual(d.document, "Godan ")
+    }
+
+    func testSplitAutocorrectCommitThenBackspaceRevealsLiteralSlot() {
+        let d = driver()
+        d.type("gottnveður ")
+        XCTAssertEqual(d.document, "gott veður ")
+        XCTAssertFalse(d.session.hasArmedLiteralRevert)
+
+        d.backspace()
+        XCTAssertEqual(d.document, "gott veður")
+        XCTAssertTrue(d.session.hasArmedLiteralRevert)
+        XCTAssertEqual(d.leading?.text, "gottnveður")
+        XCTAssertEqual(
+            d.session.literalRevertAdditionalDeleteCount(matching: "gottnveður"),
+            "gott ".count
+        )
+    }
+
+    func testTappingSplitLiteralRestoresWholeUnsplitToken() {
+        let d = driver()
+        d.type("gottnveður ")
+        d.backspace()
+
+        XCTAssertTrue(d.tap("gottnveður"))
+        XCTAssertEqual(d.document, "gottnveður ")
+        XCTAssertFalse(d.session.hasArmedLiteralRevert)
+    }
+
+    func testSecondBackspaceDropsSplitLiteralSlot() {
+        let d = driver()
+        d.type("gottnveður ")
+        d.backspace()
+        XCTAssertTrue(d.session.hasArmedLiteralRevert)
+
+        d.backspace()
+        XCTAssertFalse(d.session.hasArmedLiteralRevert)
+        XCTAssertFalse(d.containsText("gottnveður"))
     }
 
     // MARK: - Negatives (never a stale literal slot)
