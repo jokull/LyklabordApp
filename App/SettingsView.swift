@@ -60,6 +60,11 @@ struct SettingsView: View {
     @AppStorage(AppModel.spacebarModeDefaultsKey, store: UserDefaults(suiteName: AppModel.appGroupIdentifier))
     private var spacebarModeRaw: String = SpacebarMode.completeCurrentWord.rawValue
 
+    /// KeyboardKit reads this same App Group-backed preference inside the
+    /// extension. Defaults on to preserve the current behavior.
+    @AppStorage(AppModel.hapticFeedbackEnabledDefaultsKey, store: UserDefaults(suiteName: AppModel.appGroupIdentifier))
+    private var hapticFeedbackEnabled: Bool = true
+
     /// iCloud sync opt-out flag, default ON (PLAN decision #5: transparent,
     /// zero-config sync). Same App Group suite; the coordinator's engine
     /// reads the same key at each sync call, so a flipped toggle takes
@@ -78,6 +83,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 spacebarSection
+                hapticSection
                 subscriptionSection
                 syncSection
                 dataSection
@@ -137,6 +143,21 @@ struct SettingsView: View {
             Text(Strings.Settings.spacebarSectionTitle)
         } footer: {
             Text(Strings.Settings.spacebarSectionFooter)
+        }
+    }
+
+    // MARK: - Haptics
+
+    private var hapticSection: some View {
+        Section {
+            Toggle(
+                Strings.Settings.hapticToggleTitle,
+                isOn: $hapticFeedbackEnabled
+            )
+        } header: {
+            Text(Strings.Settings.hapticSectionTitle)
+        } footer: {
+            Text(Strings.Settings.hapticSectionFooter)
         }
     }
 

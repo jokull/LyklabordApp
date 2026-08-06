@@ -63,6 +63,7 @@ public extension Keyboard {
         /// The callout service to use.
         public lazy var calloutService: CalloutService = .standard(
             keyboardContext: state.keyboardContext,
+            feedbackContext: state.feedbackContext,
             feedbackService: feedbackService
         ) {
             didSet { setupCalloutContextForServices() }

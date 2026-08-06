@@ -64,7 +64,7 @@ struct LyklabordEmojiKeyboard: View {
                     .background(Color(uiColor: .secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 3)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("emoji-search-button")
@@ -100,13 +100,13 @@ struct LyklabordEmojiKeyboard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// KeyboardKit reserves the ordinary 50pt toolbar above its alphabetic
+    /// KeyboardKit reserves the compact toolbar above its alphabetic
     /// rows in `.emojiSearch`. This one-band overlay occupies exactly that
     /// safe strip; its clear remainder disables hit-testing so every letter,
     /// space, backspace, ABC, globe, and Done key remains reachable.
     private var searchOverlay: some View {
         VStack(spacing: 0) {
-            searchBand.frame(height: 50)
+            searchBand.frame(height: LyklabordKeyboardMetrics.toolbarHeight)
             Color.clear.allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

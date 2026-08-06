@@ -83,5 +83,6 @@ private struct EmojiFrecencyRow: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(height: LyklabordKeyboardMetrics.toolbarHeight)
     }
 }

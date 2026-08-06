@@ -39,6 +39,13 @@ final class AppModel {
     /// stable key to read. Raw value is `SpacebarMode.rawValue`.
     static let spacebarModeDefaultsKey = "is.solberg.lyklabord.settings.spacebarMode"
 
+    /// KeyboardKit's App Group-backed haptic preference. The app writes this
+    /// exact key and the extension's `FeedbackSettings` reads it directly.
+    /// Keep in sync with `FeedbackSettings.settingsPrefix` in the vendored
+    /// KeyboardKit package.
+    static let hapticFeedbackEnabledDefaultsKey =
+        "com.keyboardkit.settings.feedback.isHapticFeedbackEnabled"
+
     // MARK: - State
 
     enum ContainerState: Equatable {

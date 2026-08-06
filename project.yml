@@ -357,6 +357,7 @@ targets:
       - path: KeyboardExt/EmojiFrequencyStore.swift
       - path: KeyboardExt/IcelandicEmojiSearchFirewall.swift
       - path: KeyboardExt/EmojiCatalog.swift
+      - path: KeyboardExt/LyklabordKeyboardMetrics.swift
     dependencies:
       - target: ReplayHost
       - package: KeyboardKit

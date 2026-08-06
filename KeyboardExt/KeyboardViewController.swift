@@ -357,6 +357,10 @@ final class KeyboardViewController: KeyboardInputViewController {
                     )
                 }
             )
+            .autocompleteToolbarStyle(.init(
+                height: LyklabordKeyboardMetrics.toolbarHeight,
+                padding: LyklabordKeyboardMetrics.toolbarPadding
+            ))
             .keyboardCalloutActions { params in
                 // Long-press the emoji key → a quick row of the user's top-10
                 // emoji by frecency (seeded with popular defaults), rendered by
@@ -636,6 +640,26 @@ final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
             }
         }
         return layout
+    }
+
+    /// Keep portrait rows at Apple's compact 54pt cadence. KeyboardKit's
+    /// large-phone/liquid-glass configurations grow them to 56pt, which adds
+    /// eight unnecessary points across the four alphabetic rows.
+    override func itemSizeHeight(
+        for action: KeyboardAction,
+        row: Int,
+        index: Int,
+        context: KeyboardContext
+    ) -> CGFloat {
+        LyklabordKeyboardMetrics.rowHeight(
+            standard: super.itemSizeHeight(
+                for: action,
+                row: row,
+                index: index,
+                context: context
+            ),
+            isPortrait: context.interfaceOrientation.isPortrait
+        )
     }
 
     override func bottomActions(

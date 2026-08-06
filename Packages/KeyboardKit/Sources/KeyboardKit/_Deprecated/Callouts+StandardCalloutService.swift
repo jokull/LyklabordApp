@@ -24,12 +24,14 @@ public extension CalloutService where Self == Callouts.StandardCalloutService {
         keyboardContext: KeyboardContext,
         baseService: CalloutService = Callouts.BaseCalloutService(),
         localizedServices: [Self.LocalizedCalloutService] = [],
+        feedbackContext: FeedbackContext? = nil,
         feedbackService: FeedbackService? = nil
     ) -> Self {
         Callouts.StandardCalloutService(
             keyboardContext: keyboardContext,
             baseService: baseService,
             localizedServices: localizedServices,
+            feedbackContext: feedbackContext,
             feedbackService: feedbackService
         )
     }
@@ -54,12 +56,14 @@ extension Callouts {
             keyboardContext: KeyboardContext,
             baseService: CalloutService = Callouts.BaseCalloutService(),
             localizedServices: [LocalizedCalloutService] = [],
+            feedbackContext: FeedbackContext? = nil,
             feedbackService: FeedbackService? = nil
         ) {
             self.keyboardContext = keyboardContext
             self.baseService = baseService
             let dict = Dictionary(uniqueKeysWithValues: localizedServices.map { ($0.localeKey, $0) })
             self.localizedServices = .init(dict)
+            self.feedbackContext = feedbackContext
             self.feedbackService = feedbackService
         }
 
@@ -74,6 +78,8 @@ extension Callouts {
         /// The feedback service to use.
         public var feedbackService: FeedbackService?
 
+        /// The feedback settings that gate selection-change haptics.
+        public var feedbackContext: FeedbackContext?
 
         /// The base service to use.
         public private(set) var baseService: CalloutService
@@ -97,6 +103,7 @@ extension Callouts {
 
         /// Trigger feedback for callout selection change.
         open func triggerFeedbackForSelectionChange() {
+            guard feedbackContext?.settings.isHapticFeedbackEnabled != false else { return }
             feedbackService?.triggerHapticFeedback(.selectionChanged)
         }
 

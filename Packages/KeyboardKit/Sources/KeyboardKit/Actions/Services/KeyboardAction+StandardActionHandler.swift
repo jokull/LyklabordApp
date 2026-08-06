@@ -619,16 +619,14 @@ extension KeyboardAction {
         /// Whether to trigger haptic feedback for an action.
         ///
         /// This returns true if the ``feedbackContext`` has
-        /// haptic feedback enabled in it's settings, and if
-        /// certain other gesture conditions are `true`. The
-        /// function also always returns true for long press
-        /// on space by default.
+        /// haptic feedback enabled in its settings, and if
+        /// certain other gesture conditions are `true`.
         open func shouldTriggerHapticFeedback(
             for gesture: Keyboard.Gesture,
             on action: KeyboardAction
         ) -> Bool {
-            if action == .space && gesture == .longPress { return true }
             guard feedbackContext.settings.isHapticFeedbackEnabled else { return false }
+            if action == .space && gesture == .longPress { return true }
             let hasRelease = self.action(for: .release, on: action) != nil
             if gesture == .press && hasRelease { return true }
             let hasAction = self.action(for: gesture, on: action) != nil
