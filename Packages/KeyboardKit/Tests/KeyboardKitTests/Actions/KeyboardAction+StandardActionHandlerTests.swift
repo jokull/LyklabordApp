@@ -276,9 +276,9 @@ final class KeyboardAction_StandardActionHandlerTests: XCTestCase {
         XCTAssertTrue(audioResult(for: .press, on: .character("a")))
     }
 
-    func testHapticFeedbackShouldAlwaysTriggerForLongPressOnSpace() {
+    func testHapticFeedbackSettingAlsoGatesLongPressOnSpace() {
         controller.state.feedbackContext.settings.isHapticFeedbackEnabled = false
-        XCTAssertTrue(hapticResult(for: .longPress, on: .space))
+        XCTAssertFalse(hapticResult(for: .longPress, on: .space))
         controller.state.feedbackContext.settings.isHapticFeedbackEnabled = true
         XCTAssertTrue(hapticResult(for: .longPress, on: .space))
     }

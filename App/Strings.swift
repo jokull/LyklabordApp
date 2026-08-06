@@ -167,6 +167,10 @@ enum Strings {
         static let spacebarModeSpaceTitle = "Bara bil"
         static let spacebarModeSpaceDetail = "Bil er alltaf bara bil. Leiðréttingar eru eingöngu gerðar með því að ýta á tillögustikuna."
 
+        static let hapticSectionTitle = "Snertiviðbrögð"
+        static let hapticToggleTitle = "Titringur við innslátt"
+        static let hapticSectionFooter = "Slekkur á öllum titringi frá Lyklaborði, líka við langa snertingu og val á broddstöfum. iOS krefst „Allow Full Access“ til að titringur virki."
+
         static let aboutSectionTitle = "Um Lyklaborð"
         static let aboutOpenSourceTitle = "Opinn hugbúnaður"
         static let aboutOpenSourceDetail = "Kóðinn er opinn og öllum aðgengilegur — hægt er að skoða nákvæmlega hvað lyklaborðið gerir."
