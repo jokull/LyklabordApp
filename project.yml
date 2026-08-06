@@ -184,6 +184,8 @@ targets:
       - path: KeyboardExt
       - path: data/is/bin-morph.bin
         buildPhase: resources
+      - path: data/is/bin-morph.folded.bin
+        buildPhase: resources
       - path: data/en/en.lex
         buildPhase: resources
       - path: data/is/is.lex

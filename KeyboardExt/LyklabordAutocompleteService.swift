@@ -743,10 +743,30 @@ final class LyklabordAutocompleteService: AutocompleteService {
             // BÍN morphology is optional for the engine; degrade gracefully
             // (frequency-only validation) if the binary is missing/corrupt.
             var morphology: BinaryLemmatizer?
-            if let binURL = bundle.url(forResource: "lemma-is", withExtension: "bin") {
+            // The project ships `bin-morph.bin`. Keep the old resource name
+            // as a fallback for locally archived pre-rename bundles, but do
+            // not silently miss the shipping artifact (the previous lookup
+            // asked only for `lemma-is.bin`).
+            if let binURL =
+                bundle.url(forResource: "bin-morph", withExtension: "bin")
+                ?? bundle.url(forResource: "lemma-is", withExtension: "bin")
+            {
                 morphology = try? BinaryLemmatizer(contentsOf: binURL)
                 if morphology == nil {
                     NSLog("[LyklaborÃ°] bin-morph.bin failed to load; continuing without morphology")
+                } else if let foldedURL = bundle.url(
+                    forResource: "bin-morph.folded", withExtension: "bin")
+                {
+                    do {
+                        try morphology?.loadFoldedIndex(contentsOf: foldedURL)
+                    } catch {
+                        NSLog(
+                            "[LyklaborÃ°] folded morphology index failed to load; continuing without it: %@",
+                            String(describing: error))
+                    }
+                } else {
+                    NSLog(
+                        "[LyklaborÃ°] bin-morph.folded.bin missing from extension bundle; continuing without folded lookup")
                 }
             } else {
                 NSLog("[LyklaborÃ°] bin-morph.bin missing from extension bundle; continuing without morphology")

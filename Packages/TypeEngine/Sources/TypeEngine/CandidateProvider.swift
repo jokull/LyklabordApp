@@ -25,6 +25,7 @@ public enum CandidateProvider: String, CaseIterable, Sendable {
     case compoundRepair = "compound-repair"
     case compoundCompletion = "compound-completion"
     case spaceMissSplit = "space-miss-split"
+    case foldedMorphology = "folded-morphology"
 
     fileprivate var bit: UInt64 {
         switch self {
@@ -47,6 +48,7 @@ public enum CandidateProvider: String, CaseIterable, Sendable {
         case .compoundRepair: 1 << 16
         case .compoundCompletion: 1 << 17
         case .spaceMissSplit: 1 << 18
+        case .foldedMorphology: 1 << 19
         }
     }
 }
@@ -108,7 +110,7 @@ public enum CandidateProviderFamily: String, CaseIterable, Sendable {
                 .shorterPrefixCompletion,
             ]
         case .morphology:
-            return [.caseCompletion, .caseSibling]
+            return [.caseCompletion, .caseSibling, .foldedMorphology]
         case .compound:
             return [.compoundRepair, .compoundCompletion]
         case .split:
@@ -150,6 +152,27 @@ struct CandidateAdmissionPool: Sequence {
         }
         costs[word] = cost()
         provenance?[word] = CandidateProviderSet(provider)
+        return true
+    }
+
+    /// Admit a structured candidate using the cheaper of its already-known
+    /// channel and `cost`. Most providers preserve the historical first-wins
+    /// currency through `admit`; folded morphology alone needs this seam
+    /// because an earlier generic pass may have priced the SAME canonical
+    /// surface as ordinary typing instead of as folded input.
+    @discardableResult
+    mutating func admitLowerCost(
+        _ word: String,
+        cost: ChannelCost,
+        provider: CandidateProvider
+    ) -> Bool {
+        provenance?[word, default: []].formUnion(CandidateProviderSet(provider))
+        guard let existing = costs[word] else {
+            costs[word] = cost
+            return true
+        }
+        guard cost.total < existing.total else { return false }
+        costs[word] = cost
         return true
     }
 

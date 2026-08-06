@@ -21,6 +21,7 @@ struct AutocorrectPolicyInput {
     let candidates: CandidateAdmissionPool
     let speculativeCompletions: Set<String>
     let mashRecoveryAdmissions: Set<String>
+    let foldedMorphologyAdmissions: Set<String>
     let scored: [RankedCandidate]
 }
 
@@ -49,6 +50,7 @@ extension Corrector {
         let candidates = input.candidates
         let speculativeCompletions = input.speculativeCompletions
         let mashRecoveryAdmissions = input.mashRecoveryAdmissions
+        let foldedMorphologyAdmissions = input.foldedMorphologyAdmissions
         let scored = input.scored
 
         // ---- Conservatism / autocorrect decision --------------------------
@@ -179,6 +181,15 @@ extension Corrector {
                     : (attestedTypicality(of: best.word) ?? -.infinity)
                 let rewrite = Self.rewriteDistance(typedChars, Array(best.word))
                 let farRepair = rewrite >= action.autocorrectFarRepairEdits
+                let foldedMorphologyEvidence =
+                    foldedMorphologyAdmissions.contains(best.word)
+                    && best.cost.restorationOps >= 1
+                    && best.cost.errorOps <= 1
+                    && rewrite <= 1
+                let foldedMorphologyArming =
+                    action.foldedMorphologyAutocorrectEnabled
+                    && foldedMorphologyEvidence
+                    && pIcelandic >= action.foldedMorphologyAutocorrectMinPosterior
                 // Short-token discipline (dogfood "eg"/"vð", 2026-07-16):
                 // a 2-letter token carries almost no spatial evidence, so
                 // auto-apply demands a headline-vocabulary winner (ég, við
@@ -259,6 +270,10 @@ extension Corrector {
                     restorationRelaxed
                     ? action.restorationAutoApplyMargin
                     : action.autocorrectMargin
+                if foldedMorphologyArming {
+                    requiredMargin = min(
+                        requiredMargin, action.foldedMorphologyAutocorrectMargin)
+                }
                 // Junk-tier winner discipline (session-3 replay "kozy" →
                 // "jozy"): an ERROR-class winner below
                 // `autocorrectJunkWinnerZ` is a junk-tier vocabulary guess —
@@ -274,7 +289,8 @@ extension Corrector {
                 // Personal winners (typicality ∞) and everything at/above
                 // the threshold are untouched.
                 let junkWinner =
-                    !restorationRelaxed && typicality < action.autocorrectJunkWinnerZ
+                    !restorationRelaxed && !foldedMorphologyArming
+                    && typicality < action.autocorrectJunkWinnerZ
                 if junkWinner {
                     requiredMargin *= action.autocorrectJunkWinnerMarginScale
                 }
@@ -293,7 +309,7 @@ extension Corrector {
                     requiredMargin *= action.bigramMarginRelief
                 }
                 var marginOK = margin >= requiredMargin * tapMarginFactor
-                var typicalityOK = typicality >= minZ
+                var typicalityOK = typicality >= minZ || foldedMorphologyArming
                 // Vacuum auto-apply (dogfood "stökklrikanum" wave): a
                 // BÍN-valid winner below the typicality floor may still
                 // fire when the pool holds NO attested-or-personal repair
@@ -350,6 +366,20 @@ extension Corrector {
                     properNounOK = true
                 }
                 if let trace {
+                    if foldedMorphologyEvidence {
+                        let enabled = action.foldedMorphologyAutocorrectEnabled
+                        let laneOK =
+                            pIcelandic >= action.foldedMorphologyAutocorrectMinPosterior
+                        trace.gate(
+                            "folded-morphology-arming",
+                            "structured BÍN hit; enabled=\(enabled), P(IS) "
+                                + String(format: "%.3f", pIcelandic)
+                                + " >= "
+                                + String(
+                                    format: "%.3f",
+                                    action.foldedMorphologyAutocorrectMinPosterior),
+                            pass: enabled && laneOK)
+                    }
                     if action.properNounGuardEnabled, capitalizedMidSentence, !properNounOK {
                         trace.gate(
                             "proper-noun-possessive-guard",
@@ -407,6 +437,8 @@ extension Corrector {
                         "typicality",
                         "winner z \(typicality == .infinity ? "personal" : String(format: "%+.3f", typicality))"
                             + " >= minZ \(String(format: "%+.3f", minZ))"
+                            + (foldedMorphologyArming
+                                ? " (waived: structured folded-BÍN evidence)" : "")
                             + (farRepair ? " (far-repair floor)" : "")
                             + (short
                                 ? archaicTwinWinner

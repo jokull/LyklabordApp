@@ -11,7 +11,7 @@ final class LanguageArtifactAuditTests: XCTestCase {
         let reference = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-07-18T16:00:00Z"))
         let result = LanguageArtifactAudit.run(repoRoot: root, referenceDate: reference)
         XCTAssertEqual(result.failures, [])
-        XCTAssertEqual(result.verifiedFileCount, 14)
+        XCTAssertEqual(result.verifiedFileCount, 15)
         XCTAssertEqual(result.sourceAgeDays["is"], 8)
         XCTAssertEqual(result.sourceAgeDays["en"], 3)
     }

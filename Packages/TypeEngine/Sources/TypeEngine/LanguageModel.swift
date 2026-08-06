@@ -6,6 +6,16 @@ import Lexicon
 public protocol MorphologyProviding: AnyObject {
     func isKnown(_ word: String) -> Bool
 
+    /// Whether `forms(matchingFoldedKey:)` has a real reverse index behind
+    /// it. Keeps the bounded neighbor enumeration off the hot path when an
+    /// optional sidecar is absent or failed cohort validation.
+    var supportsFoldedLookup: Bool { get }
+
+    /// Canonical BÍN surfaces whose diacritic-folded spelling equals `key`.
+    /// Production reads the optional mmap-backed folded sidecar; validation-
+    /// only conformers return no candidates.
+    func forms(matchingFoldedKey key: String) -> [String]
+
     /// Grammatical cases ("nf"/"þf"/"þgf"/"ef") of the word's noun/adjective
     /// analyses — the inflection backoff's FALLBACK when a form is absent
     /// from the frequency-filtered paradigms.bin (PLAN.md "Inflection
@@ -28,6 +38,8 @@ public protocol MorphologyProviding: AnyObject {
 }
 
 public extension MorphologyProviding {
+    var supportsFoldedLookup: Bool { false }
+    func forms(matchingFoldedKey key: String) -> [String] { [] }
     func nounAdjectiveCases(of word: String) -> [String] { [] }
     func lemmaCandidates(of word: String) -> [String] { [] }
     func hasOpenClassAnalysis(_ word: String) -> Bool { isKnown(word) }
@@ -496,6 +508,28 @@ public struct EngineConfig: Sendable {
     /// keeps words-in-progress off the deep path. BÍN-only forms never
     /// suppress it (junk one edit from everything — the 4b rationale).
     public var beamDeepGate: Double = 3.5
+
+    // --- Folded BÍN spatial repair. The optional sidecar absorbs missing
+    // diacritics during retrieval; this bounded pass explores the unchanged
+    // folded key plus exactly one nearby-key substitution. Ranking prices the
+    // folded spelling itself (missing accents are input-method work, not user
+    // errors) while retaining the canonical alignment's restoration/error
+    // accounting for the action policy.
+    public var foldedMorphologyMinLength: Int = 5
+    public var foldedMorphologyNeighborMaxCost: Double = 1.5
+    public var foldedMorphologyMaxCandidates: Int = 16
+    /// Provenance-specific arming: unlike arbitrary BÍN edits1, an exact
+    /// folded hit with at most one nearby-key miss carries structured input-
+    /// method evidence and may waive the frequency-table typicality floor.
+    public var foldedMorphologyAutocorrectEnabled: Bool = true
+    /// Keep the privileged BÍN action in a neutral-or-Icelandic lane. Below
+    /// neutral, candidates remain visible offers but never arm the spacebar.
+    public var foldedMorphologyAutocorrectMinPosterior: Double = 0.5
+    /// A structured folded-BÍN winner has already survived an exact reverse
+    /// lookup and the one-neighbor cone, so it uses a narrower ambiguity
+    /// margin than an arbitrary error-class vocabulary guess. A true folded
+    /// collision still needs context/ranking to separate by at least this.
+    public var foldedMorphologyAutocorrectMargin: Double = 0.15
 
     // --- Coordinate (per-tap) decoding (PLAN.md "Touch decoding", stage 1).
     // When the embedder threads touch points through TypingSession.noteTap,
@@ -1890,6 +1924,14 @@ struct BlendedLanguageModel {
             for first in alphabet {
                 for second in alphabet {
                     _ = morphology.isKnown(String([first, second]))
+                }
+            }
+            if morphology.supportsFoldedLookup {
+                // Representative hits/misses fault in the sidecar's upper
+                // binary-search pages without multiplying the full two-key
+                // morphology spread into thousands of redundant misses.
+                for key in ["islenska", "godan", "missing"] {
+                    _ = morphology.forms(matchingFoldedKey: key)
                 }
             }
         }

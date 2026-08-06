@@ -50,6 +50,13 @@ public enum ConfigOverrides {
         "beamMultiEditCostCap": { $0.beamMultiEditCostCap = $1 },
         "beamNeighborMaxCost": { $0.beamNeighborMaxCost = $1 },
         "beamDeepGate": { $0.beamDeepGate = $1 },
+        "foldedMorphologyNeighborMaxCost": { $0.foldedMorphologyNeighborMaxCost = $1 },
+        "foldedMorphologyAutocorrectMinPosterior": {
+            $0.foldedMorphologyAutocorrectMinPosterior = $1
+        },
+        "foldedMorphologyAutocorrectMargin": {
+            $0.foldedMorphologyAutocorrectMargin = $1
+        },
         // Space-miss split
         "splitAutocorrectMargin": { $0.splitAutocorrectMargin = $1 },
         "splitInsertionPenalty": { $0.splitInsertionPenalty = $1 },
@@ -118,6 +125,8 @@ public enum ConfigOverrides {
         "beamMaxEdits": { $0.beamMaxEdits = $1 },
         "beamShortMaxEdits": { $0.beamShortMaxEdits = $1 },
         "beamLongMinLength": { $0.beamLongMinLength = $1 },
+        "foldedMorphologyMinLength": { $0.foldedMorphologyMinLength = $1 },
+        "foldedMorphologyMaxCandidates": { $0.foldedMorphologyMaxCandidates = $1 },
         "splitMinLength": { $0.splitMinLength = $1 },
         "completionPoolLimit": { $0.completionPoolLimit = $1 },
         // Context ranking (wave 27)
@@ -163,6 +172,9 @@ public enum ConfigOverrides {
         "tapNearMissCapEnabled": { $0.tapNearMissCapEnabled = $1 },
         "edgeUndershootEnabled": { $0.edgeUndershootEnabled = $1 },
         "mashRecoveryEnabled": { $0.mashRecoveryEnabled = $1 },
+        "foldedMorphologyAutocorrectEnabled": {
+            $0.foldedMorphologyAutocorrectEnabled = $1
+        },
     ]
 
     /// All override keys, sorted — for `--help` / docs / diagnostics.

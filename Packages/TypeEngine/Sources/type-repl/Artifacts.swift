@@ -76,6 +76,15 @@ enum Artifacts {
         if morphologyEnabled, let url = paths.morphology {
             do {
                 morphology = try BinaryLemmatizer(contentsOf: url)
+                let foldedURL = url.deletingLastPathComponent()
+                    .appendingPathComponent("bin-morph.folded.bin")
+                if FileManager.default.fileExists(atPath: foldedURL.path) {
+                    do {
+                        try morphology?.loadFoldedIndex(contentsOf: foldedURL)
+                    } catch {
+                        warn("folded morphology failed to load (\(error)); continuing without")
+                    }
+                }
             } catch {
                 warn("bin-morph.bin failed to load (\(error)); continuing without morphology")
             }
@@ -114,7 +123,9 @@ enum Artifacts {
         warn(
             "loaded artifacts in \(elapsed.milliseconds.formatted(.number.precision(.fractionLength(1)))) ms "
                 + "(is: \(icelandic.unigramCount) unigrams, en: \(english.unigramCount) unigrams, "
-                + "morphology: \(morphology == nil ? "off" : "on"), inflection: \(inflectionSummary))"
+                + "morphology: \(morphology == nil ? "off" : "on")"
+                + " folded: \(morphology?.hasFoldedIndex == true ? "on" : "off"),"
+                + " inflection: \(inflectionSummary))"
         )
         return engine
     }

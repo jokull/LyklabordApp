@@ -13,6 +13,7 @@
     "is.lex",
     "is-calibration.json",
     "bin-morph.bin",
+    "bin-morph.folded.bin",
     "paradigms.bin",
     "governors.json.gz"
   ],
@@ -68,6 +69,16 @@
       "lemmas": 347926,
       "analyses": 5811045,
       "bigrams": 414007
+    },
+    "bin-morph.folded.bin": {
+      "formatVersion": 1,
+      "bytes": 4486916,
+      "sha256": "ab404cc709731068a92ff2f809dc02d2d9beed26c88475bd5e949cc7d39052e2",
+      "foldedKeys": 174574,
+      "wordFormReferences": 175247,
+      "collisionKeys": 665,
+      "sourceWordForms": 3698020,
+      "includedSurfaceTier": "bin-morph.core.bin"
     },
     "bin-morph.core.bin": {
       "formatVersion": 1,
