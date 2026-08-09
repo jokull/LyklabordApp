@@ -412,6 +412,9 @@ public final class TypingSession {
     ///   secure fields, not even the in-session overlay (an email address
     ///   must not become suggestible in other fields mid-session),
     /// - `EventLog.isLearnableWord` — no whitespace/emoji/letterless junk,
+    /// - ≥2 characters — single-letter tokens are either base-lexicon
+    ///   words (á, í, a, I) that need no personal slot, or stray-tap noise
+    ///   (mirrors the SwiftKey-import rule, see `isEventWord`),
     /// - not verbatim-class (internal '.'/'@') — URL/email-shaped tokens
     ///   are never learned even in standard fields.
     public func learnWordImmediately(_ word: String) {
@@ -1434,11 +1437,19 @@ public final class TypingSession {
     }
 
     /// A word admissible into the learning log: passes EventLog's own
-    /// validation (single token, has a letter, no emoji/control) AND is not
-    /// verbatim-class (internal '.'/'@' — URL/domain/e-mail-shaped tokens
-    /// are never logged, an extra privacy layer on top of the field gate).
+    /// validation (single token, has a letter, no emoji/control), is at
+    /// least 2 characters (single-character entries are either already in
+    /// the base lexicons — á, í, a, I — at extreme frequency, so learning
+    /// them personally adds no ranking value — or stray-tap noise like
+    /// "e"/"s" that would otherwise become boosted personal vocabulary;
+    /// the same rule the SwiftKey vocabulary import applies, see
+    /// `SwiftKeyImport.isImportableWord`), AND is not verbatim-class
+    /// (internal '.'/'@' — URL/domain/e-mail-shaped tokens are never
+    /// logged, an extra privacy layer on top of the field gate).
     static func isEventWord(_ word: String) -> Bool {
-        EventLog.isLearnableWord(word) && !isVerbatimClassToken(word)
+        word.count >= 2
+            && EventLog.isLearnableWord(word)
+            && !isVerbatimClassToken(word)
     }
 
     /// Strip the single trailing deferred dot a pending token may carry
