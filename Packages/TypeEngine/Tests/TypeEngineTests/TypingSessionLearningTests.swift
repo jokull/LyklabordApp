@@ -224,6 +224,32 @@ final class TypingSessionLearningTests: XCTestCase {
         }
     }
 
+    func testSingleLetterCommitsAreNotLogged() {
+        // Single-character tokens are either base-lexicon words (á, í, a, I)
+        // that need no personal slot — learning them adds no ranking value
+        // on top of extreme-frequency base attestation — or stray-tap noise
+        // ("e", "s") that would otherwise become boosted personal
+        // vocabulary. The same rule the SwiftKey vocabulary import applies
+        // (see `SwiftKeyImport.isImportableWord`). Nothing single-letter may
+        // emit an event or feed the in-session overlay.
+        let s = session()
+        typeThrough(s, "e ")   // stray-tap junk single letter
+        s.noteVerbatimChoice("k")  // explicit single-letter tap
+        XCTAssertFalse(s.hasPendingLearningEvents)
+        XCTAssertTrue(s.drainLearningEvents().isEmpty)
+        XCTAssertFalse(s.engine.isPersonalWord("e"))
+        XCTAssertFalse(s.engine.isPersonalWord("k"))
+        // Control: multi-character words still learn through the same path.
+        typeThrough(s, "og ")
+        let events = s.drainLearningEvents()
+        XCTAssertEqual(events.count, 1)
+        guard case .wordCommitted(let word, let previous, _) = events[0] else {
+            return XCTFail("expected wordCommitted, got \(events)")
+        }
+        XCTAssertEqual(word, "og")
+        XCTAssertNil(previous)
+    }
+
     func testHostPastedMultiWordTextEmitsNoEvents() {
         let s = session()
         typeThrough(s, "hestur ")
