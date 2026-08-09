@@ -45,6 +45,26 @@ def fold_accents(word: str) -> str:
     return unicodedata.normalize("NFC", stripped)
 
 
+def morphology_fingerprint(path: Path) -> int:
+    """O(1)-at-runtime structural identity for one morphology cohort."""
+    data = path.read_bytes()
+    if len(data) < 32 or u32(data, 0) != MORPH_MAGIC:
+        raise ValueError(f"{path}: not a bin-morph artifact")
+    values = (
+        u32(data, 8),   # string pool bytes
+        u32(data, 12),  # lemmas
+        u32(data, 16),  # word forms
+        u32(data, 20),  # entries
+        u32(data, 24),  # bigrams
+        len(data),
+    )
+    fingerprint = 14_695_981_039_346_656_037
+    for byte in struct.pack("<6Q", *values):
+        fingerprint ^= byte
+        fingerprint = (fingerprint * 1_099_511_628_211) & 0xFFFF_FFFF_FFFF_FFFF
+    return fingerprint
+
+
 def read_word_forms(path: Path):
     data = path.read_bytes()
     if len(data) < 32 or u32(data, 0) != MORPH_MAGIC:
@@ -71,6 +91,7 @@ def read_word_forms(path: Path):
 
 
 def build(morphology: Path, out: Path, include_forms_from: Path | None = None) -> None:
+    source_artifact_fingerprint = morphology_fingerprint(morphology)
     included_forms = None
     if include_forms_from is not None:
         included_forms = {word.lower() for _, _, word in read_word_forms(include_forms_from)}
@@ -123,8 +144,8 @@ def build(morphology: Path, out: Path, include_forms_from: Path | None = None) -
         len(word_ids),
         len(key_pool),
         source_word_form_count,
-        0,
-        0,
+        source_artifact_fingerprint & 0xFFFF_FFFF,
+        source_artifact_fingerprint >> 32,
     )
 
     payload = bytearray(header)
@@ -144,7 +165,8 @@ def build(morphology: Path, out: Path, include_forms_from: Path | None = None) -
     print(
         f"wrote {out}: {len(keys):,} folded keys, {indexed_forms:,} forms, "
         f"{collision_keys:,} collision keys, {len(payload):,} bytes; "
-        f"source forms={source_word_form_count:,}"
+        f"source forms={source_word_form_count:,}, "
+        f"fingerprint={source_artifact_fingerprint:016x}"
     )
 
 

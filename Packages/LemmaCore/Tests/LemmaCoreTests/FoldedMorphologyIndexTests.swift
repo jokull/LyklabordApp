@@ -11,6 +11,7 @@ final class FoldedMorphologyIndexTests: XCTestCase {
 
     private func fixture(
         sourceWordFormCount: UInt32 = 10,
+        sourceArtifactFingerprint: UInt64 = 0x1122_3344_5566_7788,
         magic: UInt32 = 0x4642_4931,
         version: UInt32 = 1
     ) -> Data {
@@ -37,7 +38,9 @@ final class FoldedMorphologyIndexTests: XCTestCase {
         var data = Data()
         for value in [
             magic, version, UInt32(entries.count), UInt32(wordIDs.count),
-            UInt32(keyPool.count), sourceWordFormCount, 0, 0,
+            UInt32(keyPool.count), sourceWordFormCount,
+            UInt32(truncatingIfNeeded: sourceArtifactFingerprint),
+            UInt32(truncatingIfNeeded: sourceArtifactFingerprint >> 32),
         ] {
             append(value, to: &data)
         }
@@ -57,6 +60,7 @@ final class FoldedMorphologyIndexTests: XCTestCase {
         XCTAssertEqual(index.keyCount, 3)
         XCTAssertEqual(index.referenceCount, 4)
         XCTAssertEqual(index.sourceWordFormCount, 10)
+        XCTAssertEqual(index.sourceArtifactFingerprint, 0x1122_3344_5566_7788)
         XCTAssertEqual(index.wordFormIDs(matching: "afmaeli"), [1, 4])
         XCTAssertEqual(index.wordFormIDs(matching: "FOR"), [2])
         XCTAssertEqual(index.wordFormIDs(matching: "hus"), [3])
@@ -87,6 +91,29 @@ final class FoldedMorphologyIndexTests: XCTestCase {
         XCTAssertThrowsError(try lemmatizer.loadFoldedIndex(contentsOf: sidecarURL)) { error in
             guard case FoldedMorphologyIndexError.sourceWordFormCount(
                 expected: lemmatizer.wordFormCount, actual: 1) = error
+            else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+        XCTAssertFalse(lemmatizer.hasFoldedIndex)
+    }
+
+    func testBinaryLemmatizerRejectsSameCountFromDifferentArtifact() throws {
+        let morphologyURL = try XCTUnwrap(
+            Bundle.module.url(forResource: "bin-morph.core.bin", withExtension: nil))
+        let lemmatizer = try BinaryLemmatizer(contentsOf: morphologyURL)
+        let sidecarURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("folded.bin")
+        try fixture(
+            sourceWordFormCount: UInt32(lemmatizer.wordFormCount),
+            sourceArtifactFingerprint: lemmatizer.artifactFingerprint ^ 1
+        ).write(to: sidecarURL)
+        defer { try? FileManager.default.removeItem(at: sidecarURL) }
+
+        XCTAssertThrowsError(try lemmatizer.loadFoldedIndex(contentsOf: sidecarURL)) { error in
+            guard case FoldedMorphologyIndexError.sourceArtifactFingerprint(
+                expected: lemmatizer.artifactFingerprint, actual: _) = error
             else {
                 return XCTFail("unexpected error: \(error)")
             }

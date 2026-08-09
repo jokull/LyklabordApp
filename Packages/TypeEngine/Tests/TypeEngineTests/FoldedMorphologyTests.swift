@@ -22,6 +22,8 @@ final class FoldedMorphologyTests: XCTestCase {
             typed: "afbrotanal", foldedKey: "afbrotamal", target: "afbrotamál"),
         Repair(
             typed: "andofshopyrinn", foldedKey: "andofshopurinn", target: "andófshópurinn"),
+        Repair(
+            typed: "felagsfunsur", foldedKey: "felagsfundur", target: "félagsfundur"),
     ]
 
     private func makeCorrector(
@@ -89,6 +91,17 @@ final class FoldedMorphologyTests: XCTestCase {
     func testExactFoldedBinInputArmsWithoutAKeyboardError() {
         let repair = Repair(
             typed: "afmælisoskir", foldedKey: "afmælisoskir", target: "afmælisóskir")
+        let result = makeCorrector(repairs: [repair]).correct(
+            typed: repair.typed, pIcelandic: 0.5)
+
+        XCTAssertEqual(result.suggestions.first?.text, repair.target)
+        XCTAssertEqual(result.suggestions.first?.isAutocorrect, true)
+        XCTAssertEqual(result.suggestions.first?.isRestoration, true)
+    }
+
+    func testUserCandidateFelagsfundurArmsSpacebar() {
+        let repair = Repair(
+            typed: "felagsfundur", foldedKey: "felagsfundur", target: "félagsfundur")
         let result = makeCorrector(repairs: [repair]).correct(
             typed: repair.typed, pIcelandic: 0.5)
 

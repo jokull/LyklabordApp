@@ -17,8 +17,8 @@ Eight little-endian `u32` values (32 bytes):
 | 12 | word-form reference count |
 | 16 | padded folded-key pool size |
 | 20 | source `bin-morph.bin` word-form count |
-| 24 | reserved (`0`) |
-| 28 | reserved (`0`) |
+| 24 | source morphology structural fingerprint, low 32 bits |
+| 28 | source morphology structural fingerprint, high 32 bits |
 
 ## Sections
 
@@ -37,5 +37,7 @@ The shipping build additionally passes `--include-forms-from
 data/is/bin-morph.core.bin`: the 350k core tier selects which canonical
 surfaces receive reverse keys, while every stored id still belongs to the
 full `bin-morph.bin`. The header therefore records the full artifact's
-3,698,020-form cohort, which the reader verifies before attaching the
-sidecar.
+3,698,020-form cohort. Before attaching the sidecar, the reader verifies both
+that count and an O(1) FNV-1a structural fingerprint over every source-header
+count plus the source artifact's byte size. This catches stale or cross-cohort
+pairings without reading the full mmap into resident memory.

@@ -45,3 +45,15 @@ T "andofshopyrinn"
 EXPECT_AUTOCORRECT andófshópurinn
 T " "
 EXPECT_LAST_COMMIT andófshópurinn
+
+SCENARIO user candidate felagsfundur restores missing diacritics
+T "felagsfundur"
+EXPECT_AUTOCORRECT félagsfundur
+T " "
+EXPECT_LAST_COMMIT félagsfundur
+
+SCENARIO user candidate plus s to d neighbor arms spacebar
+T "felagsfunsur"
+EXPECT_AUTOCORRECT félagsfundur
+T " "
+EXPECT_LAST_COMMIT félagsfundur

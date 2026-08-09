@@ -5,6 +5,7 @@ public enum FoldedMorphologyIndexError: Error, CustomStringConvertible {
     case unsupportedVersion(UInt32)
     case truncated(expected: Int, actual: Int)
     case sourceWordFormCount(expected: Int, actual: Int)
+    case sourceArtifactFingerprint(expected: UInt64, actual: UInt64)
 
     public var description: String {
         switch self {
@@ -16,6 +17,9 @@ public enum FoldedMorphologyIndexError: Error, CustomStringConvertible {
             return "Truncated folded morphology index: need \(expected) bytes, file has \(actual)"
         case .sourceWordFormCount(let expected, let actual):
             return "Folded morphology source mismatch: expected \(expected) forms, got \(actual)"
+        case .sourceArtifactFingerprint(let expected, let actual):
+            return "Folded morphology source fingerprint mismatch: expected 0x"
+                + String(expected, radix: 16) + ", got 0x" + String(actual, radix: 16)
         }
     }
 }
@@ -30,6 +34,7 @@ public final class FoldedMorphologyIndex {
     public let keyCount: Int
     public let referenceCount: Int
     public let sourceWordFormCount: Int
+    public let sourceArtifactFingerprint: UInt64
 
     private let keyPoolOffset = 32
     private let keyPoolSize: Int
@@ -68,6 +73,8 @@ public final class FoldedMorphologyIndex {
         referenceCount = Int(u32(12))
         keyPoolSize = Int(u32(16))
         sourceWordFormCount = Int(u32(20))
+        sourceArtifactFingerprint =
+            UInt64(u32(24)) | (UInt64(u32(28)) << 32)
 
         var offset = keyPoolOffset + keyPoolSize
         keyOffsetsOffset = offset

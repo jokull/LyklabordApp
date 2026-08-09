@@ -143,6 +143,11 @@ public final class BinaryLemmatizer {
             throw FoldedMorphologyIndexError.sourceWordFormCount(
                 expected: wordFormCount, actual: index.sourceWordFormCount)
         }
+        guard index.sourceArtifactFingerprint == artifactFingerprint else {
+            throw FoldedMorphologyIndexError.sourceArtifactFingerprint(
+                expected: artifactFingerprint,
+                actual: index.sourceArtifactFingerprint)
+        }
         foldedIndex = index
     }
 
@@ -402,6 +407,27 @@ public final class BinaryLemmatizer {
     public var hasFoldedIndex: Bool { foldedIndex != nil }
 
     public var foldedIndexBufferSize: Int { foldedIndex?.bufferSize ?? 0 }
+
+    /// O(1) structural identity used to reject a folded sidecar generated
+    /// from a different morphology cohort without faulting the full mmap into
+    /// memory. It covers every base header count plus the artifact byte size.
+    var artifactFingerprint: UInt64 {
+        let values = [
+            UInt64(stringPoolSize), UInt64(lemmaCount), UInt64(wordFormCount),
+            UInt64(entryCount), UInt64(bigramCount), UInt64(data.count),
+        ]
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for value in values {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { bytes in
+                for byte in bytes {
+                    hash ^= UInt64(byte)
+                    hash &*= 1_099_511_628_211
+                }
+            }
+        }
+        return hash
+    }
 
     /// All unique lemmas. NOTE: materializes every lemma string — do not call
     /// from the keyboard extension hot path.
