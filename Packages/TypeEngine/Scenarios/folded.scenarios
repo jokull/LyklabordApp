@@ -1,0 +1,59 @@
+# folded.scenarios — production-artifact contracts for folded BÍN recovery.
+# These forms are absent from is.lex but present in the 350k BÍN surface tier
+# used to build bin-morph.folded.bin. Every scenario starts at neutral P(IS).
+
+LIMIT 5
+
+SCENARIO exact folded BÍN spelling restores missing diacritics
+T "afmælisoskir"
+EXPECT_AUTOCORRECT afmælisóskir
+T " "
+EXPECT_LAST_COMMIT afmælisóskir
+
+SCENARIO folded BÍN plus j to k neighbor arms spacebar
+T "afmælisosjir"
+EXPECT_AUTOCORRECT afmælisóskir
+T " "
+EXPECT_LAST_COMMIT afmælisóskir
+
+SCENARIO folded BÍN plus g to h neighbor arms spacebar
+T "andlitsgarum"
+EXPECT_AUTOCORRECT andlitshárum
+T " "
+EXPECT_LAST_COMMIT andlitshárum
+
+SCENARIO folded BÍN plus t to r neighbor arms spacebar
+T "annalatitarinn"
+EXPECT_AUTOCORRECT annálaritarinn
+T " "
+EXPECT_LAST_COMMIT annálaritarinn
+
+SCENARIO folded BÍN plus n to m neighbor arms spacebar
+T "alnugavæða"
+EXPECT_AUTOCORRECT almúgavæða
+T " "
+EXPECT_LAST_COMMIT almúgavæða
+
+SCENARIO folded BÍN disambiguates afbrotamal from plain BÍN neighbors
+T "afbrotanal"
+EXPECT_AUTOCORRECT afbrotamál
+T " "
+EXPECT_LAST_COMMIT afbrotamál
+
+SCENARIO folded BÍN plus y to u neighbor arms spacebar
+T "andofshopyrinn"
+EXPECT_AUTOCORRECT andófshópurinn
+T " "
+EXPECT_LAST_COMMIT andófshópurinn
+
+SCENARIO user candidate felagsfundur restores missing diacritics
+T "felagsfundur"
+EXPECT_AUTOCORRECT félagsfundur
+T " "
+EXPECT_LAST_COMMIT félagsfundur
+
+SCENARIO user candidate plus s to d neighbor arms spacebar
+T "felagsfunsur"
+EXPECT_AUTOCORRECT félagsfundur
+T " "
+EXPECT_LAST_COMMIT félagsfundur

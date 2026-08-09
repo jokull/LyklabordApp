@@ -89,6 +89,14 @@ public struct Corrector {
     /// forms iOS produces).
     static let alphabet: [Character] = Array("aábcdðeéfghiíjklmnoópqrstuúvwxyýzþæö'’")
 
+    /// Alphabet of the folded BÍN sidecar. Acute vowels and ö collapse to
+    /// their base key; dedicated Icelandic letters remain literal.
+    static let foldedMorphologyAlphabet: [Character] = Array("abcdefghijklmnopqrstuvwxyzþðæ")
+    static let foldedMorphologyCharacters = Set(foldedMorphologyAlphabet)
+    static let foldedMorphologyBases: [Character: Character] = [
+        "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ý": "y", "ö": "o",
+    ]
+
     /// Word-internal apostrophe characters (straight + typographic).
     static let apostrophes: Set<Character> = ["'", "’"]
 
@@ -369,6 +377,66 @@ public struct Corrector {
         for word in Self.diacriticVariants(of: typedChars)
         where isCandidateWord(word, checkMorphology: true) {
             admit(word, from: .diacriticRestoration)
+        }
+
+        // 2a. Folded BÍN reverse lookup: the sidecar absorbs missing
+        // diacritics, while this pass explores the exact folded spelling and
+        // one nearby-key substitution. This is intentionally NOT a beam over
+        // BÍN's millions of forms: at most O(word length × keyboard alphabet)
+        // exact probes, cheapest first. The canonical alignment supplies the
+        // restoration/error op classes, but the score prices the FOLDED key:
+        // omitted accents are the input method's work, so only the genuine
+        // near-key error consumes channel likelihood.
+        var foldedMorphologyAdmissions = Set<String>()
+        if !disabledProviders.contains(.foldedMorphology),
+            typedChars.count >= config.foldedMorphologyMinLength,
+            let morphology = model.morphology,
+            morphology.supportsFoldedLookup
+        {
+            let foldedChars = typedChars.map { Self.foldedMorphologyBases[$0] ?? $0 }
+            if foldedChars.allSatisfy(Self.foldedMorphologyCharacters.contains) {
+                var keyCosts: [String: Double] = [String(foldedChars): 0]
+                for position in foldedChars.indices {
+                    let typedChar = foldedChars[position]
+                    for intended in Self.foldedMorphologyAlphabet where intended != typedChar {
+                        let cost = spatial.substitutionCost(
+                            typed: typedChar, intended: intended)
+                        guard cost <= config.foldedMorphologyNeighborMaxCost else { continue }
+                        var variant = foldedChars
+                        variant[position] = intended
+                        let key = String(variant)
+                        if let existing = keyCosts[key], existing <= cost { continue }
+                        keyCosts[key] = cost
+                    }
+                }
+                let orderedKeys = keyCosts.sorted {
+                    $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key)
+                }
+                outer: for (key, _) in orderedKeys {
+                    for word in morphology.forms(matchingFoldedKey: key) {
+                        guard word != typed, !model.isPersonalTombstoned(word) else { continue }
+                        foldedMorphologyAdmissions.insert(word)
+                        let canonicalCost = channelCost(
+                            typedChars: typedChars, candidate: word,
+                            pricing: pricing, perTap: perTap)
+                        let foldedCost = channelCost(
+                            typedChars: foldedChars, candidate: key,
+                            pricing: pricing, perTap: perTap)
+                        candidates.admitLowerCost(
+                            word,
+                            cost: ChannelCost(
+                                total: foldedCost.total,
+                                errorOps: canonicalCost.errorOps,
+                                restorationOps: canonicalCost.restorationOps),
+                            provider: .foldedMorphology)
+                        if foldedMorphologyAdmissions.count
+                            >= config.foldedMorphologyMaxCandidates
+                        {
+                            break outer
+                        }
+                    }
+                }
+            }
         }
 
         // 2b. Gemination repairs: drop one of a doubled letter and/or double
@@ -1248,6 +1316,7 @@ public struct Corrector {
                 candidates: candidates,
                 speculativeCompletions: speculativeCompletions,
                 mashRecoveryAdmissions: mashRecoveryAdmissions,
+                foldedMorphologyAdmissions: foldedMorphologyAdmissions,
                 scored: scored
             ),
             trace: trace

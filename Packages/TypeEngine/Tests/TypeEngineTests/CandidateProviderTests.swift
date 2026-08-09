@@ -29,6 +29,30 @@ final class CandidateProviderTests: XCTestCase {
         XCTAssertTrue(pool.providers(for: "the").contains(.edits1Residue))
     }
 
+    func testStructuredAdmissionCanLowerCostAndKeepsProvenance() {
+        var pool = CandidateAdmissionPool(captureProvenance: true)
+        _ = pool.admit(
+            "íslenska",
+            cost: ChannelCost(total: 1.4, errorOps: 1, restorationOps: 1),
+            provider: .edits1Residue)
+
+        XCTAssertTrue(
+            pool.admitLowerCost(
+                "íslenska",
+                cost: ChannelCost(total: 1.0, errorOps: 1, restorationOps: 1),
+                provider: .foldedMorphology))
+        XCTAssertEqual(pool["íslenska"]?.total, 1.0)
+        XCTAssertTrue(pool.providers(for: "íslenska").contains(.edits1Residue))
+        XCTAssertTrue(pool.providers(for: "íslenska").contains(.foldedMorphology))
+
+        XCTAssertFalse(
+            pool.admitLowerCost(
+                "íslenska",
+                cost: ChannelCost(total: 2.0, errorOps: 1, restorationOps: 1),
+                provider: .foldedMorphology))
+        XCTAssertEqual(pool["íslenska"]?.total, 1.0)
+    }
+
     func testTraceNamesProviderAndAdditiveScoreSignals() throws {
         let trace = CorrectionTrace()
         let corrector = Corrector(

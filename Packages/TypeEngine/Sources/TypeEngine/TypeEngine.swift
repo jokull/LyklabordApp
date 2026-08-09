@@ -3,6 +3,8 @@ import LemmaCore
 import Lexicon
 
 extension BinaryLemmatizer: MorphologyProviding {
+    public var supportsFoldedLookup: Bool { hasFoldedIndex }
+
     /// Inflection-backoff fallback (PLAN.md Stage B #1): cases of the
     /// word's noun/adjective analyses via `lemmatizeWithMorph` (v2 morph
     /// section; empty on v1 binaries, which simply disables the fallback).

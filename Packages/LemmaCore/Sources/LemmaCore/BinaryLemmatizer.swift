@@ -98,6 +98,7 @@ public final class BinaryLemmatizer {
     /// The memory-mapped file. Kept alive for the lifetime of the lemmatizer;
     /// all reads go through `withUnsafeBytes` against this single buffer.
     private let data: Data
+    private var foldedIndex: FoldedMorphologyIndex?
 
     public let version: Int
     public let lemmaCount: Int
@@ -124,6 +125,30 @@ public final class BinaryLemmatizer {
     public convenience init(contentsOf url: URL) throws {
         let data = try Data(contentsOf: url, options: .alwaysMapped)
         try self.init(data: data)
+    }
+
+    /// Open a morphology artifact together with its cohort-matched folded
+    /// reverse index. Both remain mmap-backed and are immutable after init.
+    public convenience init(contentsOf url: URL, foldedIndexContentsOf foldedURL: URL) throws {
+        let data = try Data(contentsOf: url, options: .alwaysMapped)
+        try self.init(data: data)
+        try loadFoldedIndex(contentsOf: foldedURL)
+    }
+
+    /// Attach the optional cohort-matched reverse index before publishing the
+    /// lemmatizer to its single owning queue.
+    public func loadFoldedIndex(contentsOf foldedURL: URL) throws {
+        let index = try FoldedMorphologyIndex(contentsOf: foldedURL)
+        guard index.sourceWordFormCount == wordFormCount else {
+            throw FoldedMorphologyIndexError.sourceWordFormCount(
+                expected: wordFormCount, actual: index.sourceWordFormCount)
+        }
+        guard index.sourceArtifactFingerprint == artifactFingerprint else {
+            throw FoldedMorphologyIndexError.sourceArtifactFingerprint(
+                expected: artifactFingerprint,
+                actual: index.sourceArtifactFingerprint)
+        }
+        foldedIndex = index
     }
 
     /// Wrap an already-loaded buffer (mirrors TS `loadFromBuffer`).
@@ -321,6 +346,26 @@ public final class BinaryLemmatizer {
         return withBuffer { buf in findWord(key, in: buf) != nil }
     }
 
+    /// Canonical BÍN surfaces whose accent-stripped spelling equals `key`.
+    /// Empty when this instance was opened without the optional sidecar.
+    public func forms(matchingFoldedKey key: String) -> [String] {
+        guard let foldedIndex else { return [] }
+        return foldedIndex.wordFormIDs(matching: key).compactMap {
+            wordForm(at: Int($0))
+        }
+    }
+
+    /// Canonical word form at the binary's stable sorted-form id. Exposed so
+    /// cohort-matched sidecars can resolve ids without duplicating strings.
+    public func wordForm(at index: Int) -> String? {
+        guard index >= 0, index < wordFormCount else { return nil }
+        return withBuffer { buffer in
+            let offset = Int(readU32(buffer, at: wordOffsetsOffset + index * 4))
+            let length = Int(readU8(buffer, at: wordLengthsOffset + index))
+            return poolString(buffer, offset: offset, length: length)
+        }
+    }
+
     /// Whether the form has an entry in an OPEN word class (noun/verb/
     /// adjective — POS codes 0/1/2). A packed-entry scan with no string
     /// materialization: this is the compound-HEAD legality probe (wave 22),
@@ -358,6 +403,31 @@ public final class BinaryLemmatizer {
     /// Raw buffer size in bytes (approximate *virtual* footprint; resident
     /// dirty memory stays near zero because the buffer is file-backed).
     public var bufferSize: Int { data.count }
+
+    public var hasFoldedIndex: Bool { foldedIndex != nil }
+
+    public var foldedIndexBufferSize: Int { foldedIndex?.bufferSize ?? 0 }
+
+    /// O(1) structural identity used to reject a folded sidecar generated
+    /// from a different morphology cohort without faulting the full mmap into
+    /// memory. It covers every base header count plus the artifact byte size.
+    var artifactFingerprint: UInt64 {
+        let values = [
+            UInt64(stringPoolSize), UInt64(lemmaCount), UInt64(wordFormCount),
+            UInt64(entryCount), UInt64(bigramCount), UInt64(data.count),
+        ]
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for value in values {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { bytes in
+                for byte in bytes {
+                    hash ^= UInt64(byte)
+                    hash &*= 1_099_511_628_211
+                }
+            }
+        }
+        return hash
+    }
 
     /// All unique lemmas. NOTE: materializes every lemma string — do not call
     /// from the keyboard extension hot path.

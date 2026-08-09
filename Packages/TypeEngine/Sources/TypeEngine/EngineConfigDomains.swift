@@ -43,6 +43,9 @@ public struct SearchConfiguration: Sendable {
     public let beamTimeBudget: TimeInterval
     public let splitTimeBudget: TimeInterval
     public let compoundRepairMaxLookups: Int
+    public let foldedMorphologyMinLength: Int
+    public let foldedMorphologyNeighborMaxCost: Double
+    public let foldedMorphologyMaxCandidates: Int
 
     init(_ config: EngineConfig) {
         disabledCandidateProviders = config.disabledCandidateProviders
@@ -57,6 +60,9 @@ public struct SearchConfiguration: Sendable {
         beamTimeBudget = config.beamTimeBudget
         splitTimeBudget = config.splitTimeBudget
         compoundRepairMaxLookups = config.compoundRepairMaxLookups
+        foldedMorphologyMinLength = config.foldedMorphologyMinLength
+        foldedMorphologyNeighborMaxCost = config.foldedMorphologyNeighborMaxCost
+        foldedMorphologyMaxCandidates = config.foldedMorphologyMaxCandidates
     }
 }
 
@@ -111,6 +117,9 @@ public struct ActionPolicyConfiguration: Sendable {
     public let bigramMarginRelief: Double
     public let bigramMarginReliefMinLift: Double
     public let beamMultiEditCostCap: Double
+    public let foldedMorphologyAutocorrectEnabled: Bool
+    public let foldedMorphologyAutocorrectMinPosterior: Double
+    public let foldedMorphologyAutocorrectMargin: Double
 
     init(_ config: EngineConfig) {
         minAutocorrectLength = config.minAutocorrectLength
@@ -139,6 +148,10 @@ public struct ActionPolicyConfiguration: Sendable {
         bigramMarginRelief = config.bigramMarginRelief
         bigramMarginReliefMinLift = config.bigramMarginReliefMinLift
         beamMultiEditCostCap = config.beamMultiEditCostCap
+        foldedMorphologyAutocorrectEnabled = config.foldedMorphologyAutocorrectEnabled
+        foldedMorphologyAutocorrectMinPosterior =
+            config.foldedMorphologyAutocorrectMinPosterior
+        foldedMorphologyAutocorrectMargin = config.foldedMorphologyAutocorrectMargin
     }
 }
 

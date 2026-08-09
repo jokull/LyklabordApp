@@ -13,6 +13,12 @@ These are indexed trie-based binary artifacts generated from BÍN (Beygingarlýs
   - Measured 2026-07-18 over three release runs: 1.03–2.17 ms mmap open, 1.6–5.8 µs/lookup over 1000 calls, and phys_footprint +0.25–0.28 MB from process start
   - Ship this. mmap keeps untouched pages file-backed; measured residency depends on pages touched, while the larger artifact still increases app download size
 
+- **bin-morph.folded.bin** (4,486,916 bytes) — **SHIPPING SIDECAR**
+  - Exact reverse index from an accent-stripped spelling to canonical word-form ids in `bin-morph.bin`: 174,574 keys / 175,247 references / 665 collision keys
+  - Surface coverage is restricted to the 350k core tier, but ids resolve into the full primary artifact; this captures common BÍN forms without duplicating their strings
+  - The corrector probes the exact folded spelling plus one nearby-key substitution, then uses ordinary language/context ranking to disambiguate canonical surfaces
+  - Generated deterministically by `scripts/build-folded-morphology-index.py`; binary format documented in `Packages/LemmaCore/FOLDED_FORMAT.md`
+
 - **bin-morph.core.bin** (10,049,264 bytes)
   - Smaller alternative (350k forms, no morph/bigrams, v1); kept for tests and as a download-size escape hatch
 
@@ -86,8 +92,8 @@ See `ATTRIBUTION.md` for full credit text. In brief:
 ### On-Device Autocorrect
 
 1. User types a word → runs through spatial key-distance model (fat-finger compensation)
-2. Corrector stage uses SymSpell edit-distance candidates (English: en-80k.txt; Icelandic: bin-morph.core.bin)
-3. Re-rank candidates by language model frequency and language ID estimate (per-word blending)
+2. Corrector combines bounded keyboard-distance decoding over the `.lex` frequency tables with BÍN validity and the folded-morphology reverse index
+3. Re-rank candidates by language-model frequency, context, and language ID estimate (per-word blending)
 4. Return top 1–3 suggestions to UI
 
 ### Next-Word Prediction
@@ -111,6 +117,7 @@ Device-based tiering was designed before the Swift mmap bench demonstrated deman
 | File | Size | Contents (words / lemmas / bigrams) |
 |------|------|--------------------------------------|
 | bin-morph.bin (primary) | 109.9 MiB | 3,698,020 / 347,926 / 414,007 (v2, morph) |
+| bin-morph.folded.bin | 4.3 MiB | 174,574 folded keys / 175,247 full-artifact form ids |
 | bin-morph.core.bin | 9.6 MiB | 350,000 / 99,680 / 0 (v1) |
 | bin-morph.core.top_200k.bin | 5.6 MiB | 200,000 / 80,379 / 0 (v1) |
 | bin-morph.core.min_100.bin | 1.9 MiB | 69,155 / 32,915 / 0 (v1) |

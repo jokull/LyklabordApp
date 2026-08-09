@@ -4,6 +4,9 @@ import TypeEngine
 /// Dictionary-backed morphology fake (stands in for BÍN's BinaryLemmatizer).
 final class FakeMorphology: MorphologyProviding {
     private let words: Set<String>
+    /// accent-folded key -> canonical BÍN surfaces (the reverse-index seam).
+    var foldedForms: [String: [String]] = [:]
+    var supportsFoldedLookup: Bool { !foldedForms.isEmpty }
     /// word -> grammatical cases (the lemmatizeWithMorph fallback seam).
     var cases: [String: [String]] = [:]
     /// word -> lemma candidates (the personal-lemma-lift unambiguity seam).
@@ -13,6 +16,7 @@ final class FakeMorphology: MorphologyProviding {
     func isKnown(_ word: String) -> Bool { words.contains(word) }
     func nounAdjectiveCases(of word: String) -> [String] { cases[word] ?? [] }
     func lemmaCandidates(of word: String) -> [String] { lemmas[word] ?? [] }
+    func forms(matchingFoldedKey key: String) -> [String] { foldedForms[key] ?? [] }
     /// Open-class override (the compound-HEAD legality seam, wave 22);
     /// nil = every known word counts as open-class (the protocol default).
     var openClass: Set<String>?

@@ -114,6 +114,11 @@ public enum ArtifactLoader {
         var morphology: BinaryLemmatizer?
         if let url = paths.morphology {
             morphology = try? BinaryLemmatizer(contentsOf: url)
+            let foldedURL = url.deletingLastPathComponent()
+                .appendingPathComponent("bin-morph.folded.bin")
+            if FileManager.default.fileExists(atPath: foldedURL.path) {
+                try? morphology?.loadFoldedIndex(contentsOf: foldedURL)
+            }
         }
 
         let engine = TypeEngine(
@@ -135,7 +140,9 @@ public enum ArtifactLoader {
         log(
             "loaded artifacts in \(String(format: "%.0f", ms)) ms "
                 + "(is \(icelandic.unigramCount) / en \(english.unigramCount) unigrams, "
-                + "morphology \(morphology == nil ? "off" : "on"), inflection \(inflectionSummary))"
+                + "morphology \(morphology == nil ? "off" : "on"), "
+                + "folded \(morphology?.hasFoldedIndex == true ? "on" : "off"), "
+                + "inflection \(inflectionSummary))"
         )
         return engine
     }
