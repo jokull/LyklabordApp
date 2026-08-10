@@ -1586,6 +1586,39 @@ TAP fyrit
 EXPECT_BUFFER "fyrit "
 EXPECT_LAST_COMMIT fyrit
 
+SCENARIO duplicate refreshes do not forget the literal revert slot
+T "fyrit "
+EXPECT_BUFFER "fyrir "
+# KeyboardKit can issue duplicate requests for an unchanged proxy window.
+REFRESH
+BACKSPACE
+EXPECT_CONTEXT fyrir
+EXPECT_VERBATIM fyrit
+# Nor may a duplicate pass spend the memo while the quote is visible.
+REFRESH
+EXPECT_VERBATIM fyrit
+
+SCENARIO repeated space backspace keeps the original literal
+T "fyrit "
+BACKSPACE
+EXPECT_VERBATIM fyrit
+T " "
+BACKSPACE
+EXPECT_CONTEXT fyrir
+EXPECT_VERBATIM fyrit
+
+SCENARIO manual correction after backspace does not rearm the rejection
+T "fyrit "
+BACKSPACE
+EXPECT_VERBATIM fyrit
+# Edit fyrir back to the literal fyrit without tapping the quoted slot.
+BACKSPACE
+T t
+EXPECT_CONTEXT fyrit
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "fyrit "
+
 SCENARIO reverted literal is not re-corrected in the same breath
 # The restored literal must not immediately arm a fresh autocorrect (the
 # revert is a self-edit, never an engine correction): after the swap the

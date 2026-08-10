@@ -171,19 +171,21 @@ public final class TypingSession {
     /// same string the proxy-edit ledger's before-window carries — never
     /// re-derived from the correction), `corrected` is what the engine
     /// committed. The user's instinct on a wrong force-correction is to press
-    /// backspace: the first backspace deletes the commit's trailing delimiter
-    /// and REVEALS the corrected word, and at THAT moment the bar's reserved
-    /// left slot offers `literal` (verbatim/`.unknown`), so one tap swaps the
-    /// corrected word back to exactly what was typed. See
+    /// backspace: deleting the commit's trailing delimiter REVEALS the
+    /// corrected word, and at THAT moment the bar's reserved left slot offers
+    /// `literal` (verbatim/`.unknown`), so one tap swaps the corrected word
+    /// back to exactly what was typed. The memo survives duplicate no-op
+    /// autocomplete passes and repeated delimiter/backspace cycles at that
+    /// same correction boundary. See
     /// `resolveBackspaceRevert`/`revertToLiteral` and the reserved-slot branch
-    /// of `buildSuggestions`. Cleared once consumed, on any typed
-    /// continuation / new word / cursor move / field change / external
-    /// change / reset — never a stale literal slot.
+    /// of `buildSuggestions`. Cleared once consumed, when editing enters the
+    /// corrected word, or on a new word / cursor move / field change /
+    /// external change / reset — never a stale literal slot.
     private var backspaceRevert: (literal: String, corrected: String)?
     /// True only on the pass that armed `backspaceRevert` (the autocorrect
     /// commit), so `resolveBackspaceRevert` evaluates the memo from the NEXT
-    /// pass onward — the reserved slot arms only when the backspace is the
-    /// very next action after the commit (iOS's tight one-shot window).
+    /// pass onward. Once armed, the memo owns the correction boundary until
+    /// the user leaves or edits it; harmless refreshes must not spend it.
     private var backspaceRevertJustArmed = false
     /// Whether the last built bar led with the reserved literal-revert slot
     /// (the memo was armed AND the cursor sat right after the corrected
@@ -318,10 +320,11 @@ public final class TypingSession {
             carriedContext = nil
         }
 
-        // Backspace-revert lifecycle (wave 36). The arming pass (the
-        // autocorrect commit) is skipped so the memo is evaluated from the
-        // NEXT pass on; every later pass keeps it ONLY while the cursor still
-        // sits right after the corrected word, reached by deletion.
+        // Backspace-revert lifecycle (wave 36 / issue #15). The arming pass
+        // is skipped. Later passes retain the literal while the cursor remains
+        // at the same correction boundary, either after its delimiter or with
+        // that delimiter backspaced away. Duplicate autocomplete requests are
+        // observations, not user intent, and must never consume the memo.
         if backspaceRevertJustArmed {
             backspaceRevertJustArmed = false
         } else {
@@ -353,6 +356,22 @@ public final class TypingSession {
         lastEmittedAutocorrect = bar.first(where: { $0.isAutocorrect })?.text
         lastEmittedSuggestionTexts = bar.filter { !$0.isVerbatim }.map(\.text)
         return bar
+    }
+
+    /// Replace the autocorrect identity emitted by `suggestions(for:)` when
+    /// the embedder arms a provider that lives outside TypeEngine. The iOS
+    /// system text-replacement table is such a provider: it is injected by
+    /// the keyboard extension after the engine pass, but its spacebar commit
+    /// still needs the same byte-exact backspace-revert contract.
+    ///
+    /// This is ephemeral session state only. The extension deliberately does
+    /// not log the replacement table or uncommitted expansions.
+    public func noteExternallyArmedAutocorrect(_ text: String) {
+        guard !text.isEmpty else { return }
+        lastEmittedAutocorrect = text
+        if !lastEmittedSuggestionTexts.contains(text) {
+            lastEmittedSuggestionTexts.insert(text, at: 0)
+        }
     }
 
     /// Tell the session a character of the pending word was entered via a
@@ -524,17 +543,39 @@ public final class TypingSession {
     /// exactly like `hasPendingContinuationRevert` gates the revert consult.
     public var hasArmedLiteralRevert: Bool { literalSlotShowing }
 
-    /// Keep or drop the backspace-revert memo for THIS pass. The reserved
-    /// literal slot survives only while the cursor sits immediately after the
-    /// corrected word or phrase AND that text was reached by a deletion (the
-    /// first backspace after the commit). A typed continuation, freshly typed
-    /// text that happens to equal the corrected form, or any other shape drops
-    /// it — the literal slot is never offered stale.
+    /// Keep or drop the backspace-revert memo for THIS pass. It survives while
+    /// the cursor remains at the correction boundary in either of two shapes:
+    /// `corrected + delimiter` (hidden) or `corrected` reached by backspacing
+    /// that delimiter (revealed). Repeated observations of either shape are
+    /// no-ops. Editing into the word, typing a new word, or arriving at the
+    /// corrected spelling by any unrelated route drops it.
     private func resolveBackspaceRevert(textBeforeCursor: String, windowShrank: Bool) {
         guard let memo = backspaceRevert else { return }
-        if !(textBeforeCursor.hasSuffix(memo.corrected) && windowShrank) {
+
+        if textBeforeCursor.hasSuffix(memo.corrected) {
+            if windowShrank || literalSlotShowing {
+                // Backspacing an unwanted correction is an explicit rejection
+                // even when the user edits manually instead of tapping the
+                // quoted slot. If they recreate the original literal, keep it
+                // offer-only for the rest of this token so space cannot apply
+                // the same correction again.
+                verbatimChoice = memo.literal
+                return
+            }
             backspaceRevert = nil
+            return
         }
+
+        // Hidden boundary: the correction is still followed by exactly the
+        // delimiter whose deletion reveals it. Keep this across duplicate
+        // service refreshes and after the user re-inserts that delimiter.
+        if let delimiter = textBeforeCursor.last, Self.isDelimiter(delimiter),
+            textBeforeCursor.dropLast().hasSuffix(memo.corrected)
+        {
+            return
+        }
+
+        backspaceRevert = nil
     }
 
     /// Extra characters KeyboardKit must delete before inserting an armed

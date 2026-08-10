@@ -89,6 +89,15 @@ final class BackspaceRevertTests: XCTestCase {
             refresh()
         }
 
+        func refreshWithoutEdit() {
+            refresh()
+        }
+
+        func armExternalAutocorrect(_ text: String) {
+            session.noteExternallyArmedAutocorrect(text)
+            bar = [Suggestion(text: text, isAutocorrect: true, confidence: 1)]
+        }
+
         private func refresh() {
             bar = session.suggestions(for: proxy.contextBeforeInput, limit: 5)
             if session.hasPendingLearningEvents {
@@ -118,6 +127,64 @@ final class BackspaceRevertTests: XCTestCase {
         XCTAssertEqual(d.leading?.text, "hestr")
         XCTAssertTrue(d.leading?.isVerbatim == true)
         XCTAssertFalse(d.leading?.isAutocorrect == true)
+    }
+
+    func testDuplicateRefreshBeforeAndAfterBackspacePreservesLiteralSlot() {
+        let d = driver()
+        d.type("hestr ")
+
+        // KeyboardKit may ask for the same window more than once. A no-op
+        // request is not a user action and must not spend the revert memo.
+        d.refreshWithoutEdit()
+        d.backspace()
+        XCTAssertEqual(d.leading?.text, "hestr")
+
+        // The quoted slot must also remain stable while it is on screen.
+        d.refreshWithoutEdit()
+        XCTAssertEqual(d.leading?.text, "hestr")
+        XCTAssertTrue(d.session.hasArmedLiteralRevert)
+    }
+
+    func testRepeatedSpaceBackspaceKeepsOriginalLiteral() {
+        let d = driver()
+        d.type("hestr ")
+        d.backspace()
+        XCTAssertEqual(d.leading?.text, "hestr")
+
+        d.type(" ")
+        d.backspace()
+        XCTAssertEqual(d.document, "hestur")
+        XCTAssertEqual(d.leading?.text, "hestr")
+        XCTAssertTrue(d.session.hasArmedLiteralRevert)
+    }
+
+    func testManualCorrectionAfterBackspaceDoesNotRearmRejectedCorrection() {
+        let d = driver()
+        d.type("hestr ")
+        d.backspace()    // hestur
+        d.backspace(2)  // hest
+        d.type("r")     // hestr, recreated manually
+
+        XCTAssertEqual(d.document, "hestr")
+        XCTAssertFalse(d.bar.contains(where: \.isAutocorrect))
+        d.type(" ")
+        XCTAssertEqual(d.document, "hestr ")
+    }
+
+    func testExternalArmedProviderGetsSameLiteralRevertContract() {
+        let d = driver()
+        d.type("omw")
+        d.armExternalAutocorrect("on my way")
+        d.type(" ")
+        XCTAssertEqual(d.document, "on my way ")
+
+        d.backspace()
+        XCTAssertEqual(d.leading?.text, "omw")
+        XCTAssertTrue(d.session.hasArmedLiteralRevert)
+        XCTAssertEqual(
+            d.session.literalRevertAdditionalDeleteCount(matching: "omw"),
+            "on my ".count
+        )
     }
 
     func testTappingReservedSlotRestoresTheByteExactLiteral() {
@@ -222,9 +289,9 @@ final class BackspaceRevertTests: XCTestCase {
         XCTAssertFalse(d.containsText("hestr"))
     }
 
-    func testMemoOnlyArmsWhenBackspaceIsTheVeryNextAction() {
-        // A second committed word overwrites the first word's memo — the
-        // iOS one-shot window for "hestr" has passed.
+    func testNewWordReplacesMemoWithMostRecentAutocorrect() {
+        // A second committed word overwrites the first word's memo: the
+        // correction boundary now belongs to the most recent commit.
         let d = driver()
         d.type("hestr ")
         d.type("hus ")

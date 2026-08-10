@@ -1153,6 +1153,13 @@ final class LyklabordAutocompleteService: AutocompleteService {
         if fieldKind != .url, fieldKind != .email, fieldKind != .secure,
             let expansion = textReplacements?.match(token: pendingToken)
         {
+            // This provider is injected after TypingSession built its bar.
+            // Tell the session which candidate actually owns the armed
+            // spacebar so an applied expansion gets the same byte-exact
+            // backspace-revert behavior as an engine correction (issue #15).
+            if spacebarMode != .alwaysInsertSpace {
+                session.noteExternallyArmedAutocorrect(expansion)
+            }
             ranked =
                 [Suggestion(text: expansion, isAutocorrect: true, confidence: 1.0)]
                 + suggestions
