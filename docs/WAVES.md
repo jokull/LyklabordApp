@@ -7,6 +7,20 @@ in `scores/history.jsonl`; behavioral contracts live in
 `Packages/TypeEngine/Scenarios/*.scenarios` (scenario comments cite sessions);
 architecture in `docs/adr/`. Newest first.
 
+## 2026-08-19 — TestFlight 1.1 (23) publication
+
+- **Built from** `15b0c28` ("engine: deep short acute-fold repair"), the head
+  commit of the 2026-08-19 pair: `fa66815` (suggestions honor the typed
+  token's casing — caps-lock fix) + `15b0c28` (deep short acute-fold repair).
+- **Upload**: 1.1 (23), IPA SHA-256
+  `c0358b0fa89406f41a3bc3c46b9b6121a31b337ca9dd71e291be58f3b8ae2424`,
+  processed `VALID` with exempt encryption under build ID
+  `6d305092-eeda-4038-9136-b5112be8586b`.
+- **Groups**: assigned to internal `Innri prófun` (available immediately) and
+  external `Vinir`; Beta App Review submission
+  `6d305092-eeda-4038-9136-b5112be8586b` reached `WAITING_FOR_REVIEW` on
+  2026-08-19.
+
 ## 2026-07-30 — Wave 47: version-aware modern emoji repertoire
 
 - **Trigger**: the bundled ISEmojiView plist stopped at 2,501 strings and was
