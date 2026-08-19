@@ -265,6 +265,30 @@ public final class TypeEngine {
         return lowered
     }
 
+    /// The casing pattern a user is typing in, when it is a pattern the
+    /// suggestion bar should copy: `.allCaps` for caps-lock/emphasis typing
+    /// ("HESTU", "USA") and `.titleCase` for a leading capital ("Hestu",
+    /// "SouthCarolina"). The title-case transform only uppercases the first
+    /// character and preserves the rest of the suggestion byte-exact, so
+    /// interior caps from split suggestions ("South Carolina") and restored
+    /// surfaces ("ChatGPT") survive. Returns nil for lowercase tokens and
+    /// for tokens whose first character is not an uppercase letter
+    /// ("iPhone", "5G") — nothing to copy.
+    enum CasingPattern: Equatable {
+        case allCaps
+        case titleCase
+    }
+
+    /// Classify `token`'s casing pattern (see `CasingPattern`).
+    static func casingPattern(of token: String) -> CasingPattern? {
+        let letters = token.filter(\.isLetter)
+        if letters.count >= 2, letters.allSatisfy(\.isUppercase) { return .allCaps }
+        guard let first = token.first, first.isUppercase else { return nil }
+        // A single letter ("I", "H") has no tail to pattern; digits as the
+        // first character ("5G") carry no casing at all.
+        return token.dropFirst().contains(where: \.isLowercase) ? .titleCase : nil
+    }
+
     /// Suggestions for the suggestion bar.
     ///
     /// - Parameters:
@@ -293,13 +317,33 @@ public final class TypeEngine {
 
         if trimmed.isEmpty {
             trace?.rule = "prediction (no word in progress)"
-            return restorePersonalSurfaces(
+            var predicted = restorePersonalSurfaces(
                 predictor.nextWords(
                     previousWord: previous,
                     pIcelandic: probabilityIcelandic,
                     limit: limit
                 )
             )
+            // Caps-lock carry-over: a committed word that is ALL caps
+            // ("KATRÍN ", "USA ") signals caps-lock/emphasis typing, so
+            // next-word predictions follow the same case. Predictions are
+            // tap-only offers (never autocorrect), so a single-acronym
+            // false positive ("USA " → "ER") is at worst an ignorable
+            // offer, while caps-lock users get a consistent bar. Uses the
+            // case-preserving trailing word (`lastWord` lowercases).
+            if let previousCased = Self.lastWordPreservingCase(in: context),
+                Self.casingPattern(of: previousCased) == .allCaps
+            {
+                predicted = predicted.map {
+                    Suggestion(
+                        text: $0.text.uppercased(),
+                        isAutocorrect: $0.isAutocorrect,
+                        confidence: $0.confidence,
+                        isRestoration: $0.isRestoration
+                    )
+                }
+            }
+            return predicted
         }
 
         let result = corrector.correct(
@@ -315,11 +359,21 @@ public final class TypeEngine {
         )
         var suggestions = restorePersonalSurfaces(result.suggestions)
 
-        // Preserve the user's leading capitalization.
-        if let first = trimmed.first, first.isUppercase {
+        // Honor the casing of the typed token on the way out (live-session
+        // diagnosis 2026-08-19: typing in caps lock, "HESTU" produced
+        // title-cased "Hestur"/"Hesti" suggestions instead of "HESTUR"/
+        // "HESTI"). All-caps typed tokens get all-caps suggestions;
+        // leading-cap tokens keep the leading capital (the previous
+        // behavior — the tail is preserved byte-exact, so interior caps
+        // from split suggestions or restored surfaces survive); lowercase
+        // and mixed-case tokens ("iPhone", "5G") are left as the pipeline
+        // produced them.
+        if let pattern = Self.casingPattern(of: trimmed) {
             suggestions = suggestions.map {
                 Suggestion(
-                    text: $0.text.prefix(1).uppercased() + $0.text.dropFirst(),
+                    text: pattern == .allCaps
+                        ? $0.text.uppercased()
+                        : $0.text.prefix(1).uppercased() + $0.text.dropFirst(),
                     isAutocorrect: $0.isAutocorrect,
                     confidence: $0.confidence,
                     isRestoration: $0.isRestoration
@@ -566,5 +620,22 @@ public final class TypeEngine {
         )
         guard !stripped.isEmpty else { return nil }
         return stripped.lowercased()
+    }
+
+    /// Trailing word of the committed context with its ORIGINAL casing
+    /// preserved (unlike `lastWord`, which lowercases for the pipeline);
+    /// nil if there is none. Used only where casing carries meaning
+    /// (caps-lock carry-over), never for lexicon/bigram lookups.
+    static func lastWordPreservingCase(in context: String) -> String? {
+        guard
+            let token = context
+                .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+                .last
+        else { return nil }
+        let stripped = token.trimmingCharacters(
+            in: CharacterSet.punctuationCharacters.union(.symbols)
+        )
+        guard !stripped.isEmpty else { return nil }
+        return String(stripped)
     }
 }
