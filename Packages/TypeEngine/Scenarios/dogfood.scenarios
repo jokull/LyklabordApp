@@ -28,6 +28,50 @@
 
 LIMIT 5
 
+# ============================================================
+# Deep-Icelandic short folds (2026-08-12). Once P(IS) is saturated,
+# naturally winning exact acute restorations at length 2–3 may arm on their
+# folded-key evidence. They NEVER jump a naturally leading completion: the
+# three deletion-shaped controls below are the corpus A/B regressions that
+# rejected the broader precedence hypothesis.
+# ============================================================
+
+SCENARIO deep Icelandic na restores to ná
+T "við erum að tala saman na"
+EXPECT_AUTOCORRECT ná
+
+SCENARIO deep Icelandic þa restores to þá
+T "við erum að tala saman þa"
+EXPECT_AUTOCORRECT þá
+
+SCENARIO deep Icelandic context lets se restore to sé
+T "við viljum að það se"
+EXPECT_AUTOCORRECT sé
+
+SCENARIO deep Icelandic min restores to mín
+T "við tölum saman og þetta er min"
+EXPECT_AUTOCORRECT mín
+
+SCENARIO deep Icelandic does not force sin above sinn
+T "Hann hóf feril sin"
+EXPECT_TOP sinn
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO deep Icelandic does not force ma above maí
+T "var gefin út ma"
+EXPECT_TOP maí
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO deep Icelandic does not force se above sem
+T "að rétta körlum se"
+EXPECT_TOP sem
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO deep Icelandic keeps genuine ja unarmed
+T "við erum að tala saman ja"
+EXPECT_TOP já
+EXPECT_NO_AUTOCORRECT
+
 SCENARIO dogfood line 2026-07-15 replayed raw
 T "Lyklaborð sem.er alveg fara lega hratt og giskar a allt fer sem naður awgke. Hmmm ik - ekki að virka aveg nogg. "
 EXPECT_BUFFER "Lyklaborð sem er alveg fara lega hratt og giskar á allt fer sem naður awgke. Hmmm ik - ekki að virka aveg nogg. "
@@ -156,13 +200,13 @@ SCENARIO live session 2026-07-16 sentence-initial Fair restores to Fáir
 # calibrated on exactly this replay (advantage +0.47 vs the old 0.5 bar).
 # Buffer updated 2026-07-16 (v→ð confusion wave): "sivan" now correctly
 # restores to "síðan" (the session's intent — the analyzer flagged it as
-# unreachable), and with prev="síðan" the "fra" repair loses its relaxed
-# margin to the genuine bigram rival "síðan fram" (0.35 < 0.5) — an
-# honest under-fire, frá stays offered in the bar.
+# unreachable). Deep-IS short-fold arming now lets the already-leading
+# "frá" clear its old 0.35-vs-0.5 margin miss; it still does not displace
+# the naturally ranked "fram" reading when that reading leads.
 T "Langar sivan fra Jökli. Fair"
 EXPECT_AUTOCORRECT Fáir
 T " "
-EXPECT_BUFFER "Langar síðan fra Jökli. Fáir "
+EXPECT_BUFFER "Langar síðan frá Jökli. Fáir "
 
 SCENARIO live session 2026-07-16 fa restores to fá at a saturated lane
 # 2-char accent restoration with an en.lex-attested skeleton ("fa" the

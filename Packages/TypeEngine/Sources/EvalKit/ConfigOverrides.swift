@@ -111,6 +111,9 @@ public enum ConfigOverrides {
         "compoundCompletionHeadZWeight": { $0.compoundCompletionHeadZWeight = $1 },
         // Archaic-twin restoration (wave 32)
         "archaicTwinShortMinZ": { $0.archaicTwinShortMinZ = $1 },
+        "deepShortFoldMinPosterior": { $0.deepShortFoldMinPosterior = $1 },
+        "deepShortFoldMinZ": { $0.deepShortFoldMinZ = $1 },
+        "deepShortFoldAutoApplyMargin": { $0.deepShortFoldAutoApplyMargin = $1 },
         // Deep-decode mash recovery (wave 30)
         "tapNearMissMinLean": { $0.tapNearMissMinLean = $1 },
         "mashRecoveryCostCap": { $0.mashRecoveryCostCap = $1 },
@@ -131,6 +134,7 @@ public enum ConfigOverrides {
         "completionPoolLimit": { $0.completionPoolLimit = $1 },
         // Context ranking (wave 27)
         "autocorrectContextLengthMax": { $0.autocorrectContextLengthMax = $1 },
+        "deepShortFoldMaxLength": { $0.deepShortFoldMaxLength = $1 },
         "contextContinuationPoolLimit": { $0.contextContinuationPoolLimit = $1 },
         "morphCompletionPoolLimit": { $0.morphCompletionPoolLimit = $1 },
         // Compound acceptance (wave 22)
@@ -168,6 +172,7 @@ public enum ConfigOverrides {
         "caseCompletionEnabled": { $0.caseCompletionEnabled = $1 },
         // Archaic-twin restoration (wave 32)
         "archaicTwinRestorationEnabled": { $0.archaicTwinRestorationEnabled = $1 },
+        "deepShortFoldEnabled": { $0.deepShortFoldEnabled = $1 },
         // Deep-decode mash recovery (wave 30)
         "tapNearMissCapEnabled": { $0.tapNearMissCapEnabled = $1 },
         "edgeUndershootEnabled": { $0.edgeUndershootEnabled = $1 },

@@ -190,6 +190,11 @@ extension Corrector {
                     action.foldedMorphologyAutocorrectEnabled
                     && foldedMorphologyEvidence
                     && pIcelandic >= action.foldedMorphologyAutocorrectMinPosterior
+                let deepShortFoldWinner = isDeepShortAcuteFold(
+                    typed: typed,
+                    candidate: best.word,
+                    pIcelandic: pIcelandic,
+                    deliberate: deliberate)
                 // Short-token discipline (dogfood "eg"/"vð", 2026-07-16):
                 // a 2-letter token carries almost no spatial evidence, so
                 // auto-apply demands a headline-vocabulary winner (ég, við
@@ -216,8 +221,10 @@ extension Corrector {
                 if short {
                     minZ = max(
                         minZ,
-                        archaicTwinWinner
-                            ? action.archaicTwinShortMinZ : action.autocorrectShortMinZ)
+                        deepShortFoldWinner
+                            ? action.deepShortFoldMinZ
+                            : archaicTwinWinner
+                                ? action.archaicTwinShortMinZ : action.autocorrectShortMinZ)
                 }
                 // Contextual lift of winner and runner-up in the posterior-
                 // dominant lane (wave 27) — the bigram-evidence currency
@@ -270,6 +277,10 @@ extension Corrector {
                     restorationRelaxed
                     ? action.restorationAutoApplyMargin
                     : action.autocorrectMargin
+                if deepShortFoldWinner {
+                    requiredMargin = min(
+                        requiredMargin, action.deepShortFoldAutoApplyMargin)
+                }
                 if foldedMorphologyArming {
                     requiredMargin = min(
                         requiredMargin, action.foldedMorphologyAutocorrectMargin)
@@ -441,8 +452,10 @@ extension Corrector {
                                 ? " (waived: structured folded-BÍN evidence)" : "")
                             + (farRepair ? " (far-repair floor)" : "")
                             + (short
-                                ? archaicTwinWinner
-                                    ? " (archaic-twin floor)" : " (short-token floor)"
+                                ? deepShortFoldWinner
+                                    ? " (deep-IS short-fold floor)"
+                                    : archaicTwinWinner
+                                        ? " (archaic-twin floor)" : " (short-token floor)"
                                 : ""),
                         pass: typicalityOK)
                 }
@@ -490,14 +503,24 @@ extension Corrector {
                 // auto-apply PAST it only through the triple gate
                 // (dominance × context × no deliberateness signal), plus
                 // the sletta guard and the relaxed margin.
-                let marginOK =
-                    margin >= action.restorationAutoApplyMargin * tapMarginFactor
+                let deepShortFoldWinner = isDeepShortAcuteFold(
+                    typed: typed,
+                    candidate: best.word,
+                    pIcelandic: pIcelandic,
+                    deliberate: deliberate)
+                let requiredMargin =
+                    deepShortFoldWinner
+                    ? min(
+                        action.restorationAutoApplyMargin,
+                        action.deepShortFoldAutoApplyMargin)
+                    : action.restorationAutoApplyMargin
+                let marginOK = margin >= requiredMargin * tapMarginFactor
                 if let trace {
-                    trace.requiredMargin = action.restorationAutoApplyMargin
+                    trace.requiredMargin = requiredMargin
                     trace.gate(
                         "margin",
                         "margin \(String(format: "%.3f", margin))"
-                            + " >= \(action.restorationAutoApplyMargin)"
+                            + " >= \(requiredMargin)"
                             + " x \(String(format: "%.2f", tapMarginFactor))",
                         pass: marginOK)
                 }

@@ -106,6 +106,11 @@ public struct ActionPolicyConfiguration: Sendable {
     public let autocorrectContextLiftFloor: Double
     public let archaicTwinRestorationEnabled: Bool
     public let archaicTwinShortMinZ: Double
+    public let deepShortFoldEnabled: Bool
+    public let deepShortFoldMinPosterior: Double
+    public let deepShortFoldMaxLength: Int
+    public let deepShortFoldMinZ: Double
+    public let deepShortFoldAutoApplyMargin: Double
     public let vacuumAutoApplyEnabled: Bool
     public let vacuumAutoApplyMargin: Double
     public let properNounGuardEnabled: Bool
@@ -137,6 +142,11 @@ public struct ActionPolicyConfiguration: Sendable {
         autocorrectContextLiftFloor = config.autocorrectContextLiftFloor
         archaicTwinRestorationEnabled = config.archaicTwinRestorationEnabled
         archaicTwinShortMinZ = config.archaicTwinShortMinZ
+        deepShortFoldEnabled = config.deepShortFoldEnabled
+        deepShortFoldMinPosterior = config.deepShortFoldMinPosterior
+        deepShortFoldMaxLength = config.deepShortFoldMaxLength
+        deepShortFoldMinZ = config.deepShortFoldMinZ
+        deepShortFoldAutoApplyMargin = config.deepShortFoldAutoApplyMargin
         vacuumAutoApplyEnabled = config.vacuumAutoApplyEnabled
         vacuumAutoApplyMargin = config.vacuumAutoApplyMargin
         properNounGuardEnabled = config.properNounGuardEnabled

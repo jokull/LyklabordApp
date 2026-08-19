@@ -1604,6 +1604,30 @@ public struct Corrector {
         return candidateApostrophes > typedApostrophes ? pricing.weightEN : pricing.weightIS
     }
 
+    /// The narrow "deep Icelandic" hypothesis: an exact, same-length acute
+    /// restoration of a short token, backed by a saturated IS lane and a
+    /// genuinely attested target. This deliberately excludes ð/þ/ö
+    /// confusions, ordinary typos, apostrophes, partial accent input, and
+    /// long-press-deliberate tokens.
+    func isDeepShortAcuteFold(
+        typed: String,
+        candidate: String,
+        pIcelandic: Double,
+        deliberate: [Character]
+    ) -> Bool {
+        let count = typed.count
+        guard config.deepShortFoldEnabled,
+            pIcelandic >= config.deepShortFoldMinPosterior,
+            count >= 2, count <= config.deepShortFoldMaxLength,
+            candidate.count == count,
+            deliberate.isEmpty,
+            model.acuteFoldSkeleton(of: candidate) == typed,
+            model.icelandic.frequency(of: candidate) != nil
+        else { return false }
+        return model.calibratedUnigramScore(of: candidate, language: .icelandic)
+            >= config.deepShortFoldMinZ
+    }
+
     /// A candidate may never auto-apply if it drops a character the user
     /// entered via long-press/callout (deliberateness hierarchy, strongest
     /// signal): multiset containment on the long-pressed characters — a

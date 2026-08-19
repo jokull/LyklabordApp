@@ -174,6 +174,29 @@ public struct EngineConfig: Sendable {
     /// it protected, the för/for-class shape). 1.3 sits between þú and fé
     /// with ~0.15σ of safety on both sides.
     public var archaicTwinShortMinZ: Double = 1.3
+    /// Deep-Icelandic short-fold policy: once the lane is saturated, a
+    /// 2–3-letter token whose WINNING same-length reading differs ONLY by
+    /// restoring acute vowels may arm on a smaller margin. The winner must
+    /// lead naturally: A/B rejected forcing folds above strict completions
+    /// (`sin` may mean `sinn`, `ma` may mean `maí`, `se` may mean `sem`).
+    /// The feature is independently switchable for corpus A/B measurement.
+    public var deepShortFoldEnabled = true
+    /// Posterior at which the narrow short-fold policy opens. Kept above the
+    /// ordinary fold ramp's saturation point: this is the deliberately more
+    /// aggressive "already entrenched in Icelandic" tier.
+    public var deepShortFoldMinPosterior: Double = 0.85
+    /// Only 2–3-letter words receive the margin relief.
+    /// One-letter á/í use the dedicated single-letter path; longer words
+    /// already have enough key evidence for the ordinary restoration model.
+    public var deepShortFoldMaxLength: Int = 3
+    /// The restored form must still be genuinely attested Icelandic
+    /// vocabulary. +0.5 includes þín (+0.60) while excluding the corpus-noise
+    /// tail; existing valid-skeleton dominance/context/sletta gates remain.
+    public var deepShortFoldMinZ: Double = 0.5
+    /// Required top-vs-runner-up margin for an eligible deep short fold. Zero
+    /// is intentional: exact folded keys plus the saturated lane are the
+    /// evidence, while the safety gates decide genuine skeleton collisions.
+    public var deepShortFoldAutoApplyMargin: Double = 0.0
     /// Short double-substitution repairs (live-session "habb" → "hann",
     /// 2026-07-16): per-edit spatial-cost ceiling for the targeted 3-4 char
     /// two-substitution pass — ~adjacent keys only (adjacent ≈ 1.05 nats).
