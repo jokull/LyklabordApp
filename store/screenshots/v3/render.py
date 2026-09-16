@@ -74,16 +74,22 @@ def transformation(d,y,before,after):
     center(d,"↓",font(110,300),y-30,FAINT); y+=140
     aw=tw(d,after,big); x=(W-aw)//2; d.text((x,y),after,font=big,fill=INK); d.line([(x,y+195),(x+aw,y+195)],fill=INK,width=6)
 
+BRAND_FONT=pathlib.Path.home()/"Library/Fonts/UniversLTStd-CnObl.otf"   # licensed; not vendored
 def keycap(ch, size):
-    """Blank keycap asset + glyph drawn in SF (the GPT-drawn Icelandic glyphs
-    were wrong; the blank is generated, the letter is ours). Glyph sits on the
-    face slightly low-left like the Ð reference asset."""
+    """Blank keycap asset + glyph drawn in the brand face (Univers Condensed
+    Oblique, the same font as the app icon and site keycap, commits 39ec938 /
+    95f3099), UPPERCASE like the brand Ð. The GPT-drawn Icelandic glyphs were
+    wrong; the blank is generated, the letter is ours. Legend sits low-left on
+    the face like the reference Ð asset."""
     KC=HERE.parent.parent/"assets/keycaps"
     cap=Image.open(KC/"blank.png").convert("RGBA"); cap=cap.crop(cap.getbbox()).resize((1024,1024),Image.LANCZOS)
-    d=ImageDraw.Draw(cap); f=font(400,430)
+    if not BRAND_FONT.exists(): raise SystemExit(f"brand font missing: {BRAND_FONT}")
+    d=ImageDraw.Draw(cap); f=ImageFont.truetype(str(BRAND_FONT),560)
+    ch=ch.upper()
     bb=d.textbbox((0,0),ch,font=f); w,h=bb[2]-bb[0],bb[3]-bb[1]
-    x=512-w//2-bb[0]-40; y=470-h//2-bb[1]+30
-    d.text((x,y),ch,font=f,fill=(0x2E,0x2D,0x2B,255))
+    # reference Ð: legend centre ≈ (0.37, 0.55) of the face
+    x=int(1024*0.36)-w//2-bb[0]; y=int(1024*0.56)-h//2-bb[1]
+    d.text((x,y),ch,font=f,fill=(0x33,0x32,0x30,255))
     return cap.resize((size,size),Image.LANCZOS)
 
 def shot(n,loc,title,sub,cap_name,transform=None,keys=False,popkeys=None):
