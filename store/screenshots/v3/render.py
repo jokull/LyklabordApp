@@ -84,11 +84,11 @@ def keycap(ch, size):
     KC=HERE.parent.parent/"assets/keycaps"
     cap=Image.open(KC/"blank.png").convert("RGBA"); cap=cap.crop(cap.getbbox()).resize((1024,1024),Image.LANCZOS)
     if not BRAND_FONT.exists(): raise SystemExit(f"brand font missing: {BRAND_FONT}")
-    d=ImageDraw.Draw(cap); f=ImageFont.truetype(str(BRAND_FONT),560)
+    d=ImageDraw.Draw(cap); f=ImageFont.truetype(str(BRAND_FONT),400)
     ch=ch.upper()
     bb=d.textbbox((0,0),ch,font=f); w,h=bb[2]-bb[0],bb[3]-bb[1]
     # reference Ð: legend centre ≈ (0.37, 0.55) of the face
-    x=int(1024*0.36)-w//2-bb[0]; y=int(1024*0.56)-h//2-bb[1]
+    x=int(1024*0.364)-w//2-bb[0]; y=int(1024*0.559)-h//2-bb[1]
     d.text((x,y),ch,font=f,fill=(0x33,0x32,0x30,255))
     return cap.resize((size,size),Image.LANCZOS)
 
