@@ -37,6 +37,12 @@ final class KeyboardViewController: KeyboardInputViewController {
     /// consumes it before UITextDocumentProxy/autocomplete/learning see it.
     private let emojiSearchSession = IcelandicEmojiSearchSession()
 
+    /// The toolbar's empty-state emoji row, snapshotted per presentation in
+    /// `viewWillAppear`. Frozen while the keyboard is up so taps (which record
+    /// a use) never reorder the row mid-session — Apple's "frequently used"
+    /// row behaves the same way. Long-press callouts still read the live store.
+    private var frecencyEmojis: [String] = []
+
     override func viewDidLoad() {
         // Wave 39 activation boundary. Capture before KeyboardKit/App Group
         // setup so the cold report includes controller work that happens
@@ -227,6 +233,8 @@ final class KeyboardViewController: KeyboardInputViewController {
         // Full Access the suite is unavailable and this stays at mode 1).
         (services.autocompleteService as? LyklabordAutocompleteService)?
             .refreshSpacebarMode()
+        // Emoji frecency row: one snapshot per presentation (see the property).
+        frecencyEmojis = EmojiFrequencyStore.shared.top(8)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -283,7 +291,7 @@ final class KeyboardViewController: KeyboardInputViewController {
     }
 
     override func viewWillSetupKeyboardView() {
-        setupKeyboardView { controller in
+        setupKeyboardView { [unowned self] controller in
             // No explicit `layout:` — the default `KeyboardView` init falls
             // back to `services.layoutService.keyboardLayout(for:)`, which
             // is the `DeviceBasedLayoutService` configured with `.icelandic`
@@ -353,7 +361,8 @@ final class KeyboardViewController: KeyboardInputViewController {
                         autocompleteContext: controller.state.autocompleteContext,
                         actionHandler: controller.services.actionHandler,
                         suggestionAction: params.autocompleteAction,
-                        standard: params.view
+                        standard: params.view,
+                        frecencyEmojis: self.frecencyEmojis
                     )
                 }
             )
