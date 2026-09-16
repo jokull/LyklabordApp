@@ -1,0 +1,7 @@
+You are drafting App Store screenshot STYLE concepts for "Lyklaborð", a free open-source Icelandic iOS keyboard. Portrait, use 1024x1536 output. Brand: warm paper background #faf9f6, charcoal ink #1c1b1a, SF-style sans. Attached image 1 is our current precise draft (option A). Image 2 is our Ð keycap asset. Image 3 is a strip of competitor shots for reference only (do NOT copy them).
+
+Use your image_generation tool to generate THREE distinct mood/style drafts of one screenshot whose message is: typing "ut i bud" (no accents) becomes "út í búð" on this keyboard. Each must show a light iOS keyboard with Icelandic keys ð æ ö þ visible, cropped large (no tilted 3D phone, no notch phone frame), a headline, and the before/after transformation prominent. Directions:
+ E) "Paper editorial": cream paper, ink type, the correction set as large typography, keyboard cropped full-bleed at bottom. Feels like a book cover.
+ F) "Keycap physical": tactile off-white keycaps like the Ð asset, soft shadows, the accented letters ú í ð rendered as big physical keycaps popping up out of the keyboard. Playful but restrained.
+ G) "Chat proof": an iMessage-style conversation in Icelandic on paper background, keyboard below, a lifted correction chip "út í búð" with a small arrow, headline at the BOTTOM instead of top.
+Save each as E.png, F.png, G.png in the current directory. Do not write any other files. When done, print one line per file describing what you made.
