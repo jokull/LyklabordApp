@@ -11,9 +11,10 @@ import Learning
 /// - convergence: after every device has synced twice with no mutations in
 ///   between, all payloads are identical;
 /// - deletions stick: once ANY device deleted `w`, `w` is never learned on
-///   any device after that device's next sync (unless explicitly re-added
-///   — which, see `FoundBugTests`, cannot win today, so the invariant is
-///   checked on words that were never re-added);
+///   any device after that device's next sync — unless the user explicitly
+///   re-added it in the editor (tombstone epochs, see `PersonalModelMerge`
+///   and `FoundBugTests`), so the invariant is checked on words that were
+///   never re-added; implicit relearning (commits, taps) can never win;
 /// - no inflation: a word's merged count never exceeds the total number of
 ///   organic commits across all devices (max-not-sum must not double count
 ///   through ping-pong);
@@ -111,6 +112,9 @@ final class MultiDeviceScenarioTests: XCTestCase {
             let devices = try (0..<deviceCount).map { try Device(name: "dev\($0)-\(iteration)", directory: directory) }
             var everRemoved = Set<String>()
             var everReAdded = Set<String>()
+            /// Editor actions that actually flipped a tombstone, per word,
+            /// across all devices — the ceiling for the merged epoch.
+            var flips: [String: Int] = [:]
             var trace: [String] = []
 
             for round in 0..<(2 + Int(caseRNG.next() % 4)) {
@@ -126,13 +130,16 @@ final class MultiDeviceScenarioTests: XCTestCase {
                             try device.tap(word, day: day); trace.append("\(device.name) tap \(word)")
                         case 6..<8:
                             try device.compact()
+                            if !device.model.isTombstoned(word) { flips[word, default: 0] += 1 }
                             device.model.remove(word: word); try device.model.save(to: device.modelURL)
                             device.removed.insert(word); everRemoved.insert(word)
                             trace.append("\(device.name) remove \(word)")
                         case 8:
                             try device.compact()
+                            // Only an add that clears a tombstone is a RE-add
+                            // (and a flip); adding a never-deleted word is not.
+                            if device.model.isTombstoned(word) { everReAdded.insert(word); flips[word, default: 0] += 1 }
                             try device.model.addUserWord(word); try device.model.save(to: device.modelURL)
-                            everReAdded.insert(word)
                             trace.append("\(device.name) addUser \(word)")
                         default:
                             try device.compact(); trace.append("\(device.name) compact")
@@ -174,6 +181,18 @@ final class MultiDeviceScenarioTests: XCTestCase {
                         }
                     }
                     XCTAssertTrue(converged.tombstones.contains(word), "\(context): tombstone for \(word) lost")
+                }
+                // Tombstones only ever come from deletions, and the merged
+                // epoch never exceeds the number of real flips (max, not sum
+                // — the same no-inflation promise as for counts).
+                for word in converged.tombstones {
+                    XCTAssertTrue(everRemoved.contains(word), "\(context) round \(round): tombstone for never-deleted \(word)")
+                }
+                for (word, epoch) in converged.tombstoneEpochs {
+                    if Int(epoch) > (flips[word] ?? 0) {
+                        XCTFail("\(context) round \(round): \(word) epoch \(epoch) exceeds \(flips[word] ?? 0) flips\n\(trace.joined(separator: "\n"))")
+                        return
+                    }
                 }
                 // No inflation.
                 for (word, stats) in converged.words {

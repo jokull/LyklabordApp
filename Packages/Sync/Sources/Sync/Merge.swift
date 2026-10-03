@@ -20,24 +20,51 @@ import Learning
 ///
 /// ## Per-field semantics
 ///
-/// - **tombstones**: set UNION — a deletion on either device wins over
-///   everything on the other (counts, user-added status, bigrams), in both
-///   directions. This mirrors `PersonalModel`'s local invariant
-///   ("deletions must stick") across devices. Known consequence, accepted:
-///   with no timestamps, a re-add (`addUserWord`, which clears the local
-///   tombstone) loses to a device still carrying the tombstone until that
-///   device also syncs the re-add state — deletion is the safer default
-///   for a privacy product.
-/// - **userAdded**: UNION minus tombstones.
-/// - **words**: key union minus tombstones; per-word `WordStats` merge is
-///   field-wise max of the four counts, sorted-set union of `daysSeen`
-///   (capped at `Configuration.maxDistinctDaysTracked`, keeping the
-///   earliest — same policy as `PersonalModel.learnCommit`), and OR of
-///   `explicitlyAccepted`.
-/// - **bigrams**: per-key max, minus any pair touching a tombstoned word
-///   (mirrors `PersonalModel.remove`), then re-capped to the top
+/// - **tombstone epochs** (`tombstoneEpochs`, absent = 0): per-word MAX.
+///   `PersonalModel` bumps a word's epoch on every explicit editor action
+///   that flips its tombstone state (delete, re-add, clear) and on nothing
+///   else — so the epoch is a monotonic "how many times has the user
+///   changed their mind about this word" counter that needs no clock.
+/// - **tombstones**: decided PER WORD by the side(s) at the word's maximum
+///   epoch. If one side is strictly ahead, its view wins outright — this
+///   is what lets an explicit re-add (`addUserWord` → epoch+1, tombstone
+///   cleared) beat a synced deletion, and a LATER explicit delete
+///   (epoch+1 again) beat that re-add. If both sides are at the same
+///   epoch, the tombstone wins (OR) — concurrent delete vs. re-add that
+///   never saw each other resolves to deletion, the safer default for a
+///   privacy product. With no epochs anywhere (documents from builds that
+///   predate them) every word ties at 0 and this degenerates to the
+///   original set union, byte for byte.
+/// - **everything else that belongs to a word** — `userAdded`, its
+///   `WordStats` entry, and any bigram touching it — is taken ONLY from the
+///   side(s) at that word's maximum epoch. A device that never saw a
+///   deletion is carrying stale counts for the word; mixing them back in
+///   after a re-add would make the result depend on merge order (see
+///   "Why the epoch gates stats too" below). Among the sides that qualify:
+///   `userAdded` is OR; `WordStats` is field-wise max of the four counts,
+///   sorted-set union of `daysSeen` (capped at
+///   `Configuration.maxDistinctDaysTracked`, keeping the earliest — same
+///   policy as `PersonalModel.learnCommit`), and OR of `explicitlyAccepted`.
+///   Implicit learning (typing the word again) never touches the epoch, so
+///   "deletions stick" against organic relearning exactly as before.
+/// - **bigrams**: per-key max over the sides at the max epoch of BOTH
+///   words, minus any pair touching a tombstoned word (mirrors
+///   `PersonalModel.remove`), then re-capped to the top
 ///   `Configuration.bigramCap` using the exact ordering `enforceCaps`
 ///   uses (count desc, key asc) so merge and compaction can never fight.
+///
+/// ## Why the epoch gates stats too
+///
+/// Take A (never synced since, word count 10, epoch 0), a deletion D
+/// (epoch 1) and the user's re-add R (epoch 2). If stats were merged with
+/// a plain max regardless of epoch, `merge(merge(A, D), R)` would drop
+/// A's counts at the D step and end with none, while `merge(A, merge(D,
+/// R))` would keep them — associativity broken, and two devices could
+/// disagree forever. Gating every per-word field on the word's max epoch
+/// makes the per-word merge a lexicographic join (epoch first, then the
+/// old per-field joins among the tied sides), which is still a
+/// semilattice; the property tests in `MergeTests` check all four laws
+/// with random epochs.
 /// - **touch**: per-key, keep the WHOLE stats struct from the side with
 ///   the higher effective sample count (higher weight = better-trained
 ///   Gaussian). Never averaged: Welford aggregates from different devices
@@ -71,14 +98,31 @@ public enum PersonalModelMerge {
         _ b: SyncPayload,
         limits: Limits = Limits()
     ) -> SyncPayload {
-        let tombstones = a.tombstones.union(b.tombstones)
-        let userAdded = a.userAdded.union(b.userAdded).subtracting(tombstones)
+        // Per-word epoch frontier, and which side(s) sit on it. A side at a
+        // lower epoch has a stale view of that word and contributes nothing
+        // for it — not its tombstone, not its counts, not its bigrams.
+        var epochs: [String: UInt32] = [:]
+        for (word, epoch) in a.tombstoneEpochs { epochs[word] = epoch }
+        for (word, epoch) in b.tombstoneEpochs { epochs[word] = max(epochs[word] ?? 0, epoch) }
+        func current(_ side: SyncPayload, _ word: String) -> Bool {
+            side.tombstoneEpoch(of: word) == (epochs[word] ?? 0)
+        }
+
+        var tombstones: Set<String> = []
+        for word in a.tombstones where current(a, word) { tombstones.insert(word) }
+        for word in b.tombstones where current(b, word) { tombstones.insert(word) }
+
+        var userAdded: Set<String> = []
+        for word in a.userAdded where current(a, word) && !tombstones.contains(word) { userAdded.insert(word) }
+        for word in b.userAdded where current(b, word) && !tombstones.contains(word) { userAdded.insert(word) }
 
         var words: [String: PersonalModel.WordStats] = [:]
         words.reserveCapacity(max(a.words.count, b.words.count))
         for key in Set(a.words.keys).union(b.words.keys) {
             guard !tombstones.contains(key) else { continue }
-            switch (a.words[key], b.words[key]) {
+            let x = current(a, key) ? a.words[key] : nil
+            let y = current(b, key) ? b.words[key] : nil
+            switch (x, y) {
             case (let x?, let y?):
                 words[key] = mergeStats(x, y, maxDays: limits.maxDistinctDaysTracked)
             case (let x?, nil):
@@ -93,8 +137,13 @@ public enum PersonalModelMerge {
         var bigrams: [String: UInt32] = [:]
         bigrams.reserveCapacity(max(a.bigrams.count, b.bigrams.count))
         for key in Set(a.bigrams.keys).union(b.bigrams.keys) {
-            guard !touchesTombstone(bigramKey: key, tombstones: tombstones) else { continue }
-            bigrams[key] = max(a.bigrams[key] ?? 0, b.bigrams[key] ?? 0)
+            let (first, second) = splitBigram(key)
+            guard !tombstones.contains(first), !tombstones.contains(second) else { continue }
+            let x = current(a, first) && current(a, second) ? a.bigrams[key] : nil
+            let y = current(b, first) && current(b, second) ? b.bigrams[key] : nil
+            if let count = [x, y].compactMap({ $0 }).max() {
+                bigrams[key] = count
+            }
         }
         if bigrams.count > limits.bigramCap {
             let keep = bigrams
@@ -120,7 +169,8 @@ public enum PersonalModelMerge {
             bigrams: bigrams,
             tombstones: tombstones,
             userAdded: userAdded,
-            touch: touch
+            touch: touch,
+            tombstoneEpochs: epochs
         )
     }
 
@@ -162,12 +212,11 @@ public enum PersonalModelMerge {
     }
 
     /// Bigram keys are `"first second"` with exactly one space (words can
-    /// never contain whitespace — `EventLog.isLearnableWord`).
-    private static func touchesTombstone(bigramKey: String, tombstones: Set<String>) -> Bool {
-        guard let space = bigramKey.firstIndex(of: " ") else { return false }
-        let first = String(bigramKey[..<space])
-        let second = String(bigramKey[bigramKey.index(after: space)...])
-        return tombstones.contains(first) || tombstones.contains(second)
+    /// never contain whitespace — `EventLog.isLearnableWord`). A key with
+    /// no space (hostile input) is treated as a single word on both sides.
+    private static func splitBigram(_ key: String) -> (first: String, second: String) {
+        guard let space = key.firstIndex(of: " ") else { return (key, key) }
+        return (String(key[..<space]), String(key[key.index(after: space)...]))
     }
 
     /// Higher effective sample count wins; ties break on a deterministic,

@@ -111,6 +111,86 @@ final class DocumentFaultTests: XCTestCase {
         XCTAssertThrowsError(try SyncPayload.decode(missing))
     }
 
+    // MARK: - Epoch field skew (ADR-0009: additive field, both directions)
+
+    /// A document written by a build that predates `tombstoneEpochs` has no
+    /// such key. A new reader must decode it (all epochs 0), merge it with
+    /// an epoch-carrying payload under the documented rules, and re-encode
+    /// WITHOUT the key when nothing carries an epoch — byte-identical to
+    /// what the old build wrote.
+    func testOldWriterNewReader() throws {
+        let old = Data(#"{"schemaVersion":1,"words":{},"bigrams":{},"tombstones":["hestur"],"userAdded":["hús"],"touch":{}}"#.utf8)
+        let payload = try SyncPayload.decode(old)
+        XCTAssertTrue(payload.tombstoneEpochs.isEmpty)
+        XCTAssertEqual(payload.tombstoneEpoch(of: "hestur"), 0)
+        XCTAssertFalse(String(decoding: try payload.canonicalData(), as: UTF8.self).contains("tombstoneEpochs"),
+                       "no epochs ⇒ no key ⇒ the old build's digest is unchanged")
+        XCTAssertFalse(String(decoding: try PersonalModelDocument(decoding: old).encoded(), as: UTF8.self).contains("tombstoneEpochs"))
+
+        // The old device's tombstone (epoch 0) loses to a new device's
+        // explicit re-add (epoch 2) …
+        let reAdded = Fixtures.payload(userAdded: ["hestur"], epochs: ["hestur": 2])
+        let merged = PersonalModelMerge.merge(payload, reAdded)
+        XCTAssertFalse(merged.tombstones.contains("hestur"))
+        XCTAssertTrue(merged.userAdded.contains("hestur"))
+        XCTAssertTrue(merged.userAdded.contains("hús"))
+        // … and the merged document now carries the epoch for the new fleet.
+        let reEncoded = try SyncPayload.decode(try merged.canonicalData())
+        XCTAssertEqual(reEncoded, merged)
+        XCTAssertEqual(reEncoded.tombstoneEpoch(of: "hestur"), 2)
+    }
+
+    /// A document written by THIS build, read by a build that predates the
+    /// field (modelled by a local struct mirroring the old `Stored` shape
+    /// with `JSONDecoder`'s default ignore-unknown-keys behaviour): decodes,
+    /// every pre-existing field round-trips, and the old build's union
+    /// merge sees a plain tombstone/user-added set. The old build then
+    /// re-encodes WITHOUT epochs — the documented mixed-fleet limitation
+    /// (ADR-0009): its union re-tombstones a re-added word until it updates,
+    /// while the new device keeps its re-add locally (epoch 2 > 0).
+    func testNewWriterOldReader() throws {
+        struct OldStored: Codable, Equatable {
+            var schemaVersion: Int
+            var words: [String: PersonalModel.WordStats]
+            var bigrams: [String: UInt32]
+            var tombstones: [String]
+            var userAdded: [String]
+            var touch: [String: TouchKeyStats]
+            var consumedLogMarker: EventLog.ConsumedMarker?
+        }
+        var payload = samplePayload()
+        payload.tombstoneEpochs = ["óvinur": 1, "Þórsmörk": 2]
+        let marker = EventLog.ConsumedMarker(generation: UUID(), offset: 7)
+        let data = try Fixtures.modelData(payload, marker: marker)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"tombstoneEpochs\""))
+
+        let old = try JSONDecoder().decode(OldStored.self, from: data)
+        XCTAssertEqual(old.schemaVersion, 1)
+        XCTAssertEqual(old.words, payload.words)
+        XCTAssertEqual(old.bigrams, payload.bigrams)
+        XCTAssertEqual(Set(old.tombstones), payload.tombstones)
+        XCTAssertEqual(Set(old.userAdded), payload.userAdded)
+        XCTAssertEqual(old.touch, payload.touch)
+        XCTAssertEqual(old.consumedLogMarker, marker)
+
+        // What the old build pushes back: the same state minus the epochs.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let stripped = try SyncPayload.decode(try encoder.encode(old))
+        XCTAssertTrue(stripped.tombstoneEpochs.isEmpty)
+        var expected = payload
+        expected.tombstoneEpochs = [:]
+        XCTAssertEqual(stripped, expected)
+
+        // New device (re-add at epoch 2) vs. the stripped remote: the
+        // re-add survives locally; nothing crashes, nothing is lost that
+        // the old build could represent.
+        let newLocal = Fixtures.payload(userAdded: ["Þórsmörk"], epochs: ["Þórsmörk": 2])
+        let merged = PersonalModelMerge.merge(newLocal, stripped)
+        XCTAssertTrue(merged.userAdded.contains("Þórsmörk"))
+        XCTAssertEqual(merged.tombstones, ["óvinur"])
+    }
+
     func testNonFiniteTouchValuesInRemoteJSONAreRejectedNotPropagated() {
         // JSONDecoder's default non-conforming-float strategy throws on
         // "nan"/"inf" tokens; make sure a hostile remote cannot smuggle a

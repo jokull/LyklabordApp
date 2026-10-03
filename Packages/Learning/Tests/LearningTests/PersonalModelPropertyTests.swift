@@ -97,6 +97,9 @@ final class PersonalModelPropertyTests: LearningTestCase {
         var bigrams: [String: Int] = [:]
         var tombstones = Set<String>()
         var userAdded = Set<String>()
+        /// Re-add rule: every editor action that FLIPS tombstone state
+        /// (delete, re-add, clear) bumps the word's epoch; nothing else does.
+        var epochs: [String: Int] = [:]
         /// Events appended but not yet compacted.
         var pending: [(day: Int32, event: LearningEvent)] = []
         let threshold: Int
@@ -135,8 +138,17 @@ final class PersonalModelPropertyTests: LearningTestCase {
         mutating func remove(_ word: String) {
             words.removeValue(forKey: word)
             userAdded.remove(word)
-            tombstones.insert(word)
+            if tombstones.insert(word).inserted { epochs[word, default: 0] += 1 }
             bigrams = bigrams.filter { !$0.key.hasPrefix(word + " ") && !$0.key.hasSuffix(" " + word) }
+        }
+
+        mutating func addUser(_ word: String) {
+            if tombstones.remove(word) != nil { epochs[word, default: 0] += 1 }
+            userAdded.insert(word)
+        }
+
+        mutating func clearTombstone(_ word: String) {
+            if tombstones.remove(word) != nil { epochs[word, default: 0] += 1 }
         }
 
         func isLearned(_ w: String) -> Bool {
@@ -203,11 +215,10 @@ final class PersonalModelPropertyTests: LearningTestCase {
                 // Editor mutations are persisted by the app immediately.
                 try model.save(to: modelURL)
             case .addUser(let w):
-                try model.addUserWord(w)
-                ref.tombstones.remove(w); ref.userAdded.insert(w)
+                try model.addUserWord(w); ref.addUser(w)
                 try model.save(to: modelURL)
             case .clearTombstone(let w):
-                model.removeTombstone(w); ref.tombstones.remove(w)
+                model.removeTombstone(w); ref.clearTombstone(w)
                 try model.save(to: modelURL)
             case .compact:
                 try model.compact(applying: log); ref.compact()
@@ -240,6 +251,7 @@ final class PersonalModelPropertyTests: LearningTestCase {
             if model.isLearned(w) != ref.isLearned(w) { return "isLearned(\(w)) model=\(model.isLearned(w)) ref=\(ref.isLearned(w))" }
             if model.isTombstoned(w) != ref.tombstones.contains(w) { return "isTombstoned(\(w))" }
             if model.isUserAdded(w) != ref.userAdded.contains(w) { return "isUserAdded(\(w))" }
+            if Int(model.tombstoneEpoch(of: w)) != (ref.epochs[w] ?? 0) { return "tombstoneEpoch(\(w)) model=\(model.tombstoneEpoch(of: w)) ref=\(ref.epochs[w] ?? 0)" }
             if model.frequency(of: w) != ref.frequency(w) { return "frequency(\(w)) model=\(String(describing: model.frequency(of: w))) ref=\(String(describing: ref.frequency(w)))" }
             if Int(model.commitCount(of: w)) != (ref.words[w]?.count ?? 0) { return "commitCount(\(w)) model=\(model.commitCount(of: w)) ref=\(ref.words[w]?.count ?? 0)" }
             let explicitRef = ref.userAdded.contains(w) || (ref.words[w]?.explicit ?? false)

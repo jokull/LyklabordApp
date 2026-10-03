@@ -36,14 +36,16 @@ enum Fixtures {
         bigrams: [String: UInt32] = [:],
         tombstones: Set<String> = [],
         userAdded: Set<String> = [],
-        touch: [String: TouchKeyStats] = [:]
+        touch: [String: TouchKeyStats] = [:],
+        epochs: [String: UInt32] = [:]
     ) -> SyncPayload {
         SyncPayload(
             words: words,
             bigrams: bigrams,
             tombstones: tombstones,
             userAdded: userAdded,
-            touch: touch
+            touch: touch,
+            tombstoneEpochs: epochs
         )
     }
 
@@ -153,12 +155,21 @@ enum PayloadGen {
                 !key.hasPrefix(tomb + " ") && !key.hasSuffix(" " + tomb)
             }
         }
+        // Tombstone epochs on a few words — tombstoned or not, present in
+        // the payload or not (a re-added-then-forgotten word keeps its
+        // epoch with no entry). Small range so two payloads tie often; the
+        // tie path is the one that must still behave like the old union.
+        var epochs: [String: UInt32] = [:]
+        for _ in 0..<(rng.next() % 4) {
+            epochs[word(&rng)] = UInt32(rng.next() % 4)
+        }
         return Fixtures.payload(
             words: words,
             bigrams: bigrams,
             tombstones: tombstones,
             userAdded: userAdded,
-            touch: touch
+            touch: touch,
+            epochs: epochs
         )
     }
 }

@@ -6,17 +6,17 @@ import XCTest
 /// without letting junk into the model.
 final class SwiftKeyImportHostileTests: LearningTestCase {
 
-    func testCROnlyAndMixedLineEndingsDoNotCrash() {
-        // CR-only (classic Mac) collapses to one line and imports nothing —
-        // acceptable; the CRLF case is a real bug tracked in FoundBugTests.
+    func testCROnlyAndMixedLineEndingsImportEveryWord() {
+        // CR-only (classic Mac), CRLF (Windows) and a mix all split per
+        // line — `Character.isNewline`, not `"\n"`, since Swift treats
+        // "\r\n" as ONE Character (see FoundBugTests for the CRLF repro).
         let (crWords, _) = SwiftKeyImport.parseVocabulary("Jökull\rhestur\r")
-        XCTAssertTrue(crWords.isEmpty)
-        // Mixed endings: Swift treats "\r\n" as ONE Character, so
-        // `split(separator: "\n")` does not split there and the line AFTER a
-        // CRLF is swallowed into the line before it. Only the LF-terminated
-        // "Jökull" survives today (same root cause as the FoundBug).
+        XCTAssertEqual(crWords, ["Jökull", "hestur"])
         let (mixed, _) = SwiftKeyImport.parseVocabulary("Jökull\nhestur\r\nþú\n")
-        XCTAssertEqual(mixed, ["Jökull"])
+        XCTAssertEqual(mixed, ["Jökull", "hestur", "þú"])
+        // Other Unicode line breaks (NEL, LS, PS) are line breaks too.
+        let (exotic, _) = SwiftKeyImport.parseVocabulary("Jökull\u{85}hestur\u{2028}þú\u{2029}orð")
+        XCTAssertEqual(exotic, ["Jökull", "hestur", "þú", "orð"])
     }
 
     func testUTF8BOMBeforeFirstLineOnlyAffectsThatLine() throws {

@@ -40,6 +40,100 @@ final class MergeTests: XCTestCase {
         XCTAssertTrue(merged.tombstones.contains("typo"))
     }
 
+    // MARK: - Tombstone epochs: an explicit re-add beats a synced deletion
+
+    /// Device deleted "hestur" (epoch 1, synced), then the user re-added it
+    /// in the editor (epoch 2, tombstone cleared, user-added). The remote
+    /// still holds the epoch-1 tombstone: the re-add must win, from either
+    /// side, and the stale tombstone must not come back.
+    func testReAddAtHigherEpochBeatsSyncedTombstone() {
+        let remote = Fixtures.payload(tombstones: ["hestur"], epochs: ["hestur": 1])
+        let local = Fixtures.payload(userAdded: ["hestur"], epochs: ["hestur": 2])
+        for merged in [PersonalModelMerge.merge(local, remote), PersonalModelMerge.merge(remote, local)] {
+            XCTAssertFalse(merged.tombstones.contains("hestur"), "re-add must clear the synced tombstone")
+            XCTAssertTrue(merged.userAdded.contains("hestur"), "re-added word must stay user-added")
+            XCTAssertEqual(merged.tombstoneEpoch(of: "hestur"), 2)
+        }
+    }
+
+    /// … and a LATER explicit delete (epoch 3) beats that re-add, even if
+    /// the deleting device still carries the re-add's user-added flag on
+    /// the other side of the merge.
+    func testLaterDeleteAtHigherEpochBeatsEarlierReAdd() {
+        let reAdded = Fixtures.payload(
+            words: ["hestur": Fixtures.stats(count: 2, days: [1, 2])],
+            userAdded: ["hestur"], epochs: ["hestur": 2])
+        let deleted = Fixtures.payload(tombstones: ["hestur"], epochs: ["hestur": 3])
+        for merged in [PersonalModelMerge.merge(reAdded, deleted), PersonalModelMerge.merge(deleted, reAdded)] {
+            XCTAssertTrue(merged.tombstones.contains("hestur"))
+            XCTAssertFalse(merged.userAdded.contains("hestur"))
+            XCTAssertNil(merged.words["hestur"])
+            XCTAssertEqual(merged.tombstoneEpoch(of: "hestur"), 3)
+        }
+    }
+
+    /// Concurrent delete vs. re-add that never saw each other land on the
+    /// same epoch: the tie goes to the deletion (safer default).
+    func testEqualEpochTieGoesToTheTombstone() {
+        let deleted = Fixtures.payload(tombstones: ["hestur"], epochs: ["hestur": 1])
+        let added = Fixtures.payload(userAdded: ["hestur"], epochs: ["hestur": 1])
+        for merged in [PersonalModelMerge.merge(deleted, added), PersonalModelMerge.merge(added, deleted)] {
+            XCTAssertTrue(merged.tombstones.contains("hestur"))
+            XCTAssertFalse(merged.userAdded.contains("hestur"))
+        }
+    }
+
+    /// A device that never saw the deletion (epoch 0) still carries the
+    /// word's old counts, user-added flag and bigrams. After a re-add at
+    /// epoch 2 those are STALE and must not be revived — otherwise the
+    /// result would depend on whether the stale device merged before or
+    /// after the deletion (see the associativity note in `Merge.swift`).
+    func testStaleLowerEpochSideContributesNothingForTheWord() {
+        let stale = Fixtures.payload(
+            words: ["hestur": Fixtures.stats(count: 10, is: 10, days: [1, 2], explicit: true), "á": Fixtures.stats(count: 3, days: [1])],
+            bigrams: ["hestur á": 4, "á hús": 2],
+            userAdded: ["hestur"])
+        let deleted = Fixtures.payload(tombstones: ["hestur"], epochs: ["hestur": 1])
+        let reAdded = Fixtures.payload(userAdded: ["hestur"], epochs: ["hestur": 2])
+
+        let viaDelete = PersonalModelMerge.merge(PersonalModelMerge.merge(stale, deleted), reAdded)
+        let viaReAdd = PersonalModelMerge.merge(stale, PersonalModelMerge.merge(deleted, reAdded))
+        XCTAssertEqual(viaDelete, viaReAdd, "merge order must not matter")
+        XCTAssertNil(viaReAdd.words["hestur"], "counts from before the deletion stay gone")
+        XCTAssertNil(viaReAdd.bigrams["hestur á"], "bigrams from before the deletion stay gone")
+        XCTAssertEqual(viaReAdd.bigrams["á hús"], 2, "unrelated bigrams untouched")
+        XCTAssertEqual(viaReAdd.words["á"]?.count, 3, "unrelated words untouched")
+        XCTAssertTrue(viaReAdd.userAdded.contains("hestur"), "the re-add itself is what survives")
+    }
+
+    /// Implicit relearning never touches the epoch, so new organic commits
+    /// on a device that already synced the deletion stay blocked locally
+    /// (`PersonalModel.learnCommit`), and a stale device's organic entry
+    /// (epoch 0) still loses to the epoch-1 tombstone — deletions stick.
+    func testImplicitEntryAtLowerEpochStillLosesToTombstone() {
+        let stale = Fixtures.payload(words: ["typo": Fixtures.stats(count: 4, days: [1, 2])])
+        let deleted = Fixtures.payload(tombstones: ["typo"], epochs: ["typo": 1])
+        let merged = PersonalModelMerge.merge(stale, deleted)
+        XCTAssertNil(merged.words["typo"])
+        XCTAssertTrue(merged.tombstones.contains("typo"))
+    }
+
+    /// Documents with no epochs at all (pre-epoch builds) must merge exactly
+    /// as before: tombstone union, user-added union minus tombstones.
+    func testWithoutEpochsMergeIsTheOriginalUnion() {
+        let a = Fixtures.payload(
+            words: ["hestur": Fixtures.stats(count: 9, days: [1, 2], explicit: true)],
+            bigrams: ["hestur á": 4, "á hús": 2],
+            userAdded: ["hestur", "hús"])
+        let b = Fixtures.payload(tombstones: ["hestur"], userAdded: ["á"])
+        let merged = PersonalModelMerge.merge(a, b)
+        XCTAssertEqual(merged.tombstones, ["hestur"])
+        XCTAssertEqual(merged.userAdded, ["hús", "á"])
+        XCTAssertNil(merged.words["hestur"])
+        XCTAssertEqual(merged.bigrams, ["á hús": 2])
+        XCTAssertTrue(merged.tombstoneEpochs.isEmpty, "no epochs in ⇒ no epochs out (byte-compatible documents)")
+    }
+
     // MARK: - userAdded
 
     func testUserAddedIsUnionMinusTombstones() {
@@ -169,13 +263,27 @@ final class MergeTests: XCTestCase {
         }
     }
 
-    func testPropertyTombstonesAlwaysWin() {
+    /// Tombstones win at equal epochs; a strictly higher epoch wins outright
+    /// (that is the only way a re-add can ever beat a deletion). Either way
+    /// a tombstoned word carries no entry, no user-added flag, no bigram.
+    func testPropertyTombstonesWinAtTheWordsMaxEpoch() {
         var rng = SeededRNG(seed: 0xC0FF_EE05)
         for _ in 0..<iterations {
             let a = PayloadGen.payload(&rng)
             let b = PayloadGen.payload(&rng)
             let merged = PersonalModelMerge.merge(a, b)
-            XCTAssertEqual(merged.tombstones, a.tombstones.union(b.tombstones))
+            var expected: Set<String> = []
+            for word in a.tombstones.union(b.tombstones) {
+                let top = max(a.tombstoneEpoch(of: word), b.tombstoneEpoch(of: word))
+                if (a.tombstones.contains(word) && a.tombstoneEpoch(of: word) == top)
+                    || (b.tombstones.contains(word) && b.tombstoneEpoch(of: word) == top) {
+                    expected.insert(word)
+                }
+            }
+            XCTAssertEqual(merged.tombstones, expected)
+            for word in Set(a.tombstoneEpochs.keys).union(b.tombstoneEpochs.keys) {
+                XCTAssertEqual(merged.tombstoneEpoch(of: word), max(a.tombstoneEpoch(of: word), b.tombstoneEpoch(of: word)))
+            }
             for tomb in merged.tombstones {
                 XCTAssertNil(merged.words[tomb])
                 XCTAssertFalse(merged.userAdded.contains(tomb))

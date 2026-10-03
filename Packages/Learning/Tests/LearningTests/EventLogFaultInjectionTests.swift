@@ -68,49 +68,37 @@ final class EventLogFaultInjectionTests: LearningTestCase {
         }
     }
 
-    /// Weak (currently true) invariant: the complete prefix survives, the
-    /// fresh append is read, and the torn fragment becomes EITHER one
-    /// skipped garbage line OR one healed event — never more. The strong
-    /// contract the docs state ("the torn fragment becomes an isolated
-    /// garbage line") is violated for records whose last field is free
-    /// text; see `FoundBugTests.testTornVerbatimTapMustNotLearnATruncatedWord`.
+    /// Strong invariant (the contract the docs state): the complete prefix
+    /// survives, the fresh append is read, and the torn fragment becomes
+    /// exactly one skipped, MARKED garbage line — never an event, however
+    /// well-formed the truncated bytes happen to look (a cut inside a word
+    /// is indistinguishable from a shorter word; see
+    /// `FoundBugTests.testTornVerbatimTapMustNotLearnATruncatedWord`).
     func testAppendAfterTruncationAtEveryOffsetHealsAndKeepsThePrefix() throws {
         let (log, bytes, lineEnds) = try makeSampleLog()
         let fresh = LearningEvent.wordTapped(word: "nýtt")
         let headerEnd = lineEnds[0]
-        var healedIntoDifferentEvent: [Int] = []
         for cut in 0...bytes.count {
             try writeLogBytes(Array(bytes[..<cut]), to: log)
             try log.append(fresh)
             let result = try log.read()
             let prefix = expectedPrefix(cut: cut, lineEnds: lineEnds)
             let got = result.events.map(\.event)
-            XCTAssertEqual(Array(got.prefix(prefix.count)), prefix, "prefix damaged at cut=\(cut)")
-            XCTAssertEqual(got.last, fresh, "fresh append lost at cut=\(cut)")
-            let extra = got.count - prefix.count - 1
-            XCTAssertTrue(extra == 0 || extra == 1, "torn fragment produced \(extra) events at cut=\(cut)")
-            if extra == 1 {
-                // The healed fragment must at least be the torn record's own
-                // kind (same line, same code) — a different kind would mean
-                // framing went wrong, not just a truncated field.
-                let tornIndex = lineEnds.dropFirst().filter { $0 <= cut }.count
-                let original = sampleEvents[tornIndex]
-                if got[prefix.count] != original { healedIntoDifferentEvent.append(cut) }
-                XCTAssertTrue(sameKind(got[prefix.count], original), "cut=\(cut) healed into a different record kind")
-            }
+            XCTAssertEqual(got, prefix + [fresh], "cut=\(cut): torn fragment must never become an event")
 
             let tornInsideRecord = cut > headerEnd && !lineEnds.contains(cut)
             switch cut {
             case 0, _ where lineEnds.contains(cut):
                 XCTAssertEqual(result.skippedLines, 0, "cut=\(cut)")
-                XCTAssertEqual(extra, 0, "cut=\(cut)")
-            case 1..<5:
+            case 1..<4:
                 // Shorter than "#gen\t": a headerless file whose first line is garbage.
                 XCTAssertEqual(result.skippedLines, 1, "cut=\(cut)")
-            case 5..<headerEnd:
+            case 4..<headerEnd:
                 // Garbled header line is absorbed AS the header (generation
                 // .none) — except when only the newline was missing, in
-                // which case healing restores the real UUID header.
+                // which case the marked heal keeps the real UUID header.
+                // (cut 4 is "#gen", which the heal turns into "#gen\t\#torn":
+                // also a garbled header, not a data line.)
                 XCTAssertEqual(result.skippedLines, 0, "cut=\(cut)")
                 if cut == headerEnd - 1 {
                     XCTAssertNotEqual(result.endMarker.generation, EventLog.ConsumedMarker.none.generation, "cut=\(cut)")
@@ -119,27 +107,22 @@ final class EventLogFaultInjectionTests: LearningTestCase {
                 }
             default:
                 XCTAssertTrue(tornInsideRecord)
-                XCTAssertEqual(result.skippedLines + extra, 1, "torn record must be skipped xor healed (cut=\(cut))")
+                XCTAssertEqual(result.skippedLines, 1, "torn record must be skipped (cut=\(cut))")
             }
 
-            // The marker must be fully usable for an incremental read.
+            // The marker must be fully usable for an incremental read — for
+            // a real generation. A headerless file (`.none`) is deliberately
+            // never read from an offset (the sentinel is shared by every
+            // headerless incarnation), so there the read restarts at byte 0;
+            // `compactAndSave` rotates such a file to a real header right
+            // after consuming it, so this never repeats in practice.
             try log.append(.wordTapped(word: "enn"))
             let incremental = try log.read(after: result.endMarker)
-            XCTAssertEqual(incremental.events.map(\.event), [.wordTapped(word: "enn")], "cut=\(cut)")
-        }
-        // Diagnostic for the report: the cuts at which a torn record came
-        // back as a *different* event (truncated last field).
-        print("torn records healed into altered events at cuts: \(healedIntoDifferentEvent)")
-    }
-
-    private func sameKind(_ a: LearningEvent, _ b: LearningEvent) -> Bool {
-        switch (a, b) {
-        case (.wordCommitted, .wordCommitted), (.suggestionAccepted, .suggestionAccepted),
-             (.correctionReverted, .correctionReverted), (.wordTapped, .wordTapped),
-             (.touchSample, .touchSample):
-            return true
-        default:
-            return false
+            if result.endMarker.generation == EventLog.ConsumedMarker.none.generation {
+                XCTAssertEqual(incremental.events.map(\.event), got + [.wordTapped(word: "enn")], "cut=\(cut)")
+            } else {
+                XCTAssertEqual(incremental.events.map(\.event), [.wordTapped(word: "enn")], "cut=\(cut)")
+            }
         }
     }
 
@@ -156,11 +139,8 @@ final class EventLogFaultInjectionTests: LearningTestCase {
             let model = PersonalModel()
             let summary = try model.compactAndSave(applying: log, to: modelURL)
             let prefixCount = expectedPrefix(cut: cut, lineEnds: lineEnds).count
-            // +1 for "heal", +1 more when the torn fragment healed into an event.
-            XCTAssertTrue(
-                summary.eventsApplied == prefixCount + 1 || summary.eventsApplied == prefixCount + 2,
-                "cut=\(cut): applied \(summary.eventsApplied), prefix \(prefixCount)"
-            )
+            // +1 for "heal"; the torn fragment itself never applies.
+            XCTAssertEqual(summary.eventsApplied, prefixCount + 1, "cut=\(cut)")
             XCTAssertTrue(summary.logTruncated)
 
             // Rotated: real UUID header, no stale bytes.
