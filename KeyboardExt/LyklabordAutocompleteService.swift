@@ -1041,6 +1041,12 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// bundled artifacts that cannot change while the process lives), so the
     /// first load is shared by every later service in the process. The
     /// `setInflection` hop onto each service's own engine queue is unchanged.
+    ///
+    /// Loads run on ONE serial queue, so a second service created while the
+    /// first load is still in flight waits for it and takes the cached model
+    /// instead of decompressing its own copy.
+    private static let inflectionLoadQueue = DispatchQueue(
+        label: "is.solberg.lyklabord.inflection-load", qos: .utility)
     private static let inflectionCacheLock = NSLock()
     private static var cachedInflectionModel: InflectionModel?
 
@@ -1066,7 +1072,7 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// dirty ceiling includes the transient decompression buffer, which
     /// `withGunzipped` munmaps before this delta is measured).
     private func scheduleInflectionLoad() {
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        Self.inflectionLoadQueue.async { [weak self] in
             guard let self else { return }
             Self.inflectionCacheLock.lock()
             let cached = Self.cachedInflectionModel

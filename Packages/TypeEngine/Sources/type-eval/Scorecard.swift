@@ -461,8 +461,18 @@ func runCaptured(
     } catch {
         return ("", "\(error)", -1)
     }
+    // Drain stderr on its own thread: reading the two pipes in sequence
+    // deadlocks once the child fills the stderr pipe buffer while stdout is
+    // still open (a clean or failing `swift build` writes plenty).
+    var err = Data()
+    let errDrained = DispatchGroup()
+    errDrained.enter()
+    DispatchQueue.global().async {
+        err = errPipe.fileHandleForReading.readDataToEndOfFile()
+        errDrained.leave()
+    }
     let out = outPipe.fileHandleForReading.readDataToEndOfFile()
-    let err = errPipe.fileHandleForReading.readDataToEndOfFile()
+    errDrained.wait()
     process.waitUntilExit()
     return (
         String(decoding: out, as: UTF8.self),
