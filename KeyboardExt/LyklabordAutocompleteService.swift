@@ -855,7 +855,9 @@ final class LyklabordAutocompleteService: AutocompleteService {
             return
         }
         Self.auxiliaryStateQueue.async { [weak self] in
-            let suggester = IcelandicEmojiSuggester(contentsOf: emojiURL)
+            let suggester = IcelandicEmojiSuggester(
+                contentsOf: emojiURL,
+                english: bundle.url(forResource: "en-suggestions", withExtension: "json"))
             if suggester == nil {
                 NSLog("[LyklaborÃ°] Icelandic emoji suggestion index failed to decode")
             }
@@ -1255,7 +1257,8 @@ final class LyklabordAutocompleteService: AutocompleteService {
         // bar at three total slots. Suppress outside ordinary prose fields.
         let emojiSuggestions: [Autocomplete.Suggestion]
         if fieldKind == .standard,
-            let emoji = emojiSuggester?.suggestion(for: pendingToken)
+            let emoji = emojiSuggester?.suggestion(
+                for: pendingToken, englishLane: session.probabilityIcelandic < 0.5)
         {
             emojiSuggestions = [Autocomplete.Suggestion(text: emoji, type: .emoji)]
         } else {

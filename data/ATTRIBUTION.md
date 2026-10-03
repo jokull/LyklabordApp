@@ -107,6 +107,8 @@ Evaluation data only: these files feed `type-eval` and are not part of the shipp
 The Icelandic emoji names and search keywords in `data/emoji/is.json` are
 extracted from **Unicode Common Locale Data Repository (CLDR) 48.2** and
 matched against the **Unicode Emoji 17.0** fully-qualified repertoire.
+The English labels in `data/emoji/en-suggestions.json` and
+`data/emoji/is-search.json` come from the same CLDR release.
 
 Copyright © 1991–2026 Unicode, Inc. Distributed under the permissive
 **Unicode License v3** (`Unicode-3.0`). Source URLs, versions, and SHA-256

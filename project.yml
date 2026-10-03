@@ -214,6 +214,9 @@ targets:
       # in the memory-constrained extension; see data/emoji/README.md.
       - path: data/emoji/is-suggestions.json
         buildPhase: resources
+      # Same index for English CLDR labels; matched only in the English lane.
+      - path: data/emoji/en-suggestions.json
+        buildPhase: resources
       # Version-aware Icelandic + English CLDR search rows. The 535KB authoring
       # corpus stays outside the appex; this compact artifact loads only when
       # the user opens emoji search.
