@@ -341,9 +341,7 @@ final class FuzzDriver {
             "doc=\(proxy.document.debugDescription) cur=\(proxy.cursor)"
                 + " bar=\(barDescription) commits=\(session.committedWordCount)"
                 + " last=\(session.lastCommittedWord ?? "-")")
-        if mode.extraRefresh, !FuzzKnownBugs.duplicateRefreshWouldSpendMemo(session),
-            !FuzzKnownBugs.duplicateRefreshAfterCollapsedAutocorrectCommit(self)
-        { refresh() }
+        if mode.extraRefresh { refresh() }
         if mode.extraWindowNote { session.noteExternalTextChange(window: proxy.contextBeforeInput) }
     }
 
@@ -384,9 +382,7 @@ final class FuzzDriver {
             attachmentCount += 1
             cover("attachment")
             let live = proxy.trueContextBeforeInput
-            if !FuzzKnownBugs.staleAttachment(mode),
-                !live.hasSuffix(" .") || attachment.deleteCount != 2 || attachment.text != "."
-            {
+            if !live.hasSuffix(" .") || attachment.deleteCount != 2 || attachment.text != "." {
                 executionViolations.append(
                     FuzzViolation(
                         invariant: "attachment-instruction",
@@ -414,7 +410,11 @@ final class FuzzDriver {
             }
         }
         proxy.insertText(String(c))
-        session.noteSelfEdit(before: ledgerBefore, after: proxy.trueContextBeforeInput)
+        // 2026-10 contract: the record names the keystroke and the applied
+        // autocorrect text (nil = the token was committed as typed).
+        session.noteSelfEdit(
+            before: ledgerBefore, after: proxy.trueContextBeforeInput,
+            keystroke: c, replacement: appliedThisKeystroke?.to)
         lastApplied = appliedThisKeystroke
         refresh()
     }
@@ -436,7 +436,7 @@ final class FuzzDriver {
             doubleSpaceFired = true
             cover("doubleSpace.fired")
         }
-        session.noteSelfEdit(before: ledgerBefore, after: proxy.trueContextBeforeInput)
+        session.noteSelfEdit(before: ledgerBefore, after: proxy.trueContextBeforeInput, keystroke: " ")
         refresh()
     }
 
@@ -493,7 +493,11 @@ final class FuzzDriver {
                 ? (literalRevert ? "tap.literalRevert" : "tap.verbatim")
                 : (word.isEmpty ? "tap.prediction" : (suggestion.text.contains(" ") ? "tap.split" : "tap.suggestion")))
         if word.hasSuffix(".") { cover("tap.deferredDot") }
-        session.noteSelfEdit(before: ledgerBefore, after: proxy.trueContextBeforeInput)
+        // Non-verbatim taps report the tapped text; verbatim taps are known
+        // to the session through `noteVerbatimChoice` / `revertToLiteral`.
+        session.noteSelfEdit(
+            before: ledgerBefore, after: proxy.trueContextBeforeInput,
+            replacement: suggestion.isVerbatim ? nil : suggestion.text)
         refresh()
         return true
     }
@@ -509,7 +513,9 @@ final class FuzzDriver {
         proxy.insertText(prediction.text)
         proxy.insertText(" ")
         cover("predictSpace")
-        session.noteSelfEdit(before: windowBefore, after: proxy.trueContextBeforeInput)
+        session.noteSelfEdit(
+            before: windowBefore, after: proxy.trueContextBeforeInput,
+            keystroke: " ", replacement: prediction.text)
         refresh()
         return true
     }
@@ -769,10 +775,7 @@ enum FuzzInvariants {
         }
 
         // ---- Committed words exist in the document -----------------------
-        if d.session.committedWordCount > d.commitsBeforeAction,
-            !(d.lastTap.map { FuzzKnownBugs.isDeferredDotTapOverArmedAutocorrect($0, mode: mode) } ?? false),
-            !FuzzKnownBugs.staleCollapseCommit(d)
-        {
+        if d.session.committedWordCount > d.commitsBeforeAction {
             if let committed = d.session.lastCommittedWord {
                 if committed.isEmpty || committed.contains(where: \.isWhitespace) {
                     fail("committed-word", "malformed committed word \(committed.debugDescription)")
@@ -808,9 +811,7 @@ enum FuzzInvariants {
             if !applied.to.contains(" "), !d.session.hasPendingContinuationRevert {
                 fail("dot-apply-deferred", "'.'-apply \(applied.from.debugDescription) → \(applied.to.debugDescription) did not arm revert-on-continuation")
             }
-        } else if let applied = d.lastApplied, !mode.staleReads,
-            !FuzzKnownBugs.newlineCollapse(d, delimiter: applied.delimiter)
-        {
+        } else if let applied = d.lastApplied, !mode.staleReads {
             let stripped = applied.to.hasSuffix(".") ? String(applied.to.dropLast()) : applied.to
             let expected = TypingSession.wordTokens(in: stripped).last ?? stripped
             if d.session.committedWordCount <= d.commitsBeforeAction {
@@ -840,7 +841,7 @@ enum FuzzInvariants {
                     "tapping \(tap.suggestion.text.debugDescription) over \(tap.pending.debugDescription)"
                         + " gave \(d.document.debugDescription), expected \(tap.expectedDocument.debugDescription)")
             }
-            if !mode.staleReads, !FuzzKnownBugs.isDeferredDotTapOverArmedAutocorrect(tap, mode: mode) {
+            if !mode.staleReads {
                 let text = tap.suggestion.text
                 let stripped = text.hasSuffix(".") ? String(text.dropLast()) : text
                 let tokens = TypingSession.wordTokens(in: stripped)
@@ -862,9 +863,7 @@ enum FuzzInvariants {
                             "tap \(text.debugDescription) over \(tap.pending.debugDescription) committed"
                                 + " \(d.session.lastCommittedWord.debugDescription), expected \(tokens.last!.debugDescription)")
                     }
-                    if mode.field == .standard, !tap.literalRevert,
-                        !FuzzKnownBugs.isDeferredDotAcceptanceWithVisibleWindow(pending: tap.pending, mode: mode)
-                    {
+                    if mode.field == .standard, !tap.literalRevert {
                         let typed = TypingSession.strippedEventToken(tap.pending)
                         if tap.suggestion.isVerbatim {
                             if TypingSession.isEventWord(typed),
@@ -928,69 +927,6 @@ enum FuzzInvariants {
         }
 
         return out
-    }
-}
-
-// MARK: - Known bugs (carve-outs)
-
-/// Shapes the fuzzer already found and that are pinned as strict expected
-/// failures in `FuzzFoundBugTests.swift`. The oracles skip exactly these
-/// shapes so the sweep stays green while still checking everything else.
-/// Delete the carve-out together with the `XCTExpectFailure` when fixing.
-enum FuzzKnownBugs {
-    /// Bugs 1 + 2: `suggestions(for:)` clears the punctuation-attachment and
-    /// revert-on-continuation memos on entry, so a duplicate no-op
-    /// observation spends them. The extra-refresh metamorphic variant skips
-    /// its refresh while either memo is armed.
-    static func duplicateRefreshWouldSpendMemo(_ session: TypingSession) -> Bool {
-        session.hasPendingContinuationRevert || session.hasPendingPunctuationAttachment
-    }
-
-    /// Bug 6: an autocorrect commit whose delimiter collapsed the window to
-    /// "" (sentence cut) arms the backspace-revert memo, but
-    /// `resolveBackspaceRevert` has no shape for the empty window, so the
-    /// first duplicate observation drops the memo (the arming pass's
-    /// `justArmed` grace normally hides this for the next KEYSTROKE).
-    static func duplicateRefreshAfterCollapsedAutocorrectCommit(_ d: FuzzDriver) -> Bool {
-        d.lastApplied != nil && d.lastWindow.isEmpty && !d.mode.truncationNone
-    }
-
-    /// Bug 7: a word delimited by Return under a proxy that cuts the window
-    /// at newlines is never confirmed (the truncation-reset path only knows
-    /// sentence terminators).
-    static func newlineCollapse(_ d: FuzzDriver, delimiter: Character) -> Bool {
-        delimiter.isNewline && !d.mode.truncationNone && d.lastWindow.isEmpty
-    }
-
-    /// Bug 3 (stale flavour): under stale reads the collapse path commits
-    /// an armed autocorrect the embedder never applied.
-    static func staleCollapseCommit(_ d: FuzzDriver) -> Bool {
-        d.mode.staleReads && !d.mode.truncationNone && d.lastWindow.isEmpty
-    }
-
-    /// Bug 3: under the sentence-cut proxy window, the commit after a tap
-    /// over a deferred-dot token ignores WHAT was tapped: it commits the
-    /// armed autocorrect if there was one, else the typed token.
-    /// Bug 4: with a visible (non-collapsing) window, the single-word commit
-    /// path does not recognize a deferred-dot acceptance (bar texts carry the
-    /// dot), so `suggestionAccepted` and the revert slot are lost.
-    static func isDeferredDotAcceptanceWithVisibleWindow(pending: String, mode: FuzzMode) -> Bool {
-        pending.hasSuffix(".") && mode.truncationNone
-    }
-
-    /// Bug 5: under stale reads the punctuation-attachment memo can arm from
-    /// an observation that is one edit behind and then act on a document
-    /// that has moved on.
-    static func staleAttachment(_ mode: FuzzMode) -> Bool { mode.staleReads }
-
-    static func isDeferredDotTapOverArmedAutocorrect(
-        _ tap: (suggestion: Suggestion, pending: String, expectedDocument: String, commitsBefore: Int,
-            literalRevert: Bool, insertedSpace: Bool, barHadAutocorrect: Bool),
-        mode: FuzzMode
-    ) -> Bool {
-        tap.pending.hasSuffix(".") && !mode.truncationNone
-            && (tap.barHadAutocorrect || !tap.suggestion.isVerbatim)
-            && !tap.suggestion.isAutocorrect
     }
 }
 

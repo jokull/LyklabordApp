@@ -66,7 +66,11 @@ final class SeamDriver {
             applyArmedAutocorrectIfCurrent()
         }
         proxy.insertText(String(c))
-        session.noteSelfEdit(before: before, after: proxy.trueContextBeforeInput)
+        // The 2026-10 contract: the record names the keystroke and, when the
+        // delimiter applied the armed autocorrect, the text it landed.
+        session.noteSelfEdit(
+            before: before, after: proxy.trueContextBeforeInput,
+            keystroke: c, replacement: lastAppliedAutocorrect?.to)
         refresh()
     }
 
@@ -84,12 +88,20 @@ final class SeamDriver {
         typeChar("\n")
     }
 
+    /// Mirror of the extension's selection guard
+    /// (`shouldApplyAutocorrectSuggestion` rule 2): no autocorrect apply
+    /// while a selection is active — KeyboardKit's per-character deletes
+    /// would eat the selection as one of them and mangle the word. Tests
+    /// of the raw (unguarded) KeyboardKit shape turn this off.
+    var guardsSelection = true
+
     /// The space-commit apply: the published `.autocorrect` replaces the
     /// current word only when `AutocorrectApplyGuard` confirms the stamped
     /// token is still the live token (the extension's
     /// `tryApplyAutocorrectSuggestion` override).
     private func applyArmedAutocorrectIfCurrent() {
         guard let autocorrect = armedAutocorrect else { return }
+        if guardsSelection, proxy.selectedText != nil { return }
         let live = proxy.trueContextBeforeInput
         guard
             AutocorrectApplyGuard.shouldAutoApply(
@@ -130,7 +142,12 @@ final class SeamDriver {
             proxy.insertText(" ")
             tapInsertedSpace = true
         }
-        session.noteSelfEdit(before: before, after: proxy.trueContextBeforeInput)
+        // A non-verbatim tap reports the tapped text as the replacement
+        // (the extension's `handle(_ suggestion:)`); verbatim taps are
+        // already known to the session through `noteVerbatimChoice`.
+        session.noteSelfEdit(
+            before: before, after: proxy.trueContextBeforeInput,
+            replacement: s.isVerbatim ? nil : s.text)
         refresh()
         return true
     }
@@ -157,7 +174,7 @@ final class SeamDriver {
         }
         // '.' never applies autocorrect (deferral) — plain insert.
         proxy.insertText(".")
-        session.noteSelfEdit(before: before, after: proxy.trueContextBeforeInput)
+        session.noteSelfEdit(before: before, after: proxy.trueContextBeforeInput, keystroke: ".")
         refresh()
     }
 
@@ -176,7 +193,7 @@ final class SeamDriver {
             proxy.insertText(".")
         }
         tapInsertedSpace = false
-        session.noteSelfEdit(before: before, after: proxy.trueContextBeforeInput)
+        session.noteSelfEdit(before: before, after: proxy.trueContextBeforeInput, keystroke: ".")
         refresh()
     }
 
@@ -189,7 +206,7 @@ final class SeamDriver {
         proxy.insertText(" ")
         while proxy.trueContextBeforeInput.hasSuffix(" ") { proxy.deleteBackward() }
         proxy.insertText(". ")
-        session.noteSelfEdit(before: before, after: proxy.trueContextBeforeInput)
+        session.noteSelfEdit(before: before, after: proxy.trueContextBeforeInput, keystroke: " ")
         refresh()
     }
 

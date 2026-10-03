@@ -520,6 +520,28 @@ public struct EngineConfig: Sendable {
     public var beamEmitCostMargin: Double = 5.0
     /// Wall-clock budget for one beam decode, in seconds.
     public var beamTimeBudget: TimeInterval = 0.006
+    /// Cap on the diacritic-restoration variants enumerated for one token
+    /// (2026-10 fuzz latency finding): `Corrector.diacriticVariants` is
+    /// O(n³) in the number of restorable positions and existence-checks
+    /// every variant against both lexicons AND BÍN, with no budget — on a
+    /// 33-character mash it alone cost 11 ms per keystroke. Variants are
+    /// enumerated breadth-first by change count, so the cap sheds only the
+    /// three-change tail of long tokens; ordinary words (< ~12 restorable
+    /// positions) stay byte-identical.
+    public var restorationVariantCap: Int = 400
+    /// Longest token the corrector repairs at all (2026-10 fuzz latency
+    /// finding, companion to `restorationVariantCap`). Every discovery pass
+    /// is at least linear in token length with lexicon/BÍN probes per step,
+    /// and the two wall-clock budgets each cover ONE decode, so a 48-char
+    /// run-on ("minnveitingahusitkörlumThem…") still cost 38 ms per
+    /// keystroke under the shipping budgets. No single Icelandic or English
+    /// word is this long (the eval corpora top out at 31; compound
+    /// acceptance stops at `compoundMaxWordLength` 32), and a two-word split
+    /// of a longer run-on would need two 16+ letter halves — such a token is
+    /// key-mash or a pasted run-on, where under-correction is the policy
+    /// anyway. Beyond it the bar is just the verbatim slot (and the typed
+    /// token keeps its validity verdict).
+    public var repairMaxLength: Int = 32
     /// The DEEP (multi-edit) decode runs only when the typed token is not
     /// valid anywhere and the best ATTESTED-or-personal candidate from the
     /// cheap passes costs more than this. Deliberately BELOW the omitted/

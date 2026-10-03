@@ -3,10 +3,10 @@ import XCTest
 
 @testable import TypeEngine
 
-/// Engine bugs exposed by `UITextDocumentProxy` quirks the simulator did not
-/// model before the 2026-10 seam audit (`ProxySimulator`: lagging boundary
-/// cut, selection). Each repro is wrapped in a STRICT `XCTExpectFailure` so
-/// the suite is green today and flips red once fixed.
+/// Regressions for engine bugs exposed by `UITextDocumentProxy` quirks the
+/// simulator did not model before the 2026-10 seam audit (`ProxySimulator`:
+/// lagging boundary cut, selection). Each was a strict `XCTExpectFailure`
+/// repro; the fixes turned them into ordinary tests.
 final class ProxyFidelityFoundBugTests: XCTestCase {
 
     private func driver(_ proxy: ProxySimulator) -> SeamDriver {
@@ -26,15 +26,12 @@ final class ProxyFidelityFoundBugTests: XCTestCase {
     /// trailing ". " from `documentContextBeforeInput` right after the space
     /// is typed, so on such hosts the window after "hestur. " is still
     /// "hestur. " and only the NEXT keystroke yields the cut window "o".
-    /// `heuristicChange` has no shape for "hestur. " → "o" (the sliding
-    /// alignment needs a suffix of the old window to prefix the new one), so
-    /// the ledger-matched self-edit is classified `.external`:
-    /// `incomingTaps` is cleared and the first letter's tap sample is lost
-    /// (1 touchSample at the commit instead of 2); carried bigram context and
-    /// the verbatim/backspace-revert memos go with it. Under the historical
-    /// immediate collapse ("hestur. " → "") the `.truncationReset` path keeps
-    /// everything.
-    func testLaggingSentenceCutDropsTheFirstTapOfTheNewSentence() {
+    /// `heuristicChange` had no shape for "hestur. " → "o" and classified
+    /// the ledger-matched self-edit `.external`, clearing `incomingTaps` —
+    /// the first letter's tap sample was lost (1 touchSample at the commit
+    /// instead of 2) along with carried context and memos. The new-sentence
+    /// shape keeps everything, exactly like the immediate collapse does.
+    func testLaggingSentenceCutKeepsTheFirstTapOfTheNewSentence() {
         let immediate = driver(ProxySimulator())
         immediate.type("hestur. ")
         _ = immediate.drainEvents()
@@ -54,19 +51,18 @@ final class ProxyFidelityFoundBugTests: XCTestCase {
         lagging.type(" ")
         XCTAssertEqual(lagging.document, "hestur. og ")
         XCTAssertEqual(lagging.session.committedWordCount, 2)
-        XCTExpectFailure(
-            "a one-keystroke-late sentence cut (\"hestur. \" → \"o\") is classified external: the new sentence's first tap sample (and carried context/memos) is dropped",
-            strict: true
-        ) {
-            XCTAssertEqual(touchSamples(lagging.drainEvents()), 2)
-        }
+        XCTAssertEqual(touchSamples(lagging.drainEvents()), 2)
+        // Both shapes end in the same lane state.
+        XCTAssertEqual(
+            lagging.session.probabilityIcelandic, immediate.session.probabilityIcelandic,
+            accuracy: 1e-9)
     }
 
     /// Same shape for paragraphs (`isCursorAtNewLine` reads a trailing "\n"):
-    /// "hestr⏎" commits "hestur" fine under the lagging cut (contrast with the
-    /// immediate-cut loss in `ApplySeamFoundBugTests`), but the window then
-    /// goes "hestur\n" → "o" and the first tap of the new paragraph is lost.
-    func testLaggingNewlineCutDropsTheFirstTapOfTheNewParagraph() {
+    /// "hestr⏎" commits "hestur" under the lagging cut (the window shows
+    /// "hestur\n"), then the window goes "hestur\n" → "o" and the first tap
+    /// of the new paragraph is kept.
+    func testLaggingNewlineCutKeepsTheFirstTapOfTheNewParagraph() {
         let lagging = driver(
             ProxySimulator(truncation: .init(holdsBoundaryUntilTextFollows: true)))
         lagging.type("hestr")
@@ -78,27 +74,33 @@ final class ProxyFidelityFoundBugTests: XCTestCase {
         lagging.tapType("g", dx: 0.2, dy: 0.2)
         lagging.type(" ")
         XCTAssertEqual(lagging.session.committedWordCount, 2)
-        XCTExpectFailure(
-            "a one-keystroke-late newline cut (\"hestur\\n\" → \"o\") is classified external: the new paragraph's first tap sample is dropped",
-            strict: true
-        ) {
-            XCTAssertEqual(touchSamples(lagging.drainEvents()), 2)
-        }
+        XCTAssertEqual(touchSamples(lagging.drainEvents()), 2)
+    }
+
+    /// A host paste that lands right after a sentence boundary is NOT the
+    /// new-sentence shape: it is unexplained by the ledger and stays
+    /// external (no commit, taps cleared).
+    func testHostPasteAfterSentenceBoundaryStaysExternal() {
+        let lagging = driver(
+            ProxySimulator(truncation: .init(holdsBoundaryUntilTextFollows: true)))
+        lagging.type("hestur. ")
+        let commits = lagging.session.committedWordCount
+        lagging.hostReplace("hestur. og hestar ")
+        XCTAssertEqual(lagging.session.committedWordCount, commits)
     }
 
     // MARK: - Selection
 
     /// "ok hest|r|": the user selected the trailing "r" to retype it. The
-    /// before-window ends at the selection start ("ok hest"), the engine arms
-    /// "hestur", and the space applies it the KeyboardKit way — delete
-    /// `currentWord.count` (4) times, then insert. UIKit's first
-    /// `deleteBackward` removes the SELECTION, so the remaining three eat
-    /// "est" and the document ends up "ok hhestur ". The session then commits
-    /// (and logs a suggestionAccepted for) the garbage word "hhestur". The
-    /// embedder side of this is KeyboardKit's `replaceCurrentWordPreCursorPart`
-    /// (see `KeyboardKitTests/Proxy/ApplySeamFoundBugTests`); the session has
-    /// no way to see the selection and faithfully learns the damage.
-    func testAutocorrectApplyAcrossASelectionOverDeletesAndLearnsGarbage() {
+    /// before-window ends at the selection start ("ok hest") and the engine
+    /// arms "hestur". The extension refuses to apply an autocorrect while a
+    /// selection is active (`shouldApplyAutocorrectSuggestion` rule 2 —
+    /// KeyboardKit's per-character deletes would eat the selection as one of
+    /// them: "ok hhestur "); `SeamDriver` mirrors that guard. The space then
+    /// replaces the selection and commits the typed word as it stands. The
+    /// correct "ok hestur " outcome belongs to the KeyboardKit-side repro
+    /// (`KeyboardKitTests/Proxy/ApplySeamFoundBugTests`, out of scope here).
+    func testAutocorrectApplyIsRefusedAcrossASelection() {
         let d = driver(ProxySimulator(truncation: .none))
         d.type("ok hestr")
         XCTAssertEqual(d.armedAutocorrect?.text, "hestur")
@@ -108,13 +110,32 @@ final class ProxyFidelityFoundBugTests: XCTestCase {
         d.session.noteExternalTextChange(window: d.proxy.contextBeforeInput)
         d.refreshOnly()
         XCTAssertEqual(d.armedAutocorrect?.text, "hestur")
+        _ = d.drainEvents()
         d.type(" ")
-        XCTExpectFailure(
-            "autocorrect apply with an active selection over-deletes (KeyboardKit deletes word.count times; UIKit's first deleteBackward removes the selection) and the session commits/learns the mangled word",
-            strict: true
-        ) {
-            XCTAssertEqual(d.document, "ok hestur ")
-            XCTAssertEqual(d.session.lastCommittedWord, "hestur")
-        }
+        XCTAssertEqual(d.document, "ok hest ")
+        XCTAssertEqual(d.session.lastCommittedWord, "hest")
+        XCTAssertFalse(
+            d.drainEvents().contains { if case .suggestionAccepted = $0 { return true }; return false })
+    }
+
+    /// Robustness when the apply happens anyway (an embedder without the
+    /// guard): the record says "hestur" replaced the token, the window shows
+    /// "hhestur" — text the session cannot account for. It is classified
+    /// external: no commit, no learning event, nothing learned from garbage.
+    func testUnguardedApplyAcrossASelectionIsNotCommittedOrLearned() {
+        let d = driver(ProxySimulator(truncation: .none))
+        d.guardsSelection = false
+        d.type("ok hestr")
+        XCTAssertEqual(d.armedAutocorrect?.text, "hestur")
+        d.proxy.select(7..<8)
+        d.session.noteExternalTextChange(window: d.proxy.contextBeforeInput)
+        d.refreshOnly()
+        _ = d.drainEvents()
+        let commits = d.session.committedWordCount
+        d.type(" ")
+        XCTAssertEqual(d.document, "ok hhestur ", "the raw KeyboardKit over-delete")
+        XCTAssertEqual(d.session.committedWordCount, commits)
+        XCTAssertNotEqual(d.session.lastCommittedWord, "hhestur")
+        XCTAssertTrue(d.drainEvents().isEmpty, "nothing is learned from a mangled apply")
     }
 }
