@@ -916,6 +916,29 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
     private var ledgerBeforeWindow: String?
     private var ledgerHandleDepth = 0
 
+    /// What the outermost `handle` call did, reported with its ledger record
+    /// so the session need not reconstruct it from the window (which a host
+    /// that cuts the context at ". " or a newline has already emptied).
+    /// `ledgerKeystroke` is the released key (space, a single character,
+    /// Return as "\n") and marks the record as fully described — a nil
+    /// `ledgerReplacement` then means the pending token was committed as
+    /// typed. It stays nil for anything this handler cannot describe as one
+    /// keystroke (suggestion taps, the ,,→„ rewrite, a mode-2 prediction
+    /// insert); those records keep the session's window-only reconstruction.
+    /// `ledgerReplacement` is the autocorrect or tapped suggestion that
+    /// replaced the pending token, byte-exact as the bar showed it.
+    private var ledgerKeystroke: Character?
+    private var ledgerReplacement: String?
+
+    private static func ledgerKeystroke(for action: KeyboardAction) -> Character? {
+        switch action {
+        case .space: return " "
+        case .character(let text): return text.count == 1 ? text.first : nil
+        case .primary: return "\n"
+        default: return nil
+        }
+    }
+
     /// One-shot causal memo (issue #4): the corrected/completed word whose
     /// trailing space the PREVIOUS released space action created by
     /// successfully committing the armed candidate. The very next released
@@ -930,7 +953,11 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         guard let before = ledgerBeforeWindow else { return }
         ledgerBeforeWindow = nil
         let after = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
-        lyklabordAutocompleteService?.noteSelfEdit(before: before, after: after)
+        lyklabordAutocompleteService?.noteSelfEdit(
+            before: before, after: after,
+            keystroke: ledgerKeystroke, replacement: ledgerReplacement)
+        ledgerKeystroke = nil
+        ledgerReplacement = nil
     }
 
     override func tryPerformAutocomplete(
@@ -967,8 +994,16 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
     ) -> Bool {
         // 1. '.'-deferral: the period keystroke never applies autocorrect.
         if action == .character(".") { return false }
+        // 2. Active selection: never apply. KeyboardKit's word replacement
+        // issues one deleteBackward per character of the word before the
+        // cursor, but UIKit's FIRST deleteBackward removes the whole
+        // selection instead — so the replacement eats one character too many
+        // and lands a mangled word ("ok hestr" with "r" selected → "ok
+        // hhestur") that the session would then learn. The keystroke itself
+        // replaces the selection; nothing is corrected.
+        if keyboardContext.textDocumentProxy.selectedText?.isEmpty == false { return false }
         if super.shouldApplyAutocorrectSuggestion(before: gesture, on: action) { return true }
-        // 2. Deferred apply: super said no — the only case we overrule is
+        // 3. Deferred apply: super said no — the only case we overrule is
         // its `isCursorAtNewWord` veto when the armed suggestion is our
         // deferred-dot correction for the token that is still, verbatim,
         // at the cursor (the proxy-suffix check also rejects stale bars).
@@ -1039,6 +1074,8 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         if ledgerHandleDepth == 0 {
             ledgerBeforeWindow =
                 keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+            ledgerKeystroke = gesture == .release ? Self.ledgerKeystroke(for: action) : nil
+            ledgerReplacement = nil
         }
         ledgerHandleDepth += 1
         defer {
@@ -1127,6 +1164,7 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
                 lyklabordAutocompleteService?.isIcelandicLane == true {
                 proxy.deleteBackward()
                 action = .character(SmartPunctuation.open)
+                ledgerKeystroke = nil  // a rewrite, not one keystroke
             }
         }
 
@@ -1148,6 +1186,7 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
             let prediction = spacePrediction()
         {
             keyboardContext.textDocumentProxy.insertText(prediction)
+            ledgerKeystroke = nil  // prediction + space, not one keystroke
         }
 
         // DEV-MODE session recorder: forward a backspace so the analyzer can
@@ -1268,6 +1307,13 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         if ledgerHandleDepth == 0 {
             ledgerBeforeWindow =
                 keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+            // A tap is not a keystroke; a word suggestion reports itself as
+            // the replacement. Verbatim/literal-revert taps are already known
+            // to the session (`noteVerbatimChoice` / `revertToLiteral`), and
+            // an emoji is not a word.
+            ledgerKeystroke = nil
+            ledgerReplacement =
+                suggestion.isUnknown || suggestion.type == .emoji ? nil : suggestion.text
         }
         ledgerHandleDepth += 1
         defer {
@@ -1359,6 +1405,7 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
             return
         }
         lyklabordAutocompleteService?.noteRecordedAutocorrectApplied(suggestion.text)
+        ledgerReplacement = suggestion.text
         super.tryApplyAutocorrectSuggestion(before: gesture, on: action)
     }
 }

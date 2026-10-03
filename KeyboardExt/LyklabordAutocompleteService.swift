@@ -379,10 +379,13 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// so the serial queue guarantees the order. (If an observation ever
     /// beats its record onto the queue, the session retro-drops the late
     /// record — degraded to heuristics for that keystroke, never wedged.)
-    func noteSelfEdit(before: String, after: String) {
+    func noteSelfEdit(
+        before: String, after: String, keystroke: Character? = nil, replacement: String? = nil
+    ) {
         guard before != after else { return }  // nothing was edited
         queue.async { [weak self] in
-            self?.session?.noteSelfEdit(before: before, after: after)
+            self?.session?.noteSelfEdit(
+                before: before, after: after, keystroke: keystroke, replacement: replacement)
         }
     }
 
@@ -584,11 +587,14 @@ final class LyklabordAutocompleteService: AutocompleteService {
 
     /// Running Icelandic-lane belief (P(IS) ≥ 0.5), for smart-punctuation
     /// gating (D1): Icelandic quotes „ " only fire in the Icelandic lane, so
-    /// English passages keep straight/English quotes. Synchronous queue read —
-    /// fine for the infrequent quote/comma keystrokes it gates; defaults to
-    /// Icelandic (this is an Icelandic keyboard) when there's no session yet.
+    /// English passages keep straight/English quotes. Reads the lock-guarded
+    /// mirror of the last completed pass rather than `queue.sync`: this is
+    /// called from the main thread, and a sync hop would stall the keystroke
+    /// behind whatever the engine queue is doing (the whole bootstrap, on a
+    /// `,,` typed at launch). Defaults to Icelandic (this is an Icelandic
+    /// keyboard) when no pass has completed yet.
     var isIcelandicLane: Bool {
-        queue.sync { (session?.probabilityIcelandic ?? 1.0) >= 0.5 }
+        (cachedPIcelandic ?? 1.0) >= 0.5
     }
 
     /// Quote-key lane semantic (issue #10) — deliberately STRICTER than
