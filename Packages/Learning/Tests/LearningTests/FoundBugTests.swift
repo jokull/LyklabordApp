@@ -217,21 +217,29 @@ final class FoundBugTests: LearningTestCase {
     /// `parseHeader` hands out the SAME sentinel generation (`.none`) for
     /// every file that lacks a parseable header, so a stored `(.none,
     /// offset)` marker used to be honoured against a DIFFERENT headerless
-    /// file and silently skipped its first `offset` bytes. A headerless file
-    /// is now always read from byte 0.
+    /// file and silently skipped its first `offset` bytes. Two fixes: the
+    /// compactor never records `.none` any more (it adopts the file with a
+    /// real generation first), and a `.none` marker — which can now only
+    /// come from a model file written by a build before adoption — is
+    /// never honoured by `read` or `truncate`.
     func testNoneGenerationOffsetIsNotHonouredAgainstADifferentHeaderlessFile() throws {
         let (model, log) = try makeModelAndLog()
         let modelURL = directory.appendingPathComponent("model.json")
 
-        // Incarnation 1: headerless (first write torn before "#gen\t" completed),
-        // then healed by ordinary appends; compactor reads it but crashes
-        // before truncating (marker (.none, N) is durable).
+        // Incarnation 1 (as an OLD build saw it): headerless (first write
+        // torn before "#gen\t" completed), then healed by ordinary appends;
+        // compactor reads it and crashes before truncating, leaving a
+        // durable (.none, N) marker. A current build adopts first, so the
+        // old marker is injected into the model file by hand.
         try writeLogBytes(Array("#g".utf8), to: log)
         for _ in 0..<6 { try log.append(.wordTapped(word: "gamalt")) }
-        try model.compact(applying: log)
+        let oldRead = try log.read()
+        XCTAssertEqual(oldRead.endMarker.generation, EventLog.ConsumedMarker.none.generation)
         try model.save(to: modelURL)
-        let marker = try XCTUnwrap(model.consumedLogMarker)
-        XCTAssertEqual(marker.generation, EventLog.ConsumedMarker.none.generation)
+        var json = try JSONSerialization.jsonObject(with: Data(contentsOf: modelURL)) as! [String: Any]
+        json["consumedLogMarker"] = ["generation": EventLog.ConsumedMarker.none.generation.uuidString, "offset": oldRead.endMarker.offset]
+        try JSONSerialization.data(withJSONObject: json).write(to: modelURL)
+        XCTAssertEqual(try PersonalModel(contentsOf: modelURL).consumedLogMarker, oldRead.endMarker)
 
         // Incarnation 2: log deleted (e.g. a "reset" or a reinstall that
         // keeps the model file), extension's first write torn again below
@@ -245,6 +253,28 @@ final class FoundBugTests: LearningTestCase {
         try relaunched.compactAndSave(applying: log, to: modelURL)
         let applied = relaunched.learnedWords.filter { $0.hasPrefix("nýtt") }.count
         XCTAssertEqual(applied, fresh.count, "every event of the new incarnation must be applied")
+        XCTAssertNotEqual(relaunched.consumedLogMarker?.generation, EventLog.ConsumedMarker.none.generation, "compactor must never record .none after consuming")
+    }
+
+    /// The compactor never persists a `.none` marker with anything consumed
+    /// behind it: `compact` adopts a headerless log first, so a crash
+    /// between the first save and the truncate resumes at the recorded
+    /// offset instead of re-reading from byte 0 (the full grid is in
+    /// `ConcurrentLogTests`).
+    func testHeaderlessLogIsAdoptedBeforeAnyConsumptionIsPersisted() throws {
+        let (model, log) = try makeModelAndLog()
+        let modelURL = directory.appendingPathComponent("model.json")
+        try writeLogBytes(Array("#g".utf8), to: log)
+        for _ in 0..<3 { try log.append(.wordTapped(word: "orð")) }
+        try model.compact(applying: log)
+        try model.save(to: modelURL)   // crash before truncate
+        let marker = try XCTUnwrap(model.consumedLogMarker)
+        XCTAssertNotEqual(marker.generation, EventLog.ConsumedMarker.none.generation)
+        XCTAssertEqual(try log.read().endMarker.generation, marker.generation, "file carries the adopted generation")
+
+        let relaunched = try PersonalModel(contentsOf: modelURL)
+        try relaunched.compactAndSave(applying: log, to: modelURL)
+        XCTAssertEqual(relaunched.commitCount(of: "orð"), 3, "exactly once — no re-read from byte 0")
     }
 
     // MARK: - Bug 4: CRLF SwiftKey export imports zero words

@@ -70,6 +70,14 @@ public enum EventLogError: Error, Equatable, CustomStringConvertible {
 ///   at-most-one-event loss window is a deliberate trade — no fsync per
 ///   keystroke. The mark only ever appears on torn lines, so files written
 ///   by builds that healed with a bare `\n` decode exactly as before.
+/// - **Headerless files are adopted before consumption**
+///   (`adoptIfHeaderless`): a file whose header is missing or garbled gets
+///   a fresh generation header by atomic rewrite as the compactor's first
+///   step, so the compactor never records a `.none` marker with a non-zero
+///   offset — an offset can neither be honoured against a *different*
+///   headerless file nor be lost to a crash between save and truncate.
+///   (An empty file or a still-torn header line yields `(.none, 0)`:
+///   nothing consumed, nothing to honour — inert.)
 /// - **Truncation** (`truncate(consumedUpTo:)`) rewrites the file atomically
 ///   (write-temp-then-rename) with a *new* generation UUID, keeping every
 ///   byte after the consumed offset. A compactor that crashes at any point
@@ -233,7 +241,10 @@ public struct EventLog {
         // The `.none` generation is shared by EVERY headerless incarnation
         // (torn first write, garbled UUID), so an offset taken against one
         // such file proves nothing about another — never resume mid-file
-        // there; a headerless file is always read from its first byte.
+        // there; a headerless file is always read from its first byte. The
+        // compactor never persists a `.none` marker past offset 0 (it adopts
+        // first, see `adoptIfHeaderless`), so this only ever bites a marker
+        // written by a build from before adoption existed.
         if let marker,
            marker.generation == generation,
            generation != ConsumedMarker.none.generation {
@@ -267,6 +278,58 @@ public struct EventLog {
         )
     }
 
+    // MARK: - Adopt a headerless file (containing app / compactor side)
+
+    /// Give a file that has no usable generation header — a first write
+    /// torn before `#gen\t` completed and later healed, a garbled UUID, or
+    /// a file that predates headers — a real identity BEFORE anything is
+    /// consumed from it. Such files all share the `.none` sentinel, so an
+    /// offset recorded against one can never be trusted against another
+    /// (`read(after:)` refuses it); but without an identity a compactor
+    /// that crashes between saving its marker and truncating would re-read
+    /// the same file from byte 0 and double-apply. Adoption resolves both:
+    /// the file is atomically rewritten as `#gen\t<new UUID>\n` + every
+    /// data byte after the old (garbled) header line, verbatim — complete
+    /// lines keep their exact bytes, a trailing torn fragment stays torn
+    /// (the next append still marks it), garbage lines stay garbage — and
+    /// the rest of compaction runs on an ordinary generation.
+    ///
+    /// Crash-safe at every point: the write is write-temp-then-rename, so
+    /// the file is either the old headerless one (nothing consumed, nothing
+    /// persisted — the next compaction simply adopts again) or the fully
+    /// adopted one. Concurrent extension appends are excluded exactly as
+    /// for `truncate`: callers run this inside the same coordinated-write
+    /// block as the read that follows (`PersonalModel.compact` does).
+    ///
+    /// Returns the new generation when the file was adopted; nil when it
+    /// already had one, is missing/empty, or its header line is still torn
+    /// (nothing is consumable from such a file, so nothing needs identity;
+    /// the next append heals it into a garbled header and adoption happens
+    /// on the following compaction).
+    @discardableResult
+    public func adoptIfHeaderless() throws -> UUID? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let bytes: [UInt8]
+        do {
+            bytes = [UInt8](try Data(contentsOf: url))
+        } catch {
+            throw EventLogError.ioError("read for adopt failed: \(error)")
+        }
+        guard !bytes.isEmpty else { return nil }
+        let (generation, headerEnd) = Self.parseHeader(bytes)
+        guard generation == ConsumedMarker.none.generation, let headerEnd else { return nil }
+
+        let newGeneration = UUID()
+        var newContents = Data(Self.headerLine(generation: newGeneration).utf8)
+        newContents.append(contentsOf: bytes[headerEnd...])
+        do {
+            try newContents.write(to: url, options: .atomic)
+        } catch {
+            throw EventLogError.ioError("adopt rewrite failed: \(error)")
+        }
+        return newGeneration
+    }
+
     // MARK: - Truncate (containing app / compactor side)
 
     /// Drop the consumed prefix `[header, marker.offset)`, preserving every
@@ -285,11 +348,15 @@ public struct EventLog {
     ///
     /// If the file's generation no longer matches `marker.generation` (the
     /// log was already rotated) this is a no-op and returns `marker`
-    /// unchanged. Must run inside the same coordinated-write block as the
+    /// unchanged — as is a `.none` marker, whatever the file: the sentinel
+    /// is shared by every headerless incarnation, so such an offset proves
+    /// nothing (use `adoptIfHeaderless` first; `PersonalModel.compact`
+    /// does). Must run inside the same coordinated-write block as the
     /// `read` that produced `marker` (see `CoordinatedFileAccess`), so no
     /// append can land between read and truncate unseen.
     @discardableResult
     public func truncate(consumedUpTo marker: ConsumedMarker) throws -> ConsumedMarker {
+        guard marker.generation != ConsumedMarker.none.generation else { return marker }
         guard FileManager.default.fileExists(atPath: url.path) else { return marker }
         let bytes: [UInt8]
         do {

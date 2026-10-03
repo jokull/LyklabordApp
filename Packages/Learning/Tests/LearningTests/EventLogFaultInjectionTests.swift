@@ -188,10 +188,64 @@ final class EventLogFaultInjectionTests: LearningTestCase {
         let result = try log.read()
         XCTAssertEqual(result.events.map(\.event), sampleEvents)
         XCTAssertEqual(result.endMarker.generation, EventLog.ConsumedMarker.none.generation)
-        // And truncation with the returned marker rotates to a real header.
-        let rotated = try log.truncate(consumedUpTo: result.endMarker)
-        XCTAssertNotEqual(rotated.generation, EventLog.ConsumedMarker.none.generation)
+        // A `.none` marker is never honoured by truncate — the sentinel is
+        // shared by every headerless file — so the file is left alone …
+        XCTAssertEqual(try log.truncate(consumedUpTo: result.endMarker), result.endMarker)
+        XCTAssertEqual(try logBytes(log), corrupted)
+        // … and the compactor instead adopts it: real header, every data
+        // byte kept verbatim, the garbled header line gone.
+        let adopted = try XCTUnwrap(try log.adoptIfHeaderless())
+        let afterAdopt = try log.read()
+        XCTAssertEqual(afterAdopt.endMarker.generation, adopted)
+        XCTAssertEqual(afterAdopt.events.map(\.event), sampleEvents)
+        XCTAssertEqual(afterAdopt.skippedLines, 0)
+        XCTAssertEqual(Array(try logBytes(log)[Int(lineEnds[0])...]), Array(bytes[lineEnds[0]...]), "data bytes verbatim")
+        XCTAssertNil(try log.adoptIfHeaderless(), "already adopted")
+        // Now truncation works as for any file.
+        let rotated = try log.truncate(consumedUpTo: afterAdopt.endMarker)
+        XCTAssertNotEqual(rotated.generation, adopted)
         XCTAssertTrue(try log.read().events.isEmpty)
+    }
+
+    /// Adoption at every headerless shape: the data region is preserved
+    /// byte for byte, so complete lines decode identically, a torn tail
+    /// stays torn (excluded from the marker, marked by the next append) and
+    /// garbage lines stay skipped — never events.
+    func testAdoptionPreservesDataBytesForEveryHeaderlessShape() throws {
+        let (_, bytes, lineEnds) = try makeSampleLog()
+        let data = Array(bytes[lineEnds[0]...])
+        let tornTail = Array("1\t20000\twt\tÞórs".utf8)
+        var garbled = Array(bytes[..<lineEnds[0]]); for i in 5..<(lineEnds[0] - 1) { garbled[i] = UInt8(ascii: "x") }
+        let shapes: [(String, [UInt8])] = [
+            ("no header at all", data),
+            ("garbled UUID", garbled + data),
+            ("healed torn prefix", Array("#g\t\t\\#torn\n".utf8) + data),
+            ("no header + torn tail", data + tornTail),
+            ("garbled UUID + torn tail", garbled + data + tornTail),
+        ]
+        for (name, shape) in shapes {
+            let (model, log) = try makeModelAndLog(logName: "\(UUID().uuidString).log")
+            try writeLogBytes(shape, to: log)
+            let before = try log.read()
+            let adopted = try XCTUnwrap(try log.adoptIfHeaderless(), name)
+            let after = try log.read()
+            XCTAssertEqual(after.endMarker.generation, adopted, name)
+            XCTAssertEqual(after.events.map(\.event), before.events.map(\.event), name)
+            XCTAssertEqual(after.events.map(\.event), sampleEvents, name)
+            XCTAssertEqual(after.skippedLines, before.skippedLines, name)
+            let adoptedBytes = try logBytes(log)
+            let headerEnd = try XCTUnwrap(adoptedBytes.firstIndex(of: 0x0A)) + 1
+            // Only a garbled header LINE is dropped; a healed "#g…" fragment
+            // is not a header, so it stays as a (skipped) data line.
+            let expectedData = name.hasPrefix("garbled") ? Array(shape[lineEnds[0]...]) : shape
+            XCTAssertEqual(Array(adoptedBytes[headerEnd...]), expectedData, name)
+            // The torn tail, if any, is still unconsumed and still heals marked.
+            try log.append(.wordTapped(word: "nýtt"))
+            try model.compact(applying: log)
+            XCTAssertFalse(model.isLearned("Þórs"), name)
+            XCTAssertEqual(model.commitCount(of: "nýtt"), 1, name)
+            XCTAssertEqual(model.commitCount(of: "Þórsmörk"), 1, name)
+        }
     }
 
     // MARK: - Zero-length file

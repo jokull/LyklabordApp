@@ -152,6 +152,112 @@ final class ConcurrentLogTests: LearningTestCase {
         }
     }
 
+    // MARK: - Headerless log × crash grid
+
+    /// Where the compactor dies while consuming a headerless log. The
+    /// adoption step (step 0) has two crash points of its own: before the
+    /// atomic rename the file is byte-for-byte the old headerless one
+    /// (`.beforeAdopt` — nothing consumed, nothing persisted), after it the
+    /// file is fully adopted but nothing has been read yet (`.afterAdopt`).
+    private enum HeaderlessCrashPoint: CaseIterable {
+        case beforeAdopt, afterAdopt, afterRead, afterFirstSave, afterTruncate
+    }
+
+    /// How the log came to have no usable header.
+    private enum HeaderlessShape: CaseIterable {
+        case tornFirstWrite    // "#g" — first write died before "#gen\t" completed, healed by the next append
+        case garbledUUID       // "#gen\txxxx…\n" — header line present, UUID unreadable
+        case noHeader          // file predates headers entirely
+    }
+
+    /// Headerless shape × crash point (including inside adoption) × append
+    /// between read and crash × append after crash. Every event must be
+    /// applied exactly once, the garbled header / healed fragment must
+    /// never become an event, and the log must end on a real generation.
+    func testHeaderlessLogCrashGridAppliesEveryEventExactlyOnce() throws {
+        for shape in HeaderlessShape.allCases {
+            for point in HeaderlessCrashPoint.allCases {
+                for appendBetween in [false, true] {
+                    for appendAfterCrash in [false, true] {
+                        try FileManager.default.removeItem(at: directory)
+                        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                        try runHeaderlessCrashScenario(shape: shape, point: point, appendBetween: appendBetween, appendAfterCrash: appendAfterCrash)
+                    }
+                }
+            }
+        }
+    }
+
+    private func runHeaderlessCrashScenario(shape: HeaderlessShape, point: HeaderlessCrashPoint, appendBetween: Bool, appendAfterCrash: Bool) throws {
+        let label = "shape=\(shape) point=\(point) between=\(appendBetween) after=\(appendAfterCrash)"
+        let (model, log) = try makeModelAndLog()
+        let modelURL = directory.appendingPathComponent("model.json")
+        var expected: [String] = []
+
+        // A healthy model file exists already (the model survives a log
+        // reset / reinstall; the log is what lost its header).
+        try model.save(to: modelURL)
+        switch shape {
+        case .tornFirstWrite:
+            try writeLogBytes(Array("#g".utf8), to: log)
+        case .garbledUUID:
+            try writeLogBytes(Array("#gen\txxxxxxxx-not-a-uuid\n".utf8), to: log)
+        case .noHeader:
+            try writeLogBytes([], to: log)
+            try log.append(.wordTapped(word: "fyrsta")); expected.append("fyrsta")
+            // Strip the header the append wrote.
+            let bytes = try logBytes(log)
+            try writeLogBytes(Array(bytes[(bytes.firstIndex(of: 0x0A)! + 1)...]), to: log)
+        }
+        try log.append(.wordTapped(word: "pending")); expected.append("pending")
+        try log.append(.wordTapped(word: "annað")); expected.append("annað")
+        XCTAssertEqual(try log.read().endMarker.generation, EventLog.ConsumedMarker.none.generation, "\(label): precondition — headerless")
+
+        // Manual compactAndSave with the crash injected at `point`.
+        switch point {
+        case .beforeAdopt:
+            break  // temp file never renamed: the log is untouched (nothing to append "between")
+        case .afterAdopt:
+            try log.adoptIfHeaderless()
+            // The extension's next block lands on the freshly adopted file.
+            if appendBetween { try log.append(.wordTapped(word: "between")); expected.append("between") }
+        case .afterRead:
+            try model.compact(applying: log)
+            if appendBetween { try log.append(.wordTapped(word: "between")); expected.append("between") }
+        case .afterFirstSave, .afterTruncate:
+            try model.compact(applying: log)
+            try model.save(to: modelURL)
+            if appendBetween { try log.append(.wordTapped(word: "between")); expected.append("between") }
+            if point == .afterTruncate {
+                _ = try log.truncate(consumedUpTo: try XCTUnwrap(model.consumedLogMarker))
+            }
+        }
+        // CRASH: `model` is dropped without the final save.
+
+        if appendAfterCrash {
+            try log.append(.wordTapped(word: "after")); expected.append("after")
+        }
+
+        let relaunched = try PersonalModel(contentsOf: modelURL)
+        try relaunched.compactAndSave(applying: log, to: modelURL)
+        let onDisk = try PersonalModel(contentsOf: modelURL)
+        for word in expected {
+            XCTAssertEqual(onDisk.commitCount(of: word), 1, "\(label): \(word)")
+            XCTAssertTrue(onDisk.isLearned(word), "\(label): \(word)")
+        }
+        XCTAssertEqual(onDisk.learnedWords, expected.sorted(), "\(label): garbled header / healed fragment must not become words")
+        let marker = try XCTUnwrap(onDisk.consumedLogMarker, label)
+        XCTAssertNotEqual(marker.generation, EventLog.ConsumedMarker.none.generation, "\(label): compactor must never record .none")
+        let after = try log.read()
+        XCTAssertTrue(after.events.isEmpty, "\(label): log fully consumed")
+        XCTAssertEqual(after.endMarker, marker, "\(label): rotated to a real generation the model knows")
+        // Idempotent: one more compaction changes nothing.
+        try onDisk.compactAndSave(applying: log, to: modelURL)
+        for word in expected {
+            XCTAssertEqual(onDisk.commitCount(of: word), 1, "\(label): \(word) re-applied")
+        }
+    }
+
     /// The same grid, but the extension appends a torn record right before
     /// the crash — recovery must keep every complete record, and the torn
     /// one must be consumed (never re-read forever).

@@ -430,10 +430,17 @@ public final class PersonalModel {
     // MARK: - Compaction
 
     /// Merge all unconsumed events from `log` into the model, then decay and
-    /// enforce caps if needed. Does NOT touch the disk — see
-    /// `compactAndSave(applying:to:)` for the crash-safe full sequence.
+    /// enforce caps if needed. Does NOT touch the model file — see
+    /// `compactAndSave(applying:to:)` for the crash-safe full sequence. The
+    /// LOG may be rewritten first: a headerless log is given a real
+    /// generation (`EventLog.adoptIfHeaderless`, itself atomic and
+    /// crash-safe) so the marker this compaction records can never be the
+    /// shared `.none` sentinel with anything consumed behind it — step 0 of
+    /// the sequence below. Because the log may be rewritten, callers hold
+    /// the same coordinated WRITE lock as for `compactAndSave`.
     @discardableResult
     public func compact(applying log: EventLog) throws -> CompactionSummary {
+        try log.adoptIfHeaderless()
         let result = try log.read(after: consumedLogMarker)
         for logged in result.events {
             apply(logged)
@@ -451,6 +458,9 @@ public final class PersonalModel {
 
     /// The full crash-safe compaction sequence, in the only safe order:
     ///
+    /// 0. adopt a headerless log (`compact` does this; atomic rewrite with a
+    ///    fresh generation — a crash leaves either the old file, with
+    ///    nothing consumed, or the adopted one)
     /// 1. read + merge (`compact`), marker updated in memory
     /// 2. save model atomically — the consumed frontier is now durable, so a
     ///    crash cannot double-apply these events
@@ -460,7 +470,7 @@ public final class PersonalModel {
     ///    before this, the generation mismatch self-heals on the next run)
     ///
     /// Callers must run this inside ONE `CoordinatedFileAccess.coordinateWrite`
-    /// block on the log URL so no append lands between steps 1 and 3 unseen.
+    /// block on the log URL so no append lands between steps 0 and 3 unseen.
     @discardableResult
     public func compactAndSave(
         applying log: EventLog,
