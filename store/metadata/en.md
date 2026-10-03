@@ -67,7 +67,7 @@ Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 ## What's New (v1.2)
 Steadier typing, sharper learning.
 
-• Emoji suggestions now work when you type English too: “coffee” offers ☕, just like “kaffi”.
+• Emoji suggestions now work when you type English too: “coffee” offers the coffee emoji, just like “kaffi”.
 • Fixed: a corrected word followed by a period could be counted twice.
 • Corrections now register reliably in long messages and when you press Return.
 • Autocorrect no longer fires while text is selected.

@@ -7,6 +7,36 @@ in `scores/history.jsonl`; behavioral contracts live in
 `Packages/TypeEngine/Scenarios/*.scenarios` (scenario comments cite sessions);
 architecture in `docs/adr/`. Newest first.
 
+## 2026-10-03 — App Store 1.2 (24) submission
+
+- **Built from** `b754a54` (merge of PR #17, `agent/harness-and-bugs`):
+  harness audit (scenario runner and scorecard can no longer pass vacuously;
+  session fuzzer, proxy-quirk and seam-driver layers; Learning/Sync
+  fault-injection and property suites — ADR-0010 addendum), the session
+  self-edit fixes under both window shapes, the Learning/Sync fixes
+  (tombstone epochs — ADR-0009), launch-path work in `KeyboardExt`, and
+  English emoji suggestions in the English lane (`en-suggestions.json`).
+- **Gates at the merged head**: TypeEngine 559 tests, Learning 140, Sync 80;
+  scenario suites unchanged; corpus dev unchanged (top-1 78.4, top-3 85.0,
+  false-ac 3.7); scorecard fails only on the pre-existing
+  `compounds.scenarios:121` (`stokklei`). Heldout not run.
+- **Not device-tested before submission.** Nothing in `KeyboardExt` from this
+  wave had run on a physical device when 1.2 was submitted. The App Store
+  version is therefore set to **manual release**: after approval it stays
+  held until released by hand. Device checklist is in PR #17.
+- **Upload**: 1.2 (24), IPA SHA-256
+  `e6467e4a1cb6d6f03e7e5f4067a2e94b21972da6b03b953b51b5722ac95a8e14`,
+  processed `VALID` with exempt encryption under build ID
+  `94f7f27c-1161-4934-b427-b45d268bfa06`.
+- **Groups**: internal `Innri prófun` and external `Vinir`; Beta App Review
+  `WAITING_FOR_REVIEW` on 2026-10-03.
+- **App Store**: version `0078c822-ba54-4ba8-a1c7-0fc454bc463d`, review
+  submission `880e2b0c-ecee-4a48-8bb6-a7a01a74f878`, `WAITING_FOR_REVIEW` on
+  2026-10-03. en-US What's New from `store/metadata/en.md` (Apple rejects
+  emoji characters in that field). Screenshots replaced with the v3 set,
+  shots 1–4 only (`store/screenshots/v3/out/en-US`); shots 5 (Lyklaborð+) and
+  6 (privacy) are not rendered in v3 yet, so the listing carries four.
+
 ## 2026-08-19 — TestFlight 1.1 (23) publication
 
 - **Built from** `15b0c28` ("engine: deep short acute-fold repair"), the head
