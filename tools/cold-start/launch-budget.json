@@ -1,0 +1,11 @@
+{
+  "_comment": "macOS regression alarm for tools/cold-start/launch-probe (NOT an iOS forecast). Gated on the MAX over `minimumRuns` fresh processes. Set at ~2x the values observed on an Apple-silicon Mac with a warm page cache on 2026-10-03; raise deliberately, with a WAVES.md note, never to make a run pass.",
+  "minimumRuns": 5,
+  "engineReadyMs": 400,
+  "firstKeystrokeMs": 10,
+  "worstEarlyKeystrokeMs": 40,
+  "presentationMainThreadMs": 10,
+  "inflectionRetainedMB": 8,
+  "secondBootstrapMs": 40,
+  "peakFootprintMB": 40
+}

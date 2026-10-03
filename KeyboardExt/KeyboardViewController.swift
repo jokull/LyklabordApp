@@ -14,6 +14,7 @@
 //
 
 import KeyboardKit
+import os
 import SwiftUI
 import TypeEngine
 
@@ -131,6 +132,19 @@ final class KeyboardViewController: KeyboardInputViewController {
         )
         services.autocompleteService = autocompleteService
 
+        // Warm the emoji catalog off the main thread. `viewWillAppear` needs
+        // it for the toolbar's frecency row (`EmojiFrequencyStore.top(8)`
+        // consults `EmojiCatalog.shared.isAvailable`), and the first touch
+        // of that `static let` decodes catalog.json (~15 ms on an M-series
+        // Mac, measured by tools/cold-start/launch-probe). Swift's lazy
+        // static init is once-guarded: if the main thread gets there first
+        // it simply does the decode itself, exactly as before; if this
+        // block wins, the presentation path finds it ready. Never slower
+        // than the status quo.
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = EmojiCatalog.shared
+        }
+
         // System text replacements (issue #5): iOS never auto-applies the
         // user's Settings → General → Keyboard → Text Replacement shortcuts
         // inside third-party keyboards — the extension must fetch and apply
@@ -236,6 +250,27 @@ final class KeyboardViewController: KeyboardInputViewController {
         // Emoji frecency row: one snapshot per presentation (see the property).
         frecencyEmojis = EmojiFrequencyStore.shared.top(8)
     }
+
+    /// Memory-pressure observability. Keyboard extensions are jetsammed by
+    /// footprint, and iOS falls back to the system keyboard when that
+    /// happens; a warning is the last signal before it. There is nothing
+    /// meaningful to shed here (engine caches are bounded, the artifacts are
+    /// clean file-backed pages, the emoji catalog is a process static), so
+    /// this only records the footprint at the moment of the warning —
+    /// metrics only, no typed content — so a device Console capture
+    /// (subsystem `is.solberg.lyklabord`) can answer "how close were we".
+    override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        let footprintMB = LyklabordAutocompleteService.memoryFootprintMB()
+        Self.memoryLogger.notice(
+            "MEMORY_WARNING phys_footprint \(footprintMB, format: .fixed(precision: 1), privacy: .public) MB keyboardType \(String(describing: self.state.keyboardContext.keyboardType), privacy: .public)"
+        )
+    }
+
+    private static let memoryLogger = Logger(
+        subsystem: "is.solberg.lyklabord",
+        category: "Memory"
+    )
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
