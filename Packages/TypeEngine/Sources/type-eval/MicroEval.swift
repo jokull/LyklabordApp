@@ -48,8 +48,12 @@ func loadCases(path: String? = nil) -> [EvalCase] {
         if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
         let cols = trimmed.split(separator: "\t").map(String.init)
         guard cols.count == 3 || cols.count == 4 else {
-            FileHandle.standardError.write(Data("warning: skipping malformed line: \(trimmed)\n".utf8))
-            continue
+            // A malformed row used to be skipped with a warning; a fixture
+            // whose rows were all malformed then ran 0 cases and passed the
+            // curated-safety gate. The fixture is a contract — reject it.
+            FileHandle.standardError.write(
+                Data("error: malformed eval-fixture line (expected 3 or 4 tab-separated columns): \(trimmed)\n".utf8))
+            exit(2)
         }
         cases.append(
             EvalCase(

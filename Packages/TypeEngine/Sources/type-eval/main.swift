@@ -15,7 +15,9 @@ import TypeEngine
 //                                     scores/history.jsonl; non-zero exit on a
 //                                     failed hard gate. --heldout adds a
 //                                     REPORT-ONLY heldout section;
-//                                     --note <text> annotates the history line.
+//                                     --note <text> annotates the history line;
+//                                     --no-history runs every gate without
+//                                     touching scores/history.jsonl (dry run).
 //   type-eval ab [--config <over.json>] [--disable-family <family>]
 //                                     baseline vs config/provider-source
 //                                     ablation on corpus dev + micro-eval

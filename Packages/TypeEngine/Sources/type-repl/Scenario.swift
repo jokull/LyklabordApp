@@ -1,3 +1,4 @@
+import EvalKit
 import Foundation
 import TypeEngine
 
@@ -100,6 +101,18 @@ import TypeEngine
 ///                                  secure fields must show 0)
 ///   EXPECT_BUFFER <text>           full proxy document equals <text> (quote for spaces)
 ///   EXPECT_CONTEXT <text>          window the session last saw equals <text>
+///
+///   STRICTNESS (harness audit 2026-10): the file is lexed and statically
+///   validated by `EvalKit.ScenarioScript` before anything runs. Each
+///   diagnostic is a FAILURE of the enclosing scenario and the offending
+///   directive is not executed: unknown directives, malformed arguments
+///   (`LIMIT five`, `STALE_READS yes`, `BACKSPACE two`, `CURSOR_MOVE +abc`),
+///   arguments on bare directives, an unquoted trailing space on a free-text
+///   directive (`T teh ` — the delimiter would be silently trimmed), a
+///   negative bar assertion before any bar-producing directive (vacuous), a
+///   SCENARIO with no EXPECT_* line, an empty/duplicate SCENARIO name, or a
+///   directive before the first SCENARIO (LIMIT excepted). A file with zero
+///   scenarios exits 2 — `0/0 scenarios passed` is not a pass.
 struct ScenarioRunner {
 
     struct Failure {
@@ -120,6 +133,14 @@ struct ScenarioRunner {
             warn("cannot read scenario file: \(path)")
             return 2
         }
+
+        let script = ScenarioScript.parse(raw)
+        if script.scenarioCount == 0 {
+            warn("scenario file rejected: \(path) contains no SCENARIO (0/0 is not a pass)")
+            for diagnostic in script.diagnostics { warn("  \(diagnostic)") }
+            return 2
+        }
+        let diagnosticsByLine = script.diagnosticsByLine
 
         var failures: [Failure] = []
         var scenarioCount = 0
@@ -146,13 +167,10 @@ struct ScenarioRunner {
             if !currentFailed { passedCount += 1 }
         }
 
-        let lines = raw.components(separatedBy: "\n")
-        for (index, rawLine) in lines.enumerated() {
-            let lineNo = index + 1
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.isEmpty || line.hasPrefix("#") { continue }
-
-            let (keyword, argument) = Self.split(line)
+        for directive in script.directives {
+            let lineNo = directive.line
+            let keyword = directive.keyword
+            let argument = directive.argument
 
             func fail(_ message: String) {
                 failures.append(Failure(scenario: currentName, line: lineNo, message: message))
@@ -163,12 +181,24 @@ struct ScenarioRunner {
                 if let message = check(typist.lastSuggestions) { fail(message) }
             }
 
+            // Static diagnostics are failures of the enclosing scenario; the
+            // directive itself is not executed (a malformed LIMIT/flag must
+            // not silently fall back to a default). SCENARIO lines carry
+            // their scenario-level diagnostics (no assertions, duplicate
+            // name) and still open the scenario so the report names it.
+            let staticProblems = diagnosticsByLine[lineNo] ?? []
+            if keyword != "SCENARIO", !staticProblems.isEmpty {
+                for problem in staticProblems { fail(problem.message) }
+                continue
+            }
+
             switch keyword {
             case "SCENARIO":
                 finishScenario()
                 scenarioCount += 1
                 currentName = argument
                 currentFailed = false
+                for problem in staticProblems { fail(problem.message) }
                 seeds = SeededPersonalVocabulary()
                 touchSeeds = [:]
                 applySeeds()  // back to the --personal baseline (or none)
@@ -176,17 +206,18 @@ struct ScenarioRunner {
                 typist.reset()  // also clears the session-learned overlay
 
             case "LIMIT":
+                // Validated by ScenarioScript: a non-integer never reaches here.
                 limit = Int(argument) ?? limit
                 typist.limit = limit
 
             case "T":
-                typist.type(Self.unquote(argument))
+                typist.type(ScenarioScript.unquote(argument))
 
             case "LONGPRESS":
                 // Type the characters as long-press callout selections
                 // (deliberateness signal: lane-relaxation folding vetoed
                 // for the pending word).
-                typist.longPress(Self.unquote(argument))
+                typist.longPress(ScenarioScript.unquote(argument))
 
             case "BACKSPACE":
                 typist.pressBackspace(Int(argument) ?? 1)
@@ -213,7 +244,7 @@ struct ScenarioRunner {
                 }
 
             case "HOST_SET", "HOST_SET_SILENT":
-                typist.proxy.hostReplaceText(Self.unquote(argument))
+                typist.proxy.hostReplaceText(ScenarioScript.unquote(argument))
                 if keyword == "HOST_SET" {
                     typist.externalChange()
                 } else {
@@ -269,7 +300,7 @@ struct ScenarioRunner {
                     let dx = Double(parts[1]), let dy = Double(parts[2])
                 {
                     typist.tapCharacter(character, dx: dx, dy: dy)
-                } else if !typist.tapSuggestion(Self.unquote(argument)) {
+                } else if !typist.tapSuggestion(ScenarioScript.unquote(argument)) {
                     fail("no suggestion \"\(argument)\" to tap, bar: \(Self.describe(typist.lastSuggestions))")
                 }
 
@@ -502,13 +533,13 @@ struct ScenarioRunner {
                 }
 
             case "EXPECT_BUFFER":
-                let expected = Self.unquote(argument)
+                let expected = ScenarioScript.unquote(argument)
                 if typist.proxy.document != expected {
                     fail("expected buffer \"\(expected)\", got \"\(typist.proxy.document)\"")
                 }
 
             case "EXPECT_CONTEXT":
-                let expected = Self.unquote(argument)
+                let expected = ScenarioScript.unquote(argument)
                 if typist.lastContextBefore != expected {
                     fail("expected context \"\(expected)\", got \"\(typist.lastContextBefore)\"")
                 }
@@ -530,23 +561,7 @@ struct ScenarioRunner {
         return failures.isEmpty ? 0 : 1
     }
 
-    // MARK: - Parsing helpers
-
-    /// Split "KEYWORD rest of line" into (keyword, argument).
-    static func split(_ line: String) -> (keyword: String, argument: String) {
-        guard let space = line.firstIndex(of: " ") else { return (line, "") }
-        let keyword = String(line[..<space])
-        let argument = String(line[line.index(after: space)...])
-            .trimmingCharacters(in: .whitespaces)
-        return (keyword, argument)
-    }
-
-    /// Strip surrounding double quotes (used to protect leading/trailing
-    /// spaces from editors); non-quoted arguments pass through verbatim.
-    static func unquote(_ text: String) -> String {
-        guard text.count >= 2, text.hasPrefix("\""), text.hasSuffix("\"") else { return text }
-        return String(text.dropFirst().dropLast())
-    }
+    // MARK: - Presentation helpers
 
     static func describe(_ bar: [Suggestion]) -> String {
         bar.isEmpty

@@ -62,6 +62,11 @@ let package = Package(
             name: "type-repl",
             dependencies: [
                 "TypeEngine",
+                // The `.scenarios` lexer/static validator (ScenarioScript)
+                // lives in EvalKit so EvalKitTests can prove the runner
+                // rejects malformed/vacuous contracts — an executable
+                // target's sources are not reachable from a test target.
+                "EvalKit",
                 .product(name: "LemmaCore", package: "LemmaCore"),
                 .product(name: "Lexicon", package: "Lexicon"),
                 // `--personal <model.json>` loads a real PersonalModel file.
