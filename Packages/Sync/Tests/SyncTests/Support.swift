@@ -162,3 +162,22 @@ enum PayloadGen {
         )
     }
 }
+
+/// Env-var knobs shared with the Learning property tests:
+/// - `LEARNING_PROPERTY_SEED` — reproduce one run (decimal or 0x-hex).
+/// - `LEARNING_PROPERTY_ITERATIONS` — soak length.
+enum PropertyEnv {
+    static func seed(default defaultSeed: UInt64) -> UInt64 {
+        guard let raw = ProcessInfo.processInfo.environment["LEARNING_PROPERTY_SEED"] else {
+            return defaultSeed
+        }
+        if raw.hasPrefix("0x"), let v = UInt64(raw.dropFirst(2), radix: 16) { return v }
+        return UInt64(raw) ?? defaultSeed
+    }
+
+    static func iterations(default defaultCount: Int) -> Int {
+        guard let raw = ProcessInfo.processInfo.environment["LEARNING_PROPERTY_ITERATIONS"],
+              let n = Int(raw), n > 0 else { return defaultCount }
+        return n
+    }
+}
