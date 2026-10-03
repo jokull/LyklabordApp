@@ -40,11 +40,17 @@ struct LyklabordToolbar<Standard: View>: View {
     let actionHandler: KeyboardActionHandler
     let suggestionAction: (Autocomplete.Suggestion) -> Void
     let standard: Standard
+    /// Frecency emoji for the empty state, snapshotted ONCE per keyboard
+    /// presentation by the controller (`viewWillAppear`). Not read from the
+    /// store here: this body re-evaluates on every autocomplete publish, and
+    /// tapping an emoji records a use, so a live `top(8)` re-sorted the row
+    /// under the user's finger (bug report 2026-09-16).
+    let frecencyEmojis: [String]
 
     var body: some View {
         let all = autocompleteContext.suggestions
         if all.isEmpty {
-            EmojiFrecencyRow(actionHandler: actionHandler)
+            EmojiFrecencyRow(emojis: frecencyEmojis, actionHandler: actionHandler)
         } else {
             let plain = all.filter { $0.type != .emoji }
             let emoji = all.filter { $0.type == .emoji }
@@ -61,12 +67,14 @@ struct LyklabordToolbar<Standard: View>: View {
 }
 
 /// A single row of the top frecency emoji, spread evenly across the toolbar
-/// width. Recomputed each time the bar transitions to empty (the enclosing
-/// `if` recreates it), so it reflects recent use without reordering mid-view.
+/// width. The ORDER is owned by the caller and fixed for the whole keyboard
+/// presentation (see `LyklabordToolbar.frecencyEmojis`): SwiftUI re-creates
+/// this struct on every toolbar re-render, so a stored-property `top(8)`
+/// here re-sorted the row after each tap.
 private struct EmojiFrecencyRow: View {
 
+    let emojis: [String]
     let actionHandler: KeyboardActionHandler
-    private let emojis = EmojiFrequencyStore.shared.top(8)
 
     var body: some View {
         HStack(spacing: 0) {

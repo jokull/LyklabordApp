@@ -44,13 +44,19 @@ xcrun simctl bootstatus "$UDID" -b >/dev/null
 
 echo "== build =="
 xcodegen generate >/dev/null
-xcodebuild build -scheme Lyklabord -project Lyklabord.xcodeproj \
+# Release: a DEBUG appex prints the build stamp on the idle spacebar
+# (DevSpaceContent.swift) instead of "Bil", which would leak into the hero.
+xcodebuild build -scheme Lyklabord -project Lyklabord.xcodeproj -configuration Release \
   -destination "id=$UDID" -derivedDataPath "$DD" -quiet
 xcodebuild build-for-testing -scheme ReplayRig -project Lyklabord.xcodeproj \
   -destination "id=$UDID" -derivedDataPath "$DD" -quiet
 
 echo "== install + enable keyboard =="
-APP_MAIN="$(find "$DD/Build/Products" -maxdepth 2 -name 'Lyklabord.app' | head -1)"
+APP_MAIN="$DD/Build/Products/Release-iphonesimulator/Lyklabord.app"
+[ -d "$APP_MAIN" ] || { echo "missing Release build at $APP_MAIN"; exit 1; }
+# iOS caches keyboard appexes across reinstalls (stale-appex tell: no build
+# stamp / old layout). Uninstall first so the new extension actually loads.
+xcrun simctl uninstall "$UDID" is.solberg.lyklabord 2>/dev/null || true
 APP_HOST="$(find "$DD/Build/Products" -maxdepth 2 -name 'ReplayHost.app' | head -1)"
 xcrun simctl install "$UDID" "$APP_MAIN"
 xcrun simctl install "$UDID" "$APP_HOST"
@@ -63,6 +69,17 @@ if ! xcrun simctl spawn "$UDID" defaults read com.apple.Preferences AppleKeyboar
   xcrun simctl shutdown "$UDID"; xcrun simctl boot "$UDID"
   xcrun simctl bootstatus "$UDID" -b >/dev/null
 fi
+
+# The AppleKeyboards defaults seed alone does NOT activate a keyboard
+# extension (see commit 3046793) — without this step every shot silently
+# captures Apple's system Icelandic keyboard, which has the same letter
+# rows. Run the automated Settings enablement test (idempotent).
+echo "== enable Lyklaborð in Settings (UI test) =="
+xcodebuild test-without-building -scheme ReplayRig -project Lyklabord.xcodeproj \
+  -destination "id=$UDID" -derivedDataPath "$DD" \
+  -only-testing:"ReplayRigUITests/ScreenshotUITests/testEnableKeyboardInSettings" \
+  >"$CAP/.xcodebuild-enable.log" 2>&1 || true
+grep -E "passed|skipped|failed" "$CAP/.xcodebuild-enable.log" | grep "Test Case" | head -1
 
 # Marketing status bar (Apple-conventional 9:41, full signal/battery).
 xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged \

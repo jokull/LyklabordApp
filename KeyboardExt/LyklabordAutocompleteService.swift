@@ -379,10 +379,13 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// so the serial queue guarantees the order. (If an observation ever
     /// beats its record onto the queue, the session retro-drops the late
     /// record — degraded to heuristics for that keystroke, never wedged.)
-    func noteSelfEdit(before: String, after: String) {
+    func noteSelfEdit(
+        before: String, after: String, keystroke: Character? = nil, replacement: String? = nil
+    ) {
         guard before != after else { return }  // nothing was edited
         queue.async { [weak self] in
-            self?.session?.noteSelfEdit(before: before, after: after)
+            self?.session?.noteSelfEdit(
+                before: before, after: after, keystroke: keystroke, replacement: replacement)
         }
     }
 
@@ -584,11 +587,14 @@ final class LyklabordAutocompleteService: AutocompleteService {
 
     /// Running Icelandic-lane belief (P(IS) ≥ 0.5), for smart-punctuation
     /// gating (D1): Icelandic quotes „ " only fire in the Icelandic lane, so
-    /// English passages keep straight/English quotes. Synchronous queue read —
-    /// fine for the infrequent quote/comma keystrokes it gates; defaults to
-    /// Icelandic (this is an Icelandic keyboard) when there's no session yet.
+    /// English passages keep straight/English quotes. Reads the lock-guarded
+    /// mirror of the last completed pass rather than `queue.sync`: this is
+    /// called from the main thread, and a sync hop would stall the keystroke
+    /// behind whatever the engine queue is doing (the whole bootstrap, on a
+    /// `,,` typed at launch). Defaults to Icelandic (this is an Icelandic
+    /// keyboard) when no pass has completed yet.
     var isIcelandicLane: Bool {
-        queue.sync { (session?.probabilityIcelandic ?? 1.0) >= 0.5 }
+        (cachedPIcelandic ?? 1.0) >= 0.5
     }
 
     /// Quote-key lane semantic (issue #10) — deliberately STRICTER than
@@ -795,16 +801,6 @@ final class LyklabordAutocompleteService: AutocompleteService {
                 curatedVocabulary = CuratedVocabulary(contentsOf: extraURL)
                 NSLog("[LyklaborÃ°] curated vocabulary loaded (%d words)", curatedVocabulary?.count ?? 0)
             }
-            if let emojiURL = bundle.url(
-                forResource: "is-suggestions", withExtension: "json"
-            ) {
-                emojiSuggester = IcelandicEmojiSuggester(contentsOf: emojiURL)
-                if emojiSuggester == nil {
-                    NSLog("[LyklaborÃ°] Icelandic emoji suggestion index failed to decode")
-                }
-            } else {
-                NSLog("[LyklaborÃ°] Icelandic emoji suggestion index missing; emoji suggestions stay off")
-            }
             engine.setPersonalVocabulary(combinedVocabulary(personal: nil))
             // Personal learning (M2): resolve the App Group container and
             // load the personal snapshot. Fully graceful — no container,
@@ -828,6 +824,14 @@ final class LyklabordAutocompleteService: AutocompleteService {
                 english.unigramCount,
                 morphology == nil ? "off" : "on"
             )
+            // Emoji label index: loaded OFF this queue, AFTER the session is
+            // published. The JSON decode costs ~15 ms and ~2 MB of transient
+            // allocator footprint (tools/cold-start/launch-probe) and used to
+            // sit in front of `engineReady` — i.e. in front of the first
+            // keystroke. `performAutocomplete` reads `emojiSuggester`
+            // nil-safely, so a pass that lands before the hop simply shows no
+            // emoji slot for that keystroke (the one visible delta).
+            scheduleEmojiSuggesterLoad(bundle: bundle)
             // Inflection intelligence (Stage B): load the paradigms/governors
             // artifacts AFTER the session is published so the engine is
             // typable immediately; the ~40-150ms governors parse runs off the
@@ -837,6 +841,29 @@ final class LyklabordAutocompleteService: AutocompleteService {
             bootstrapFailed = true
             Self.coldStartSignposter.emitEvent("Bootstrap failed")
             NSLog("[LyklaborÃ°] autocomplete bootstrap FAILED: %@", String(describing: error))
+        }
+    }
+
+    /// Decode the compact Icelandic label → emoji index on the auxiliary
+    /// queue, then hop onto `queue` to publish it (the same confinement
+    /// pattern as `prepareSessionRecorder`). Fully optional: a missing or
+    /// corrupt resource leaves `emojiSuggester` nil and word completion
+    /// unchanged.
+    private func scheduleEmojiSuggesterLoad(bundle: Bundle) {
+        guard let emojiURL = bundle.url(forResource: "is-suggestions", withExtension: "json") else {
+            NSLog("[LyklaborÃ°] Icelandic emoji suggestion index missing; emoji suggestions stay off")
+            return
+        }
+        Self.auxiliaryStateQueue.async { [weak self] in
+            let suggester = IcelandicEmojiSuggester(
+                contentsOf: emojiURL,
+                english: bundle.url(forResource: "en-suggestions", withExtension: "json"))
+            if suggester == nil {
+                NSLog("[LyklaborÃ°] Icelandic emoji suggestion index failed to decode")
+            }
+            self?.queue.async { [weak self] in
+                self?.emojiSuggester = suggester
+            }
         }
     }
 
@@ -1004,6 +1031,27 @@ final class LyklabordAutocompleteService: AutocompleteService {
 
     // MARK: - Inflection intelligence (off `queue`, then a follow-on on `queue`)
 
+    /// Process-wide cache of the loaded inflection model. iOS routinely
+    /// re-creates `KeyboardViewController` inside a SURVIVING extension
+    /// process (17 of 91 journal samples in tools/cold-start/runs carry
+    /// `processServiceOrdinal > 1`), and every new controller builds a new
+    /// service, which re-ran this whole load: a fresh ~14 MB anonymous
+    /// decompression mapping plus a second ~1-2 MB governors table, in a
+    /// process that already holds its UI memory — the largest single dirty
+    /// transient anywhere in the launch path, paid again for no new data.
+    /// The model is immutable (`InflectionModel: Sendable`, built from
+    /// bundled artifacts that cannot change while the process lives), so the
+    /// first load is shared by every later service in the process. The
+    /// `setInflection` hop onto each service's own engine queue is unchanged.
+    ///
+    /// Loads run on ONE serial queue, so a second service created while the
+    /// first load is still in flight waits for it and takes the cached model
+    /// instead of decompressing its own copy.
+    private static let inflectionLoadQueue = DispatchQueue(
+        label: "is.solberg.lyklabord.inflection-load", qos: .utility)
+    private static let inflectionCacheLock = NSLock()
+    private static var cachedInflectionModel: InflectionModel?
+
     /// Load the Stage-B inflection artifacts and inject them into the engine.
     ///
     /// Sequencing (PLAN.md "Inflection intelligence" + the launch-flicker
@@ -1026,8 +1074,21 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// dirty ceiling includes the transient decompression buffer, which
     /// `withGunzipped` munmaps before this delta is measured).
     private func scheduleInflectionLoad() {
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        Self.inflectionLoadQueue.async { [weak self] in
             guard let self else { return }
+            Self.inflectionCacheLock.lock()
+            let cached = Self.cachedInflectionModel
+            Self.inflectionCacheLock.unlock()
+            if let cached {
+                self.queue.async { [weak self] in
+                    guard let self, let engine = self.engine else { return }
+                    engine.setInflection(cached)
+                    NSLog(
+                        "[LyklaborÃ°] inflection ready from process cache (%d governors; phys_footprint %.1f MB)",
+                        cached.governors.governorCount, Self.memoryFootprintMB())
+                }
+                return
+            }
             let bundle = Bundle(for: Self.self)
             guard let paradigmsURL = bundle.url(forResource: "paradigms", withExtension: "bin") else {
                 NSLog("[LyklaborÃ°] paradigms.bin missing from extension bundle; inflection stays off")
@@ -1054,6 +1115,9 @@ final class LyklabordAutocompleteService: AutocompleteService {
                 return
             }
             let loadMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            Self.inflectionCacheLock.lock()
+            if Self.cachedInflectionModel == nil { Self.cachedInflectionModel = model }
+            Self.inflectionCacheLock.unlock()
             self.queue.async { [weak self] in
                 guard let self, let engine = self.engine else { return }
                 engine.setInflection(model)
@@ -1069,7 +1133,7 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// Process-wide resident footprint in MB (`task_vm_info`.phys_footprint —
     /// the same metric the jetsam cap watches and the TypeEngine governors
     /// regression test asserts against). QA-only; no typed content involved.
-    private static func memoryFootprintMB() -> Double {
+    static func memoryFootprintMB() -> Double {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(
             MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
@@ -1193,7 +1257,8 @@ final class LyklabordAutocompleteService: AutocompleteService {
         // bar at three total slots. Suppress outside ordinary prose fields.
         let emojiSuggestions: [Autocomplete.Suggestion]
         if fieldKind == .standard,
-            let emoji = emojiSuggester?.suggestion(for: pendingToken)
+            let emoji = emojiSuggester?.suggestion(
+                for: pendingToken, englishLane: session.probabilityIcelandic < 0.5)
         {
             emojiSuggestions = [Autocomplete.Suggestion(text: emoji, type: .emoji)]
         } else {

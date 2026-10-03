@@ -64,16 +64,17 @@ Made in Iceland.
 
 Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 
-## What's New (v1.1)
-Emoji finally speaks Icelandic.
+## What's New (v1.2)
+Steadier typing, sharper learning.
 
-• Search the emoji keyboard in Icelandic or English: “hjarta” and “heart” both find the heart emoji.
-• Browse the modern emoji supported by your iOS version, with complete family and skin-tone combinations.
-• Get a strong single-emoji match in the suggestion bar — without turning the spacebar into an emoji-replacement button.
-• Safer autocorrect for Icelandic compounds, capitalization, and quoted text.
-• Fixed a bug where accepting a suggestion could swallow an opening quotation mark.
+• Emoji suggestions now work when you type English too: “coffee” offers ☕, just like “kaffi”.
+• Fixed: a corrected word followed by a period could be counted twice.
+• Corrections now register reliably in long messages and when you press Return.
+• Autocorrect no longer fires while text is selected.
+• Lighter launch when you switch back to the keyboard.
+• Lyklaborð+: undoing a deleted word now sticks across your devices, and SwiftKey exports saved on Windows import correctly.
 
-All emoji labels and search data stay on-device, like the rest of Lyklaborð.
+Everything still happens on-device.
 
 ## Support URL
 https://lyklabord.solberg.is

@@ -41,9 +41,35 @@ struct ExpectedEditLedger {
     struct Record {
         let before: String
         let after: String
+        /// What the embedder says the edit WAS, beyond its window shape —
+        /// consulted only when the observed window cannot show it (the
+        /// host cut the window at the delimiter the edit inserted).
+        let edit: SelfEdit
         /// Observations that have come and gone without confirming this
         /// record (see `expiryObservations`).
         var unconfirmedObservations = 0
+    }
+
+    /// Optional description of one self-caused edit (2026-10 seam audit).
+    /// A record that carries a `keystroke` is FULLY DESCRIBED: the
+    /// embedder is then on the full reporting contract, so a nil
+    /// `replacement` means the pending token was committed as typed. A
+    /// record with neither field is a legacy window-only record and the
+    /// session reconstructs collapsed commits the historical way.
+    struct SelfEdit: Equatable {
+        /// The character the user typed when the edit was a keystroke
+        /// (space, '.', '\n', letters…); nil for taps, backspaces and
+        /// other non-keystroke edits.
+        var keystroke: Character?
+        /// The text the embedder replaced the pending token with — an
+        /// applied autocorrect or a tapped (non-verbatim) suggestion, as
+        /// the bar showed it (a deferred-dot token's dot included); nil
+        /// when the token was not replaced.
+        var replacement: String?
+
+        static let legacy = SelfEdit(keystroke: nil, replacement: nil)
+        /// Whether the embedder described this edit (see the type doc).
+        var isFullyDescribed: Bool { keystroke != nil || replacement != nil }
     }
 
     /// How the ledger explains one observed window.
@@ -78,18 +104,35 @@ struct ExpectedEditLedger {
     /// our own edits ("interleaved self-edit + external change"). The next
     /// observation is classified external, then the flag clears.
     private var chainBroken = false
+    /// The description carried by the record the most recent `explain`
+    /// MATCHED (nil after any other explanation). When several back-to-back
+    /// records confirmed at once this is the LATEST one — the edit whose
+    /// `after` is the observed window, i.e. the edit the window shows.
+    private(set) var matchedEdit: SelfEdit?
 
     var isEmpty: Bool { records.isEmpty && !chainBroken }
+
+    /// Whether the last observation caught up with every recorded edit: no
+    /// record is still waiting for its window. A one-shot memo (punctuation
+    /// attachment, revert-on-continuation) may only arm from a CURRENT
+    /// observation — a window that is one edit behind describes a document
+    /// the user has already typed past (fuzz seed 106: an attachment armed
+    /// from a stale read deleted the user's next letter).
+    var isCurrent: Bool { records.isEmpty }
 
     mutating func clear() {
         records.removeAll()
         chainBroken = false
+        matchedEdit = nil
     }
 
     /// Record one expected self-caused edit. `anchor` is the window the
     /// session last observed (nil before the first observation) — used to
-    /// detect edits that do not chain onto known reality.
-    mutating func record(before: String, after: String, anchor: String?) {
+    /// detect edits that do not chain onto known reality. `edit` is the
+    /// embedder's optional description of the edit (see `SelfEdit`).
+    mutating func record(
+        before: String, after: String, anchor: String?, edit: SelfEdit = .legacy
+    ) {
         guard before != after else { return }  // proxy no-op: nothing to expect
         if chainBroken { return }  // already condemned; next observation resets
         if let tail = records.last {
@@ -118,12 +161,13 @@ struct ExpectedEditLedger {
             chainBroken = true
             return
         }
-        records.append(Record(before: before, after: after))
+        records.append(Record(before: before, after: after, edit: edit))
     }
 
     /// Match one observed window against the pending expectations.
     /// `anchor` is the previous observation's window (nil when fresh).
     mutating func explain(observed: String, anchor: String?) -> Explanation {
+        matchedEdit = nil
         if chainBroken {
             clear()
             return .unexplained
@@ -148,6 +192,7 @@ struct ExpectedEditLedger {
         // occurrence is taken (deterministic; the session-visible window is
         // identical either way).
         if let index = records.lastIndex(where: { $0.after == observed }) {
+            matchedEdit = records[index].edit
             records.removeSubrange(0...index)
             tickExpiry()
             return .matched

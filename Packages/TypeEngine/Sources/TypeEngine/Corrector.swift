@@ -219,6 +219,15 @@ public struct Corrector {
         // and so are TOMBSTONED words, because deletion means "stop
         // suggesting", never "punish typing" (isValidTypedWord docs).
         let typedIsValid = model.isValidTypedWord(typed)
+        // Structural length cap (see `repairMaxLength`): nothing below is
+        // worth its per-keystroke cost on a token no word can be.
+        if typedChars.count > config.repairMaxLength {
+            trace?.typedIsValid = typedIsValid
+            trace?.rule = "over-length"
+            trace?.note(
+                "token longer than repairMaxLength \(config.repairMaxLength): no discovery passes")
+            return CorrectionResult(suggestions: [], typedWordIsValid: typedIsValid)
+        }
         // Compound acceptance (wave 22): an OOV token decomposable as
         // modifier(s)+BÍN-head is autocorrect-PROTECTED like a valid word,
         // but stays "invalid" for the generation-pass gates — every
@@ -374,7 +383,7 @@ public struct Corrector {
         // this layout ("islenska"→"íslenska", "godan"→"góðan"): each
         // substitution costs only the spatial floor / orthographic-confusion
         // constant, so restored forms rank (and auto-apply) easily.
-        for word in Self.diacriticVariants(of: typedChars)
+        for word in Self.diacriticVariants(of: typedChars, maxVariants: config.restorationVariantCap)
         where isCandidateWord(word, checkMorphology: true) {
             admit(word, from: .diacriticRestoration)
         }
@@ -2000,11 +2009,18 @@ public struct Corrector {
             return fresh
         }
 
+        // The deadline is checked before EACH half resolution, not once per
+        // hypothesis: on a long token one hypothesis resolves two long halves
+        // (variants + gemination + probes, milliseconds each), and a single
+        // per-hypothesis check let the pass run to 2–3× its budget (2026-10
+        // fuzz latency finding, 33-character concatenations: 11–18 ms
+        // against a 6 ms budget).
         let deadline = ContinuousClock.now + .seconds(config.splitTimeBudget)
         for hypothesis in hypotheses {
             if ContinuousClock.now >= deadline { break }
             let lefts = resolvedHalves(for: hypothesis.left)
             guard !lefts.isEmpty else { continue }
+            if ContinuousClock.now >= deadline { break }
             let rights = resolvedHalves(for: hypothesis.right)
             guard !rights.isEmpty else { continue }
             // Interior-capitalization carryover: the second half starts at
@@ -2067,7 +2083,7 @@ public struct Corrector {
 
         let text = String(chars)
         if model.isKnownAnywhere(text) || model.isPersonalValid(text) { admit(text, 0) }
-        for variant in Self.diacriticVariants(of: chars)
+        for variant in Self.diacriticVariants(of: chars, maxVariants: config.restorationVariantCap)
         where isCandidateWord(variant, checkMorphology: true) {
             admit(variant, spatialCost(typedChars: chars, candidate: variant))
         }
@@ -2353,7 +2369,7 @@ public struct Corrector {
         for (word, cost) in Self.edits1Costed(of: chars, spatial: spatial) {
             consider(word, cost)
         }
-        for word in Self.diacriticVariants(of: chars) {
+        for word in Self.diacriticVariants(of: chars, maxVariants: config.restorationVariantCap) {
             consider(word, spatialCost(typedChars: chars, candidate: word))
         }
         for word in Self.geminationVariants(of: chars) {
@@ -2712,26 +2728,44 @@ public struct Corrector {
     ]
 
     /// All words reachable from `chars` by replacing up to `maxChanges`
-    /// characters with their restoration variants (see above). Bounded and
-    /// tiny: a 10-letter all-vowel word yields < 200 variants.
-    static func diacriticVariants(of chars: [Character], maxChanges: Int = 3) -> [String] {
+    /// characters with their restoration variants (see above), enumerated
+    /// BREADTH-FIRST by change count (every one-change variant, then every
+    /// two-change variant, …) and cut at `maxVariants`. The count grows as
+    /// C(positions, changes): a 7-letter word yields a few dozen variants,
+    /// a 33-character mash thousands — and each caller existence-checks
+    /// every variant against both lexicons and BÍN (the 2026-10 fuzz
+    /// latency finding: 11 ms/keystroke on one junk token, unbudgeted).
+    /// With the cap only the deep tail of long tokens is shed, cheapest-
+    /// change-count first, deterministically (position order).
+    static func diacriticVariants(
+        of chars: [Character], maxChanges: Int = 3, maxVariants: Int = .max
+    ) -> [String] {
+        guard maxChanges > 0, maxVariants > 0 else { return [] }
         var results: [String] = []
         var current = chars
 
-        func recurse(from index: Int, changesLeft: Int) {
-            guard changesLeft > 0 else { return }
+        /// Emit every variant with EXACTLY `changes` more substitutions at
+        /// positions ≥ `index`. Returns false once the cap is reached.
+        func emit(from index: Int, changes: Int) -> Bool {
             for i in index..<current.count {
                 guard let variants = Self.restorationVariants[current[i]] else { continue }
                 let original = current[i]
+                defer { current[i] = original }
                 for variant in variants {
                     current[i] = variant
-                    results.append(String(current))
-                    recurse(from: i + 1, changesLeft: changesLeft - 1)
+                    if changes == 1 {
+                        results.append(String(current))
+                        if results.count >= maxVariants { return false }
+                    } else if !emit(from: i + 1, changes: changes - 1) {
+                        return false
+                    }
                 }
-                current[i] = original
             }
+            return true
         }
-        recurse(from: 0, changesLeft: maxChanges)
+        for changes in 1...maxChanges {
+            if !emit(from: 0, changes: changes) { break }
+        }
         return results
     }
 

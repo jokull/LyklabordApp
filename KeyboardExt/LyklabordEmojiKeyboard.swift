@@ -79,6 +79,12 @@ struct LyklabordEmojiKeyboard: View {
         EmojiView_SwiftUI(
             needToShowAbcButton: true,      // "ABC" returns to the letter keyboard
             needToShowDeleteButton: true,   // backspace on the emoji keyboard
+            // ISEmojiView re-sorts its "recents" section by use count and, by
+            // default, rebuilds it on EVERY tap — so the emoji the user just
+            // hit jumps around under the finger (bug report 2026-09-16). Defer
+            // the re-sort to the next time the picker is shown, like Apple's
+            // frequently-used row. Same policy as the toolbar frecency row.
+            updateRecentEmojiImmediately: false,
             customEmojis: EmojiCatalog.currentPickerCategories,
             emojiAvailabilityFilter: { emoji in
                 EmojiCatalog.shared?.isAvailable(emoji) ?? true

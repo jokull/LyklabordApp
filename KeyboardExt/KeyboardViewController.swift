@@ -14,6 +14,7 @@
 //
 
 import KeyboardKit
+import os
 import SwiftUI
 import TypeEngine
 
@@ -36,6 +37,12 @@ final class KeyboardViewController: KeyboardInputViewController {
     /// Search text exists only inside the extension UI. The action handler
     /// consumes it before UITextDocumentProxy/autocomplete/learning see it.
     private let emojiSearchSession = IcelandicEmojiSearchSession()
+
+    /// The toolbar's empty-state emoji row, snapshotted per presentation in
+    /// `viewWillAppear`. Frozen while the keyboard is up so taps (which record
+    /// a use) never reorder the row mid-session — Apple's "frequently used"
+    /// row behaves the same way. Long-press callouts still read the live store.
+    private var frecencyEmojis: [String] = []
 
     override func viewDidLoad() {
         // Wave 39 activation boundary. Capture before KeyboardKit/App Group
@@ -124,6 +131,19 @@ final class KeyboardViewController: KeyboardInputViewController {
             activationStartedAt: activationStartedAt
         )
         services.autocompleteService = autocompleteService
+
+        // Warm the emoji catalog off the main thread. `viewWillAppear` needs
+        // it for the toolbar's frecency row (`EmojiFrequencyStore.top(8)`
+        // consults `EmojiCatalog.shared.isAvailable`), and the first touch
+        // of that `static let` decodes catalog.json (~15 ms on an M-series
+        // Mac, measured by tools/cold-start/launch-probe). Swift's lazy
+        // static init is once-guarded: if the main thread gets there first
+        // it simply does the decode itself, exactly as before; if this
+        // block wins, the presentation path finds it ready. Never slower
+        // than the status quo.
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = EmojiCatalog.shared
+        }
 
         // System text replacements (issue #5): iOS never auto-applies the
         // user's Settings → General → Keyboard → Text Replacement shortcuts
@@ -227,7 +247,30 @@ final class KeyboardViewController: KeyboardInputViewController {
         // Full Access the suite is unavailable and this stays at mode 1).
         (services.autocompleteService as? LyklabordAutocompleteService)?
             .refreshSpacebarMode()
+        // Emoji frecency row: one snapshot per presentation (see the property).
+        frecencyEmojis = EmojiFrequencyStore.shared.top(8)
     }
+
+    /// Memory-pressure observability. Keyboard extensions are jetsammed by
+    /// footprint, and iOS falls back to the system keyboard when that
+    /// happens; a warning is the last signal before it. There is nothing
+    /// meaningful to shed here (engine caches are bounded, the artifacts are
+    /// clean file-backed pages, the emoji catalog is a process static), so
+    /// this only records the footprint at the moment of the warning —
+    /// metrics only, no typed content — so a device Console capture
+    /// (subsystem `is.solberg.lyklabord`) can answer "how close were we".
+    override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        let footprintMB = LyklabordAutocompleteService.memoryFootprintMB()
+        Self.memoryLogger.notice(
+            "MEMORY_WARNING phys_footprint \(footprintMB, format: .fixed(precision: 1), privacy: .public) MB keyboardType \(String(describing: self.state.keyboardContext.keyboardType), privacy: .public)"
+        )
+    }
+
+    private static let memoryLogger = Logger(
+        subsystem: "is.solberg.lyklabord",
+        category: "Memory"
+    )
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -283,7 +326,7 @@ final class KeyboardViewController: KeyboardInputViewController {
     }
 
     override func viewWillSetupKeyboardView() {
-        setupKeyboardView { controller in
+        setupKeyboardView { [unowned self] controller in
             // No explicit `layout:` — the default `KeyboardView` init falls
             // back to `services.layoutService.keyboardLayout(for:)`, which
             // is the `DeviceBasedLayoutService` configured with `.icelandic`
@@ -353,7 +396,8 @@ final class KeyboardViewController: KeyboardInputViewController {
                         autocompleteContext: controller.state.autocompleteContext,
                         actionHandler: controller.services.actionHandler,
                         suggestionAction: params.autocompleteAction,
-                        standard: params.view
+                        standard: params.view,
+                        frecencyEmojis: self.frecencyEmojis
                     )
                 }
             )
@@ -872,6 +916,29 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
     private var ledgerBeforeWindow: String?
     private var ledgerHandleDepth = 0
 
+    /// What the outermost `handle` call did, reported with its ledger record
+    /// so the session need not reconstruct it from the window (which a host
+    /// that cuts the context at ". " or a newline has already emptied).
+    /// `ledgerKeystroke` is the released key (space, a single character,
+    /// Return as "\n") and marks the record as fully described — a nil
+    /// `ledgerReplacement` then means the pending token was committed as
+    /// typed. It stays nil for anything this handler cannot describe as one
+    /// keystroke (suggestion taps, the ,,→„ rewrite, a mode-2 prediction
+    /// insert); those records keep the session's window-only reconstruction.
+    /// `ledgerReplacement` is the autocorrect or tapped suggestion that
+    /// replaced the pending token, byte-exact as the bar showed it.
+    private var ledgerKeystroke: Character?
+    private var ledgerReplacement: String?
+
+    private static func ledgerKeystroke(for action: KeyboardAction) -> Character? {
+        switch action {
+        case .space: return " "
+        case .character(let text): return text.count == 1 ? text.first : nil
+        case .primary: return "\n"
+        default: return nil
+        }
+    }
+
     /// One-shot causal memo (issue #4): the corrected/completed word whose
     /// trailing space the PREVIOUS released space action created by
     /// successfully committing the armed candidate. The very next released
@@ -886,7 +953,11 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         guard let before = ledgerBeforeWindow else { return }
         ledgerBeforeWindow = nil
         let after = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
-        lyklabordAutocompleteService?.noteSelfEdit(before: before, after: after)
+        lyklabordAutocompleteService?.noteSelfEdit(
+            before: before, after: after,
+            keystroke: ledgerKeystroke, replacement: ledgerReplacement)
+        ledgerKeystroke = nil
+        ledgerReplacement = nil
     }
 
     override func tryPerformAutocomplete(
@@ -923,8 +994,16 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
     ) -> Bool {
         // 1. '.'-deferral: the period keystroke never applies autocorrect.
         if action == .character(".") { return false }
+        // 2. Active selection: never apply. KeyboardKit's word replacement
+        // issues one deleteBackward per character of the word before the
+        // cursor, but UIKit's FIRST deleteBackward removes the whole
+        // selection instead — so the replacement eats one character too many
+        // and lands a mangled word ("ok hestr" with "r" selected → "ok
+        // hhestur") that the session would then learn. The keystroke itself
+        // replaces the selection; nothing is corrected.
+        if keyboardContext.textDocumentProxy.selectedText?.isEmpty == false { return false }
         if super.shouldApplyAutocorrectSuggestion(before: gesture, on: action) { return true }
-        // 2. Deferred apply: super said no — the only case we overrule is
+        // 3. Deferred apply: super said no — the only case we overrule is
         // its `isCursorAtNewWord` veto when the armed suggestion is our
         // deferred-dot correction for the token that is still, verbatim,
         // at the cursor (the proxy-suffix check also rejects stale bars).
@@ -995,6 +1074,8 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         if ledgerHandleDepth == 0 {
             ledgerBeforeWindow =
                 keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+            ledgerKeystroke = gesture == .release ? Self.ledgerKeystroke(for: action) : nil
+            ledgerReplacement = nil
         }
         ledgerHandleDepth += 1
         defer {
@@ -1083,6 +1164,7 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
                 lyklabordAutocompleteService?.isIcelandicLane == true {
                 proxy.deleteBackward()
                 action = .character(SmartPunctuation.open)
+                ledgerKeystroke = nil  // a rewrite, not one keystroke
             }
         }
 
@@ -1104,6 +1186,7 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
             let prediction = spacePrediction()
         {
             keyboardContext.textDocumentProxy.insertText(prediction)
+            ledgerKeystroke = nil  // prediction + space, not one keystroke
         }
 
         // DEV-MODE session recorder: forward a backspace so the analyzer can
@@ -1224,6 +1307,13 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         if ledgerHandleDepth == 0 {
             ledgerBeforeWindow =
                 keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+            // A tap is not a keystroke; a word suggestion reports itself as
+            // the replacement. Verbatim/literal-revert taps are already known
+            // to the session (`noteVerbatimChoice` / `revertToLiteral`), and
+            // an emoji is not a word.
+            ledgerKeystroke = nil
+            ledgerReplacement =
+                suggestion.isUnknown || suggestion.type == .emoji ? nil : suggestion.text
         }
         ledgerHandleDepth += 1
         defer {
@@ -1315,6 +1405,7 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
             return
         }
         lyklabordAutocompleteService?.noteRecordedAutocorrectApplied(suggestion.text)
+        ledgerReplacement = suggestion.text
         super.tryApplyAutocorrectSuggestion(before: gesture, on: action)
     }
 }

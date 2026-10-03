@@ -53,10 +53,17 @@ honestly.
 
 ## Typed content shown on the keyboard/screen per shot
 
-(the demo text visible in each render — edit these too)
+(the demo text the capture driver types — ScreenshotUITests.swift. These are
+ENGINE-VERIFIED with `swift run -c release type-repl run` (2026-09-16): from a
+cold neutral start the engine leans English on `ut i bud` (top "bus") and
+leaves bare `fra` uncorrected, so each string opens with one Icelandic word to
+prime the lane. Keep them in sync with the tests.)
 
-- 2: them: "Ertu að koma?" · me: "Já — fer fyrst út í búð" · typing: `ut i bud` → `út í búð`
-- 3: mixed-language sentence with a sletta (e.g. "Ég þarf að deploya þessu fyrir fund")
-- 4: "frá" + dative suggestion demo (e.g. `frá Kirkjubæjarklaust…` → completions in réttu falli)
+- 1: `Godan daginn ` → `Góðan daginn ` (Icelandic next-word predictions; an
+  empty field predicts English: account / ai / 4G)
+- 2: `Eg fer ut i bud` → `Ég fer út í bud` with **búð armed on the blue spacebar**
+- 3: `eg þarf að deploya þessu` → `ég þarf að deploya þessu` (sletta survives)
+- 4: `Vid keyrdum fra Akureyr` → `Við keyrðum frá Akureyr`; `Akureyri` shows in
+  the bar but is NOT armed on the sim (the headless harness arms it — open question)
 - 5: Orðasafn view / learned words list
 - 6: (no typing — code/privacy visual)

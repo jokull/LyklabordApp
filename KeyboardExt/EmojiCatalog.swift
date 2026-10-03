@@ -95,6 +95,26 @@ struct EmojiCatalog {
     let metadata: Metadata
     private let categories: [CatalogCategory]
 
+    /// Lookup indices built once at decode time. Before these existed,
+    /// `isAvailable`/`variants(for:)` walked all 3,944 variants and ran two
+    /// `replacingOccurrences` per variant on EVERY call (measured 5.3 ms per
+    /// call on an M-series Mac with the real catalog — `tools/cold-start/
+    /// launch-probe`); `EmojiFrequencyStore.top(8)` calls it 8–30× on the
+    /// main thread in `viewWillAppear`, on every keyboard presentation.
+    ///
+    /// One entry per normalized emoji key:
+    /// - `minimumTier`: the LOWEST tier any variant with that key carries.
+    ///   `supports(tier:)` is monotone, so "some variant with this key is
+    ///   supported" ⇔ "the minimum tier is".
+    /// - `category`/`family`: the FIRST family (in catalog order) containing
+    ///   the key — the same family the original linear scan found first.
+    private struct KeyEntry {
+        var minimumTier: Int32
+        let category: Int32
+        let family: Int32
+    }
+    private let entriesByKey: [String: KeyEntry]
+
     init(data: Data) throws {
         let artifact = try JSONDecoder().decode(Artifact.self, from: data)
         guard artifact.schema == 1, artifact.emojiVersion == "17.0" else {
@@ -131,6 +151,26 @@ struct EmojiCatalog {
             familyCount: artifact.familyCount
         )
         categories = decodedCategories
+
+        var entries: [String: KeyEntry] = [:]
+        entries.reserveCapacity(decodedSequences)
+        for (categoryIndex, category) in decodedCategories.enumerated() {
+            for (familyIndex, family) in category.families.enumerated() {
+                for variant in family.variants {
+                    let key = Self.key(variant.emoji)
+                    if let existing = entries[key] {
+                        entries[key]?.minimumTier = min(existing.minimumTier, Int32(variant.tier))
+                    } else {
+                        entries[key] = KeyEntry(
+                            minimumTier: Int32(variant.tier),
+                            category: Int32(categoryIndex),
+                            family: Int32(familyIndex)
+                        )
+                    }
+                }
+            }
+        }
+        entriesByKey = entries
     }
 
     static func bundled(in bundle: Bundle = .main) throws -> Self {
@@ -168,31 +208,18 @@ struct EmojiCatalog {
     }
 
     func isAvailable(_ emoji: String, availability: EmojiAvailability = .current) -> Bool {
-        let key = Self.key(emoji)
-        return categories.contains { category in
-            category.families.contains { family in
-                family.variants.contains {
-                    Self.key($0.emoji) == key && availability.supports(tier: $0.tier)
-                }
-            }
-        }
+        guard let entry = entriesByKey[Self.key(emoji)] else { return false }
+        return availability.supports(tier: Int(entry.minimumTier))
     }
 
     func variants(
         for emoji: String,
         availability: EmojiAvailability = .current
     ) -> [String] {
-        let key = Self.key(emoji)
-        for category in categories {
-            if let family = category.families.first(where: { family in
-                family.variants.contains { Self.key($0.emoji) == key }
-            }) {
-                return family.variants
-                    .filter { availability.supports(tier: $0.tier) }
-                    .map(\.emoji)
-            }
-        }
-        return []
+        guard let entry = entriesByKey[Self.key(emoji)] else { return [] }
+        return categories[Int(entry.category)].families[Int(entry.family)].variants
+            .filter { availability.supports(tier: $0.tier) }
+            .map(\.emoji)
     }
 
     private static func category(named title: String) -> ISEmojiView.Category? {

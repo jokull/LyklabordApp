@@ -130,8 +130,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord
         PRODUCT_NAME: Lyklabord
-        MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "1.2"
+        CURRENT_PROJECT_VERSION: "24"
         # iPhone-only for v1 (iPad runs compatibility mode): the keyboard's
         # iPad layout is an uninvested surface — shipping it untested is a
         # review and reputation risk. Proper iPad support is a post-launch
@@ -214,6 +214,9 @@ targets:
       # in the memory-constrained extension; see data/emoji/README.md.
       - path: data/emoji/is-suggestions.json
         buildPhase: resources
+      # Same index for English CLDR labels; matched only in the English lane.
+      - path: data/emoji/en-suggestions.json
+        buildPhase: resources
       # Version-aware Icelandic + English CLDR search rows. The 535KB authoring
       # corpus stays outside the appex; this compact artifact loads only when
       # the user opens emoji search.
@@ -249,10 +252,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord.keyboard
         PRODUCT_NAME: LyklabordKeyboard
-        MARKETING_VERSION: "1.1"
+        MARKETING_VERSION: "1.2"
         # Keep in lockstep with the app target (App Store requires matching
         # short versions; CFBundleVersion now flows from this setting).
-        CURRENT_PROJECT_VERSION: "18"
+        CURRENT_PROJECT_VERSION: "24"
         # iPhone-only for v1 (iPad runs compatibility mode): the keyboard's
         # iPad layout is an uninvested surface — shipping it untested is a
         # review and reputation risk. Proper iPad support is a post-launch

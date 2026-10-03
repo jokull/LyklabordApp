@@ -36,14 +36,16 @@ enum Fixtures {
         bigrams: [String: UInt32] = [:],
         tombstones: Set<String> = [],
         userAdded: Set<String> = [],
-        touch: [String: TouchKeyStats] = [:]
+        touch: [String: TouchKeyStats] = [:],
+        epochs: [String: UInt32] = [:]
     ) -> SyncPayload {
         SyncPayload(
             words: words,
             bigrams: bigrams,
             tombstones: tombstones,
             userAdded: userAdded,
-            touch: touch
+            touch: touch,
+            tombstoneEpochs: epochs
         )
     }
 
@@ -153,12 +155,40 @@ enum PayloadGen {
                 !key.hasPrefix(tomb + " ") && !key.hasSuffix(" " + tomb)
             }
         }
+        // Tombstone epochs on a few words — tombstoned or not, present in
+        // the payload or not (a re-added-then-forgotten word keeps its
+        // epoch with no entry). Small range so two payloads tie often; the
+        // tie path is the one that must still behave like the old union.
+        var epochs: [String: UInt32] = [:]
+        for _ in 0..<(rng.next() % 4) {
+            epochs[word(&rng)] = UInt32(rng.next() % 4)
+        }
         return Fixtures.payload(
             words: words,
             bigrams: bigrams,
             tombstones: tombstones,
             userAdded: userAdded,
-            touch: touch
+            touch: touch,
+            epochs: epochs
         )
+    }
+}
+
+/// Env-var knobs shared with the Learning property tests:
+/// - `LEARNING_PROPERTY_SEED` — reproduce one run (decimal or 0x-hex).
+/// - `LEARNING_PROPERTY_ITERATIONS` — soak length.
+enum PropertyEnv {
+    static func seed(default defaultSeed: UInt64) -> UInt64 {
+        guard let raw = ProcessInfo.processInfo.environment["LEARNING_PROPERTY_SEED"] else {
+            return defaultSeed
+        }
+        if raw.hasPrefix("0x"), let v = UInt64(raw.dropFirst(2), radix: 16) { return v }
+        return UInt64(raw) ?? defaultSeed
+    }
+
+    static func iterations(default defaultCount: Int) -> Int {
+        guard let raw = ProcessInfo.processInfo.environment["LEARNING_PROPERTY_ITERATIONS"],
+              let n = Int(raw), n > 0 else { return defaultCount }
+        return n
     }
 }

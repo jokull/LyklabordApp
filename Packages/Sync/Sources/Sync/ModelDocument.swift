@@ -32,6 +32,11 @@ public struct SyncPayload: Equatable, Sendable {
     public var tombstones: Set<String>
     public var userAdded: Set<String>
     public var touch: [String: TouchKeyStats]
+    /// Per-word explicit tombstone-flip counter (absent = 0) — see
+    /// `PersonalModel` and `PersonalModelMerge`. Additive to schema 1:
+    /// omitted when empty so untouched documents stay byte-identical, and
+    /// ignored by readers that predate it.
+    public var tombstoneEpochs: [String: UInt32]
 
     public init(
         schemaVersion: Int = PersonalModel.schemaVersion,
@@ -39,7 +44,8 @@ public struct SyncPayload: Equatable, Sendable {
         bigrams: [String: UInt32] = [:],
         tombstones: Set<String> = [],
         userAdded: Set<String> = [],
-        touch: [String: TouchKeyStats] = [:]
+        touch: [String: TouchKeyStats] = [:],
+        tombstoneEpochs: [String: UInt32] = [:]
     ) {
         self.schemaVersion = schemaVersion
         self.words = words
@@ -47,6 +53,12 @@ public struct SyncPayload: Equatable, Sendable {
         self.tombstones = tombstones
         self.userAdded = userAdded
         self.touch = touch
+        self.tombstoneEpochs = tombstoneEpochs.filter { $0.value > 0 }
+    }
+
+    /// Epoch of `word` (0 when never explicitly deleted/re-added).
+    public func tombstoneEpoch(of word: String) -> UInt32 {
+        tombstoneEpochs[word] ?? 0
     }
 
     /// Canonical plaintext bytes: JSON with sorted keys and sorted set
@@ -83,7 +95,7 @@ public struct SyncPayload: Equatable, Sendable {
 
 extension SyncPayload: Codable {
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, words, bigrams, tombstones, userAdded, touch
+        case schemaVersion, words, bigrams, tombstones, userAdded, touch, tombstoneEpochs
     }
 
     public init(from decoder: Decoder) throws {
@@ -94,6 +106,9 @@ extension SyncPayload: Codable {
         tombstones = Set(try container.decode([String].self, forKey: .tombstones))
         userAdded = Set(try container.decode([String].self, forKey: .userAdded))
         touch = try container.decode([String: TouchKeyStats].self, forKey: .touch)
+        // Optional: documents from builds without epochs decode to "all 0".
+        tombstoneEpochs = (try container.decodeIfPresent([String: UInt32].self, forKey: .tombstoneEpochs) ?? [:])
+            .filter { $0.value > 0 }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -105,6 +120,9 @@ extension SyncPayload: Codable {
         try container.encode(tombstones.sorted(), forKey: .tombstones)
         try container.encode(userAdded.sorted(), forKey: .userAdded)
         try container.encode(touch, forKey: .touch)
+        if !tombstoneEpochs.isEmpty {
+            try container.encode(tombstoneEpochs, forKey: .tombstoneEpochs)
+        }
     }
 }
 
@@ -131,6 +149,7 @@ public struct PersonalModelDocument: Equatable {
         var userAdded: [String]
         var touch: [String: TouchKeyStats]
         var consumedLogMarker: EventLog.ConsumedMarker?
+        var tombstoneEpochs: [String: UInt32]?
     }
 
     public init(decoding data: Data) throws {
@@ -149,7 +168,8 @@ public struct PersonalModelDocument: Equatable {
             bigrams: stored.bigrams,
             tombstones: Set(stored.tombstones),
             userAdded: Set(stored.userAdded),
-            touch: stored.touch
+            touch: stored.touch,
+            tombstoneEpochs: stored.tombstoneEpochs ?? [:]
         )
         consumedLogMarker = stored.consumedLogMarker
     }
@@ -162,7 +182,8 @@ public struct PersonalModelDocument: Equatable {
             tombstones: payload.tombstones.sorted(),
             userAdded: payload.userAdded.sorted(),
             touch: payload.touch,
-            consumedLogMarker: consumedLogMarker
+            consumedLogMarker: consumedLogMarker,
+            tombstoneEpochs: payload.tombstoneEpochs.isEmpty ? nil : payload.tombstoneEpochs
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

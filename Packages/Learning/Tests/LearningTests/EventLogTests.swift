@@ -292,14 +292,14 @@ final class EventLogTests: XCTestCase {
         try handle.close()
 
         _ = try log.truncate(consumedUpTo: read.endMarker)
-        // The torn bytes survive; a subsequent append heals them into a
-        // complete line that parses as a valid event.
+        // The torn bytes survive the rotation; a subsequent append heals
+        // them into a marked garbage line — never into an event, since the
+        // reader cannot tell "torn" from a cut inside a longer word (see
+        // `FoundBugTests.testTornVerbatimTapMustNotLearnATruncatedWord`).
         try log.append(.wordTapped(word: "fresh"))
         let result = try log.read()
-        XCTAssertEqual(
-            result.events.map(\.event),
-            [.wordTapped(word: "torn"), .wordTapped(word: "fresh")]
-        )
+        XCTAssertEqual(result.events.map(\.event), [.wordTapped(word: "fresh")])
+        XCTAssertEqual(result.skippedLines, 1)
     }
 
     // MARK: - Coordination helper

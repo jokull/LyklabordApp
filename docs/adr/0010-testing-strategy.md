@@ -127,6 +127,31 @@ A four-tier pyramid, from fastest/most-isolated to slowest/most-realistic:
   typing-replay rig without first solving keyboard-extension activation and
   positive Lyklaborð-vs-system-keyboard detection headlessly; absent that, it
   emits a confidently-wrong signal.
+- **2026-10-03 harness audit.** Tier 2 can no longer pass vacuously: the
+  scenario runner rejects empty files, scenarios without assertions,
+  malformed directive arguments, negative assertions made before any bar
+  exists, and unquoted trailing delimiters; the scorecard fails on a failed
+  or stale `type-repl` build, gates every `Scenarios/*.scenarios` suite
+  individually, and treats an unparseable bench report or an empty
+  curated-safety fixture as a failure. Three layers were added beneath the
+  scenario files, all in `Tests/TypeEngineTests`:
+  - `TypingSessionFuzzTests` — a seeded fuzzer over `TypingSession` with
+    ~20 invariants and a minimiser (`FUZZ_ITERATIONS`, `FUZZ_STEPS`,
+    `FUZZ_SEED`, `FUZZ_METAMORPHIC=1`).
+  - `ProxySimulator` opt-in host behaviours (lagging boundary cut, UTF-16
+    window cap, scalar deletion, selection, `adjustTextPosition`, deeper
+    stale reads). Real hosts differ on whether the context window collapses
+    at a sentence boundary immediately or one keystroke late, so session
+    behaviour is asserted under BOTH shapes; neither is assumed.
+  - `SeamDriver` — a model of the proxy edits `KeyboardExt` and KeyboardKit
+    make that `Typist` does not (dot attachment, tap-then-".", the
+    double-space ender, Return). It is a model, not the extension: when
+    `KeyboardExt` changes what it reports through `noteSelfEdit`, the
+    driver must change with it (`ExtensionWiringSeamTests`).
+  `Packages/Learning` and `Packages/Sync` gained fault-injection,
+  concurrency and seeded property suites on the same pattern. A bug found
+  by any of these lands as a strict `XCTExpectFailure` repro first, and
+  becomes an ordinary regression test when fixed.
 - Related: ADR-0006 (the hard gates the scorecard enforces), ADR-0005 (lane
   relaxation and lane-scaling scenarios are a stated future eval category,
   not yet built).

@@ -95,16 +95,20 @@ final class ScreenshotUITests: XCTestCase {
 
     func testShot01Hero() throws {
         let app = try launchHostWithKeyboard()
-        // Dismiss the field's AutoFill callout: one keystroke, then delete.
-        type("x", in: app)
-        keyElement("delete", in: app).tap()
+        // Warm Icelandic context so the bar shows Icelandic next-word
+        // predictions (a cold empty field predicts English: "account/ai/4G").
+        // Engine-verified (type-repl): "Godan daginn " → "Góðan daginn ".
+        type("Godan daginn ", in: app)
         usleep(800_000)
         hold("01")
     }
 
     func testShot02Accents() throws {
         let app = try launchHostWithKeyboard()
-        type("ut i bud", in: app)
+        // Engine-verified (type-repl): from a cold start "ut i bud" leans
+        // English ("bus"); one Icelandic word first primes the lane:
+        // "Eg fer ut i bud" → "Ég fer út í bud" with búð armed on the spacebar.
+        type("Eg fer ut i bud", in: app)
         hold("02")
     }
 
@@ -131,7 +135,10 @@ final class ScreenshotUITests: XCTestCase {
         // marked, phrase candidate in the bar) — not the completion story.
         // Demo (owner-verified in the engine): `fra Akureyr` → bar shows
         // „Akureyr“ · Akureyri (dative, armed) · Akureyrar.
-        type("fra Akureyr", in: app2)
+        // Engine-verified (type-repl): "Vid keyrdum fra Akureyr" →
+        // "Við keyrðum frá Akureyr" with Akureyri (dative) armed. Bare
+        // "fra Akureyr" from a cold start leaves "fra" uncorrected.
+        type("Vid keyrdum fra Akureyr", in: app2)
         sleep(1)
         hold("04")
     }
@@ -239,7 +246,21 @@ final class ScreenshotUITests: XCTestCase {
         let field = app.textFields["replay-input"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "host text field not found")
         field.tap()
-        guard app.keyboards.firstMatch.waitForExistence(timeout: 10) else {
+        // Wait for ANY keyboard: Apple's (an XCUIElementType.keyboard) or
+        // Lyklaborð directly (KeyboardKit's SwiftUI keys are plain buttons,
+        // not a `keyboards` element, so `app.keyboards` may stay empty when
+        // ours is the default). The extension cold-starts slowly (lexicon +
+        // BÍN load), so poll generously and re-tap the field once.
+        var appeared = false
+        for attempt in 0..<2 {
+            for _ in 0..<40 {
+                if app.keyboards.firstMatch.exists || isKeyboardActive(app) { appeared = true; break }
+                usleep(500_000)
+            }
+            if appeared { break }
+            if attempt == 0 { field.tap() }
+        }
+        guard appeared else {
             throw XCTSkip("No software keyboard appeared (hardware-keyboard mode?)")
         }
         // The iOS 18 system English–Icelandic keyboard also exposes ð/þ/æ/ö,
@@ -265,8 +286,11 @@ final class ScreenshotUITests: XCTestCase {
     }
 
     private func isKeyboardActive(_ app: XCUIApplication) -> Bool {
-        // Our iPhone alphabetic layout has a dedicated period key. Neither the
-        // system bilingual layout nor the system English layout does here.
+        // Our iPhone alphabetic layout has a dedicated period key. Apple's
+        // system Icelandic keyboard has the same letter rows (ð æ ö þ), the
+        // same "Bil"/"Venda" labels, and NO period key — so the period key is
+        // the only reliable tell. (2026-09-16: a ð+Venda marker let Apple's
+        // keyboard through and produced unfaithful store captures.)
         keyElement(".", in: app).exists
     }
 
@@ -301,7 +325,14 @@ final class ScreenshotUITests: XCTestCase {
 
     /// Same key-resolution strategy as ReplayRigUITests (kept in sync).
     private func keyElement(_ token: String, in app: XCUIApplication) -> XCUIElement {
-        let labels: [String] = token == "space" ? ["space", "bil", " "] : [token]
+        // Lyklaborð overrides some accessibility labels to Icelandic
+        // (see betterAccessibilityLabel in KeyboardViewController).
+        let aliases: [String: [String]] = [
+            "space": ["space", "bil", " "],
+            "delete": ["delete", "Eyða", "backspace"],
+            "shift": ["shift", "Shift"],
+        ]
+        let labels: [String] = aliases[token] ?? [token]
         for label in labels {
             let predicate = NSPredicate(format: "label ==[c] %@ OR identifier ==[c] %@",
                                         label, label)
@@ -309,6 +340,10 @@ final class ScreenshotUITests: XCTestCase {
             if key.exists { return key }
             let button = app.keyboards.buttons.matching(predicate).firstMatch
             if button.exists { return button }
+            // Lyklaborð's SwiftUI keys are plain buttons outside any
+            // `keyboards` element — match every alias there too.
+            let plain = app.buttons.matching(predicate).firstMatch
+            if plain.exists { return plain }
         }
         return app.buttons[labels[0]]
     }

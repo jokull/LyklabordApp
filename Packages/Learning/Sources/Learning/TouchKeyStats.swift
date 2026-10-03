@@ -34,7 +34,12 @@ public struct TouchKeyStats: Codable, Equatable, Sendable {
 
     /// Welford online update (bivariate):
     /// `C += (x − meanX_old)(y − meanY_new)` keeps the co-moment exact.
+    ///
+    /// A non-finite or absurd sample (`EventLog.isValidTouchOffset`) is
+    /// ignored: one NaN would poison every aggregate for good and make the
+    /// model file unencodable (`JSONEncoder` throws on non-finite floats).
     public mutating func update(dx: Double, dy: Double) {
+        guard EventLog.isValidTouchOffset(dx: dx, dy: dy) else { return }
         count += 1
         let deltaXOld = dx - meanDX
         meanDX += deltaXOld / count

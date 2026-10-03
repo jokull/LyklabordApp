@@ -62,6 +62,10 @@ func runScorecardCommand(_ args: [String]) {
     let micro = runMicroEval(cases: loadCases(), config: ArtifactLoader.deterministicConfig())
     let falseAutocorrect = micro.overall.falseAutocorrect
     let validWordSafety = micro.validWordViolations.isEmpty
+    // An empty fixture has zero false auto-applies and zero violations — it
+    // must not pass the curated-safety gate.
+    let microPopulated = micro.overall.total > 0 && micro.safetyChecked > 0
+    if !microPopulated { stderr("  curated safety FAIL: micro-eval fixture produced no cases") }
 
     // --- Corpus dev (+ optional heldout) ---------------------------------
     stderr("running corpus dev…")
@@ -125,7 +129,13 @@ func runScorecardCommand(_ args: [String]) {
     for failure in corpusFailures { stderr("  corpus gate FAIL: \(failure)") }
 
     // --- Scenario suites + bench (type-repl) ------------------------------
-    let repl = typeReplBinary(packageDir: packageDir)
+    let repl: URL
+    switch typeReplBinary(packageDir: packageDir) {
+    case let .success(url): repl = url
+    case let .failure(error):
+        stderr("cannot obtain a fresh type-repl: \(error)")
+        exit(2)
+    }
 
     // Fresh-process host proxy for the language stack's open/parse cost and
     // physical footprint. This is a regression alarm, not an iOS jetsam
@@ -134,8 +144,8 @@ func runScorecardCommand(_ args: [String]) {
     stderr("running process-cold artifact runtime probe…")
     let artifactProbe = runCaptured(
         "/usr/bin/time", ["-l", repl.path, "artifact-probe"], cwd: packageDir)
-    let artifactOpenMs = parseArtifactLoadMs(artifactProbe.err)
-    let artifactPeakBytes = parsePeakFootprintBytes(artifactProbe.err)
+    let artifactOpenMs = ScorecardParsing.artifactLoadMs(artifactProbe.err) ?? 0
+    let artifactPeakBytes = ScorecardParsing.peakFootprintBytes(artifactProbe.err) ?? 0
     let artifactOpenThresholdMs = 500.0
     let artifactPeakThresholdBytes = 50 * 1024 * 1024
     let artifactRuntimePass = artifactProbe.code == 0
@@ -147,20 +157,39 @@ func runScorecardCommand(_ args: [String]) {
             artifactOpenMs, Double(artifactPeakBytes) / 1_048_576,
             artifactRuntimePass ? "pass" : "FAIL"))
 
+    // Every `Scenarios/*.scenarios` file is a suite — the gate used to name
+    // six suites by hand, so a seventh contract file would never have been
+    // run. Each suite must run, print a summary, hold ≥1 scenario and pass.
     stderr("running scenario suites via \(repl.lastPathComponent)…")
-    var scenarioPassed = 0
-    var scenarioTotal = 0
-    var scenarioOK = true
-    for suite in ["core", "dogfood", "inflect", "touch", "compounds", "folded"] {
-        let file = packageDir.appendingPathComponent("Scenarios/\(suite).scenarios").path
-        let (out, code) = run(repl.path, ["run", file], cwd: packageDir)
-        let (passed, total) = parseScenarioTotals(out)
-        scenarioPassed += passed
-        scenarioTotal += total
-        if code != 0 || passed != total { scenarioOK = false }
-        stderr("  \(suite): \(passed)/\(total) (exit \(code))")
+    let scenariosDir = packageDir.appendingPathComponent("Scenarios")
+    let suiteFiles = ((try? FileManager.default.contentsOfDirectory(atPath: scenariosDir.path)) ?? [])
+        .filter { $0.hasSuffix(".scenarios") }
+        .sorted()
+    var suiteOutcomes: [ScenarioSuiteOutcome] = []
+    for file in suiteFiles {
+        let name = String(file.dropLast(".scenarios".count))
+        let result = runCaptured(
+            repl.path, ["run", scenariosDir.appendingPathComponent(file).path], cwd: packageDir)
+        let totals = ScorecardParsing.scenarioTotals(result.out)
+        suiteOutcomes.append(ScenarioSuiteOutcome(name: name, exitCode: result.code, totals: totals))
+        let summary = totals.map { "\($0.passed)/\($0.total)" } ?? "no summary"
+        stderr("  \(name): \(summary) (exit \(result.code))")
+        if result.code != 0 || totals == nil || totals!.passed != totals!.total {
+            // Surface the runner's own failure report (stdout tail + stderr)
+            // instead of swallowing it — the old gate discarded both.
+            for line in result.out.split(separator: "\n").drop(while: { !$0.hasPrefix("failures:") }) {
+                stderr("    \(line)")
+            }
+            for line in result.err.split(separator: "\n") where !line.contains("loaded artifacts") {
+                stderr("    \(line)")
+            }
+        }
     }
-    let scenarioPass = scenarioOK && scenarioTotal > 0 && scenarioPassed == scenarioTotal
+    let scenarioGate = ScorecardGates.scenarioGate(suiteOutcomes)
+    for failure in scenarioGate.failures { stderr("  scenario gate FAIL: \(failure)") }
+    let scenarioPassed = scenarioGate.passed
+    let scenarioTotal = scenarioGate.total
+    let scenarioPass = scenarioGate.pass
 
     // Timed last-mile replay: unlike stateless corpus evaluation and the
     // synchronous scenarios, this drives a separately published bar over a
@@ -189,20 +218,29 @@ func runScorecardCommand(_ args: [String]) {
     // fails both. The MEASURED value stays out of the committed JSON (see
     // below) so the history line is reproducible.
     stderr("running bench…")
-    var benchWorstMs = parseBenchWorstMs(run(repl.path, ["bench"], cwd: packageDir).out)
-    if benchWorstMs >= 30 {
-        let retry = parseBenchWorstMs(run(repl.path, ["bench"], cwd: packageDir).out)
-        benchWorstMs = min(benchWorstMs, retry)
+    // A bench report missing any gate line yields nil, never 0 — "nothing
+    // measured" used to parse as a 0 ms worst keystroke and pass.
+    var benchWorst = ScorecardParsing.benchWorstMs(run(repl.path, ["bench"], cwd: packageDir).out)
+    if let first = benchWorst, first >= 30 {
+        if let retry = ScorecardParsing.benchWorstMs(run(repl.path, ["bench"], cwd: packageDir).out) {
+            benchWorst = min(first, retry)
+        }
     }
-    let benchPass = benchWorstMs < 30
-    stderr(String(format: "  bench worst keystroke: %.2f ms (gate %@)", benchWorstMs, benchPass ? "pass" : "FAIL"))
+    let benchPass = benchWorst.map { $0 > 0 && $0 < 30 } ?? false
+    let benchWorstMs = benchWorst ?? .nan
+    stderr(
+        benchWorst == nil
+            ? "  bench worst keystroke: NOT MEASURED (report missing gate lines) (gate FAIL)"
+            : String(
+                format: "  bench worst keystroke: %.2f ms (gate %@)", benchWorstMs,
+                benchPass ? "pass" : "FAIL"))
 
     // --- Gates ------------------------------------------------------------
     // The committed `pass` reflects only the DETERMINISTIC gates so the
     // history line is reproducible given the commit. The latency gate is
     // enforced on the EXIT CODE (for CI) but its volatile measurement is not
     // recorded in the line — see scores/README.md.
-    let curatedSafetyPass = falseAutocorrect == 0 && validWordSafety
+    let curatedSafetyPass = microPopulated && falseAutocorrect == 0 && validWordSafety
     let corpusRegressionPass = corpusFailures.isEmpty
     let deterministicPass = curatedSafetyPass && corpusRegressionPass
         && artifactAudit.passed && scenarioPass && lastMileBehaviorPass
@@ -231,6 +269,7 @@ func runScorecardCommand(_ args: [String]) {
                 "requiredFalseAutoApplies": 0,
                 "actualFalseAutoApplies": falseAutocorrect,
                 "validWordSafety": validWordSafety,
+                "casesEvaluated": micro.overall.total,
                 "pass": curatedSafetyPass,
             ] as [String: Any],
             "corpusRegression": [
@@ -422,8 +461,18 @@ func runCaptured(
     } catch {
         return ("", "\(error)", -1)
     }
+    // Drain stderr on its own thread: reading the two pipes in sequence
+    // deadlocks once the child fills the stderr pipe buffer while stdout is
+    // still open (a clean or failing `swift build` writes plenty).
+    var err = Data()
+    let errDrained = DispatchGroup()
+    errDrained.enter()
+    DispatchQueue.global().async {
+        err = errPipe.fileHandleForReading.readDataToEndOfFile()
+        errDrained.leave()
+    }
     let out = outPipe.fileHandleForReading.readDataToEndOfFile()
-    let err = errPipe.fileHandleForReading.readDataToEndOfFile()
+    errDrained.wait()
     process.waitUntilExit()
     return (
         String(decoding: out, as: UTF8.self),
@@ -431,36 +480,65 @@ func runCaptured(
         process.terminationStatus)
 }
 
-/// Build (if needed) and locate the type-repl binary in the same build
-/// configuration as this process — simplest reliable way to drive the
-/// scenario runner + bench without an in-process port.
-func typeReplBinary(packageDir: URL) -> URL {
-    let config = CommandLine.arguments[0].contains("/release/") ? "release" : "debug"
-    run("/usr/bin/env", ["swift", "build", "-c", config, "--product", "type-repl"], cwd: packageDir)
-    let (binPath, code) = run(
-        "/usr/bin/env", ["swift", "build", "-c", config, "--show-bin-path"], cwd: packageDir)
-    let dir = code == 0 ? binPath.trimmingCharacters(in: .whitespacesAndNewlines) : ""
-    if !dir.isEmpty {
-        let candidate = URL(fileURLWithPath: dir).appendingPathComponent("type-repl")
-        if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
-    }
-    // Fallback: sibling of this executable.
-    return URL(fileURLWithPath: CommandLine.arguments[0])
-        .deletingLastPathComponent().appendingPathComponent("type-repl")
+struct TypeReplBuildError: Error, CustomStringConvertible {
+    let description: String
 }
 
-func parseScenarioTotals(_ output: String) -> (passed: Int, total: Int) {
-    for line in output.split(separator: "\n") {
-        // "<passed>/<total> scenarios passed"
-        guard line.contains("scenarios passed") else { continue }
-        let head = line.split(separator: " ").first.map(String.init) ?? ""
-        let parts = head.split(separator: "/").map(String.init)
-        if parts.count == 2, let passed = Int(parts[0]), let total = Int(parts[1]) {
-            return (passed, total)
-        }
+/// Build type-repl into the SAME scratch path and configuration as this
+/// process (argv[0] is `<scratch>/<config>/type-eval`), then return the
+/// sibling binary. Fails closed: the old version ignored `swift build`'s
+/// exit status and then located whatever type-repl already existed in the
+/// default `.build` — on a build failure the scenario suites and the bench
+/// silently ran against a STALE binary, and the build itself contended for
+/// the shared `.build` lock regardless of the scratch path in use.
+func typeReplBinary(packageDir: URL) -> Result<URL, TypeReplBuildError> {
+    // argv[0] is used UNRESOLVED: `<scratch>/release` is a symlink into
+    // `<scratch>/out/Products/Release`, and a resolved path derives the wrong
+    // scratch root (see BuildLayout.scratchRoot).
+    let selfURL = URL(fileURLWithPath: CommandLine.arguments[0])
+    let binDir = selfURL.deletingLastPathComponent()
+    let config = BuildLayout.configuration(forBinaryAt: selfURL)
+    guard let scratch = BuildLayout.scratchRoot(forBinaryAt: selfURL) else {
+        return .failure(
+            TypeReplBuildError(
+                description: "cannot find the SwiftPM scratch root above \(selfURL.path)"))
     }
-    return (0, 0)
+    let build = runCaptured(
+        "/usr/bin/env",
+        ["swift", "build", "-c", config, "--product", "type-repl", "--scratch-path", scratch.path],
+        cwd: packageDir)
+    guard build.code == 0 else {
+        let tail = build.err.split(separator: "\n").suffix(15).joined(separator: "\n")
+        return .failure(
+            TypeReplBuildError(
+                description: "swift build --product type-repl exited \(build.code)\n\(tail)"))
+    }
+    // Cross-check: the directory swift just built into must be the directory
+    // we are about to run from — otherwise we would be gating a stale binary.
+    let shown = runCaptured(
+        "/usr/bin/env",
+        ["swift", "build", "-c", config, "--show-bin-path", "--scratch-path", scratch.path],
+        cwd: packageDir)
+    let shownPath = shown.out.trimmingCharacters(in: .whitespacesAndNewlines)
+    let builtDir = URL(fileURLWithPath: shownPath).resolvingSymlinksInPath().path
+    let runDir = binDir.resolvingSymlinksInPath().path
+    guard shown.code == 0, !shownPath.isEmpty, builtDir == runDir else {
+        return .failure(
+            TypeReplBuildError(
+                description:
+                    "swift build wrote to \(shownPath) but this process runs from \(binDir.path); "
+                    + "refusing to gate a possibly stale type-repl"))
+    }
+    let candidate = binDir.appendingPathComponent("type-repl")
+    guard FileManager.default.isExecutableFile(atPath: candidate.path) else {
+        return .failure(
+            TypeReplBuildError(description: "built type-repl not found at \(candidate.path)"))
+    }
+    return .success(candidate)
 }
+
+// Bench / artifact-probe / scenario-summary parsers live in
+// `EvalKit.ScorecardParsing` (unit-tested; nil on a missing report, never 0).
 
 struct LastMileReport {
     let passedCases: Int
@@ -490,41 +568,4 @@ func parseLastMileReport(_ output: String) -> LastMileReport? {
             requestP95Ms: requestP95, backlogDrainMs: drain)
     }
     return nil
-}
-
-/// Max "<int> us" over the whole bench report → milliseconds. The bench
-/// prints several worst-case keystroke latencies (main text max, edits2,
-/// beam, accent-naked, governor-context); the gate is the worst of them all.
-func parseBenchWorstMs(_ output: String) -> Double {
-    var worstUs = 0.0
-    for line in output.split(separator: "\n") {
-        guard let range = line.range(of: " us") else { continue }
-        let head = line[..<range.lowerBound]
-        // last whitespace-separated token before " us" is the number
-        if let token = head.split(whereSeparator: { $0 == " " }).last, let value = Double(token) {
-            worstUs = max(worstUs, value)
-        }
-    }
-    return worstUs / 1000
-}
-
-func parseArtifactLoadMs(_ stderr: String) -> Double {
-    guard let line = stderr.split(separator: "\n").first(where: {
-        $0.contains("loaded artifacts in")
-    }), let marker = line.range(of: "loaded artifacts in ")
-    else { return 0 }
-    let tail = line[marker.upperBound...]
-    guard let token = tail.split(separator: " ").first else { return 0 }
-    return Double(token.replacingOccurrences(of: ",", with: ".")) ?? 0
-}
-
-func parsePeakFootprintBytes(_ stderr: String) -> Int {
-    for line in stderr.split(separator: "\n") where line.contains("peak memory footprint") {
-        if let token = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).first,
-            let bytes = Int(token)
-        {
-            return bytes
-        }
-    }
-    return 0
 }

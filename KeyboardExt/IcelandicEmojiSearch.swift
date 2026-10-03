@@ -104,6 +104,23 @@ struct IcelandicEmojiSearchIndex {
         )
         entries = decoded
         strongMatches = artifact.strongMatches
+        // First entry per normalized key — what `entries.first(where:)` found
+        // before this index existed. The empty-query frecency strip resolves
+        // 24 emoji per refresh on the main thread; the linear scan (1,914
+        // entries × two `replacingOccurrences` each) cost ~1 ms per lookup.
+        var firstIndex: [String: Int] = [:]
+        firstIndex.reserveCapacity(decoded.count)
+        for (index, entry) in decoded.enumerated() {
+            let key = Self.emojiKey(entry.emoji)
+            if firstIndex[key] == nil { firstIndex[key] = index }
+        }
+        firstEntryIndexByKey = firstIndex
+    }
+
+    private let firstEntryIndexByKey: [String: Int]
+
+    private func entry(for emoji: String) -> Entry? {
+        firstEntryIndexByKey[Self.emojiKey(emoji)].map { entries[$0] }
     }
 
     static func bundled(in bundle: Bundle = .main) throws -> Self {
@@ -114,13 +131,11 @@ struct IcelandicEmojiSearchIndex {
     }
 
     func name(for emoji: String) -> String? {
-        entries.first { Self.emojiKey($0.emoji) == Self.emojiKey(emoji) }?.icelandicName
+        entry(for: emoji)?.icelandicName
     }
 
     func frecencyResult(for emoji: String, order: Int) -> IcelandicEmojiSearchResult? {
-        guard let entry = entries.first(where: {
-            Self.emojiKey($0.emoji) == Self.emojiKey(emoji)
-        }) else { return nil }
+        guard let entry = entry(for: emoji) else { return nil }
         return IcelandicEmojiSearchResult(
             emoji: entry.emoji, name: entry.icelandicName, rank: 0, stableOrder: order
         )

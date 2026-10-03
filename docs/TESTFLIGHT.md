@@ -34,7 +34,7 @@ Start in a clean main checkout at the commit to release:
 asccli auth use lyklabord
 asccli auth check --output table
 git status --short
-RELEASE_VERSION=1.1
+RELEASE_VERSION=1.2
 
 asccli builds next-number \
   --app-id 6792012916 \
@@ -53,7 +53,7 @@ RELEASE_ROOT="$(git rev-parse --show-toplevel)"
 RELEASE_COMMIT="$(git rev-parse HEAD)"
 RELEASE_PARENT="$(mktemp -d /tmp/lyklabord-release.XXXXXX)"
 RELEASE_WORKTREE="$RELEASE_PARENT/checkout"
-RELEASE_VERSION=1.1
+RELEASE_VERSION=1.2
 RELEASE_BUILD=7
 
 git worktree add --detach "$RELEASE_WORKTREE" "$RELEASE_COMMIT"

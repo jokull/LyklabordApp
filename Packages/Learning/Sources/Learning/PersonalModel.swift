@@ -30,6 +30,12 @@ public enum PersonalModelError: Error, Equatable, CustomStringConvertible {
 /// - **Tombstones win.** A word the user deleted in the dictionary editor is
 ///   never auto-relearned — not by commits, not by verbatim taps — until the
 ///   user explicitly re-adds it (`addUserWord`) or clears the tombstone.
+///   Every editor action that flips a word's tombstone state bumps that
+///   word's **tombstone epoch** (`tombstoneEpochs`, absent = 0). The epoch
+///   is meaningless locally — it exists so the sync merge
+///   (`PersonalModelMerge`, ADR-0009) can tell an explicit re-add apart from
+///   a stale copy that never saw the deletion: higher epoch wins, equal
+///   epochs fall back to "tombstone wins".
 /// - **Single words / pairs only**, mirroring the event-log privacy
 ///   invariants. Nothing here can reconstruct running text.
 ///
@@ -155,6 +161,9 @@ public final class PersonalModel {
     private(set) var bigrams: [String: UInt32]
     private(set) var tombstones: Set<String>
     private(set) var userAdded: Set<String>
+    /// Per-word count of explicit tombstone flips (delete / re-add / clear);
+    /// only words with a non-zero epoch are stored. See the type docs.
+    private(set) var tombstoneEpochs: [String: UInt32]
     /// Key: single-character string (Codable-friendly `Character`).
     private(set) var touch: [String: TouchKeyStats]
     /// Consume-up-to frontier of the event log (see `EventLog.ConsumedMarker`).
@@ -168,6 +177,7 @@ public final class PersonalModel {
         bigrams = [:]
         tombstones = []
         userAdded = []
+        tombstoneEpochs = [:]
         touch = [:]
         consumedLogMarker = nil
     }
@@ -180,6 +190,10 @@ public final class PersonalModel {
         var userAdded: [String]
         var touch: [String: TouchKeyStats]
         var consumedLogMarker: EventLog.ConsumedMarker?
+        /// Additive (schema 1 stays schema 1): absent in files written
+        /// before epochs existed and omitted when empty, so an untouched
+        /// model still produces byte-identical files. Old readers ignore it.
+        var tombstoneEpochs: [String: UInt32]?
     }
 
     public convenience init(contentsOf url: URL, configuration: Configuration = Configuration()) throws {
@@ -198,6 +212,7 @@ public final class PersonalModel {
         bigrams = stored.bigrams
         tombstones = Set(stored.tombstones)
         userAdded = Set(stored.userAdded)
+        tombstoneEpochs = (stored.tombstoneEpochs ?? [:]).filter { $0.value > 0 }
         touch = stored.touch
         consumedLogMarker = stored.consumedLogMarker
     }
@@ -213,7 +228,8 @@ public final class PersonalModel {
             tombstones: tombstones.sorted(),
             userAdded: userAdded.sorted(),
             touch: touch,
-            consumedLogMarker: consumedLogMarker
+            consumedLogMarker: consumedLogMarker,
+            tombstoneEpochs: tombstoneEpochs.isEmpty ? nil : tombstoneEpochs
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -241,6 +257,13 @@ public final class PersonalModel {
 
     public func isUserAdded(_ word: String) -> Bool {
         userAdded.contains(word)
+    }
+
+    /// How many times the user has explicitly flipped this word's tombstone
+    /// state (delete, re-add, clear). 0 for words never edited. Sync-merge
+    /// bookkeeping (see the type docs); exposed for diagnostics and tests.
+    public func tombstoneEpoch(of word: String) -> UInt32 {
+        tombstoneEpochs[word] ?? 0
     }
 
     /// Whether the word was learned through a DELIBERATE user act — a
@@ -320,11 +343,16 @@ public final class PersonalModel {
 
     /// Delete a word: removes counts, removes user-added status, drops every
     /// bigram containing it, and tombstones it so it never auto-relearns
-    /// (SwiftKey pain #8 — deletions must stick).
+    /// (SwiftKey pain #8 — deletions must stick). Bumps the word's tombstone
+    /// epoch when this actually places the tombstone (a repeat delete of an
+    /// already-deleted word changes nothing and must not churn the sync
+    /// digest).
     public func remove(word: String) {
         words.removeValue(forKey: word)
         userAdded.remove(word)
-        tombstones.insert(word)
+        if tombstones.insert(word).inserted {
+            bumpTombstoneEpoch(word)
+        }
         let asFirst = word + " "
         let asSecond = " " + word
         bigrams = bigrams.filter { key, _ in
@@ -334,19 +362,31 @@ public final class PersonalModel {
 
     /// Explicitly add a word: always valid, never autocorrected, learned
     /// immediately. Clears any tombstone — an explicit re-add is the one
-    /// sanctioned way back in.
+    /// sanctioned way back in — and, when it does, bumps the epoch so the
+    /// re-add beats the synced deletion. Adding a word that was never
+    /// deleted leaves the epoch alone: bumping there would make the merge
+    /// discard other devices' organic counts for the word.
     public func addUserWord(_ word: String) throws {
         guard EventLog.isLearnableWord(word) else {
             throw PersonalModelError.invalidWord(word)
         }
-        tombstones.remove(word)
+        if tombstones.remove(word) != nil {
+            bumpTombstoneEpoch(word)
+        }
         userAdded.insert(word)
     }
 
     /// Clear a tombstone without re-adding the word: future commits may
-    /// relearn it organically (counts start from zero).
+    /// relearn it organically (counts start from zero). An explicit act, so
+    /// it bumps the epoch like `addUserWord`.
     public func removeTombstone(_ word: String) {
-        tombstones.remove(word)
+        if tombstones.remove(word) != nil {
+            bumpTombstoneEpoch(word)
+        }
+    }
+
+    private func bumpTombstoneEpoch(_ word: String) {
+        tombstoneEpochs[word] = (tombstoneEpochs[word] ?? 0) &+ 1
     }
 
     /// Bulk-import support (see `SwiftKeyImport`): upsert an explicitly-
@@ -390,10 +430,17 @@ public final class PersonalModel {
     // MARK: - Compaction
 
     /// Merge all unconsumed events from `log` into the model, then decay and
-    /// enforce caps if needed. Does NOT touch the disk — see
-    /// `compactAndSave(applying:to:)` for the crash-safe full sequence.
+    /// enforce caps if needed. Does NOT touch the model file — see
+    /// `compactAndSave(applying:to:)` for the crash-safe full sequence. The
+    /// LOG may be rewritten first: a headerless log is given a real
+    /// generation (`EventLog.adoptIfHeaderless`, itself atomic and
+    /// crash-safe) so the marker this compaction records can never be the
+    /// shared `.none` sentinel with anything consumed behind it — step 0 of
+    /// the sequence below. Because the log may be rewritten, callers hold
+    /// the same coordinated WRITE lock as for `compactAndSave`.
     @discardableResult
     public func compact(applying log: EventLog) throws -> CompactionSummary {
+        try log.adoptIfHeaderless()
         let result = try log.read(after: consumedLogMarker)
         for logged in result.events {
             apply(logged)
@@ -411,6 +458,9 @@ public final class PersonalModel {
 
     /// The full crash-safe compaction sequence, in the only safe order:
     ///
+    /// 0. adopt a headerless log (`compact` does this; atomic rewrite with a
+    ///    fresh generation — a crash leaves either the old file, with
+    ///    nothing consumed, or the adopted one)
     /// 1. read + merge (`compact`), marker updated in memory
     /// 2. save model atomically — the consumed frontier is now durable, so a
     ///    crash cannot double-apply these events
@@ -420,7 +470,7 @@ public final class PersonalModel {
     ///    before this, the generation mismatch self-heals on the next run)
     ///
     /// Callers must run this inside ONE `CoordinatedFileAccess.coordinateWrite`
-    /// block on the log URL so no append lands between steps 1 and 3 unseen.
+    /// block on the log URL so no append lands between steps 0 and 3 unseen.
     @discardableResult
     public func compactAndSave(
         applying log: EventLog,

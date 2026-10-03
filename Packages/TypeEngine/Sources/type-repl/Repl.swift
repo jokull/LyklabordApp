@@ -1,3 +1,4 @@
+import EvalKit
 import Foundation
 import TypeEngine
 
@@ -77,7 +78,7 @@ struct Repl {
         typist: Typist,
         showPerCharTiming: inout Bool
     ) -> Bool {
-        let (command, argument) = ScenarioRunner.split(line)
+        let (command, argument) = ScenarioScript.split(line)
         switch command {
         case ":quit", ":q", ":exit":
             return true
@@ -159,7 +160,7 @@ struct Repl {
                 print("usage: :longpress <characters>")
                 break
             }
-            typist.longPress(ScenarioRunner.unquote(argument))
+            typist.longPress(ScenarioScript.unquote(argument))
             report(typist, lineLatencies: [], showPerChar: false)
         case ":tap":
             let parts = argument.split(separator: " ").map(String.init)
@@ -252,7 +253,7 @@ struct Repl {
             typist.externalChange()
             report(typist, lineLatencies: [], showPerChar: false)
         case ":host":
-            typist.proxy.hostReplaceText(ScenarioRunner.unquote(argument))
+            typist.proxy.hostReplaceText(ScenarioScript.unquote(argument))
             typist.externalChange()
             report(typist, lineLatencies: [], showPerChar: false)
         case ":truncate":

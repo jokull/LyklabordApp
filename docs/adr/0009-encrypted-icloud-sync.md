@@ -58,13 +58,39 @@ zero-server:
     undercount (a word typed 10× on each of two devices merges to 10, not
     20) — acceptable because counts only drive *relative* ranking, and both
     devices keep re-inflating their own counts organically anyway.
-  - **Tombstones**: set **union** — a deletion on either device wins over
-    everything (counts, user-added status, bigrams) on both, mirroring the
-    local "deletions stick" invariant (ADR-0007) across devices. Known,
-    accepted consequence: with no timestamps, a re-add on one device can
-    lose to a still-tombstoned state on another until that device also
-    syncs the re-add — deletion is the deliberately safer default.
-  - **User-added words**: union minus tombstones.
+  - **Tombstones and explicit re-adds**: decided per word by a
+    **tombstone epoch** — a per-word counter (`tombstoneEpochs`, absent =
+    0) that `PersonalModel` bumps on every *explicit* editor action that
+    flips the word's tombstone state (delete, re-add via `addUserWord`,
+    clear tombstone) and on nothing else. Epochs merge by max; the word's
+    tombstone, user-added flag, counts and bigrams are taken only from the
+    side(s) at that word's maximum epoch. Consequences:
+    - a device strictly ahead wins outright, so an explicit re-add
+      (epoch+1, tombstone cleared) beats the synced deletion it undoes and
+      propagates to every device, and a *later* explicit delete (epoch+1
+      again) beats that re-add;
+    - at equal epochs the tombstone wins, so a delete and a re-add that
+      never saw each other resolve to deletion — the deliberately safer
+      default for a privacy product;
+    - implicit relearning (typing the word again, even a verbatim tap)
+      never touches the epoch, so "deletions stick" against organic
+      relearning (ADR-0007) exactly as before; a stale device's old counts
+      for a word deleted-then-re-added elsewhere are discarded, not revived
+      (required for associativity — the result must not depend on merge
+      order);
+    - with no epochs on either side (documents from builds that predate
+      the field) every word ties at 0 and the merge is the original
+      tombstone union, byte for byte.
+    The field is additive to schema 1 and omitted when empty: old readers
+    ignore it and new readers treat its absence as "all 0". Mixed-version
+    fleets have one known limitation: a build without epochs still merges
+    by union and re-encodes without the field, so it re-tombstones a word
+    another device re-added until it updates; the re-adding device keeps
+    its re-add locally throughout (its epoch is higher than the stripped
+    remote's 0) and everything converges once all devices carry epochs.
+    Nothing is lost that the old build could represent.
+  - **User-added words**: union minus tombstones (among the sides at the
+    word's maximum epoch).
   - **`explicitlyAccepted`**: **OR** across devices.
   - **Touch-model stats**: kept whole from whichever side has the higher
     effective sample count (never averaged — per-device Welford

@@ -165,6 +165,17 @@ public final class TypingSession {
     /// the token the user explicitly chose. Cleared on commit/external
     /// change/reset.
     private var verbatimChoice: String?
+    /// Attached-dot memo (2026-10 seam audit, bug (a)): the deferred-dot
+    /// token the window shows as PENDING although its word was already
+    /// committed — the extension's space-commit dot attachment ("hestur␣"
+    /// + "." → "hestur.") rewrites the committed delimiter into a trailing
+    /// dot, and the session must not read the next delimiter as a second
+    /// commit of the same word (a double `confirmWord`, a self-bigram
+    /// `wordCommitted`). While the pending word equals it, the next
+    /// delimiter only notes the sentence boundary and no autocorrect is
+    /// emitted for it. Cleared as soon as the pending word is anything else,
+    /// on external change and reset.
+    private var committedDotToken: String?
     /// Backspace-revert memo (wave 36, the iOS "revert autocorrect" escape
     /// hatch): armed the moment an autocorrect AUTO-APPLIES on a delimiter
     /// commit. `literal` is the byte-exact pre-correction typed token (the
@@ -259,9 +270,15 @@ public final class TypingSession {
         for textBeforeCursor: String, limit: Int = 3, trace: CorrectionTrace? = nil
     ) -> [Suggestion] {
         // A revert or attachment memo not consumed before the next keystroke
-        // landed is dead: its one-keystroke window has passed.
-        dotReplacement = nil
-        punctuationAttachmentArmed = false
+        // landed is dead: its one-keystroke window has passed. An observation
+        // of the UNCHANGED window is not a keystroke — a duplicate autocomplete
+        // request must never spend a one-shot memo (fuzz seed 17: a no-op
+        // refresh between "with ␣." and the space lost the attachment; the
+        // same refresh after a '.'-apply lost the URL self-heal).
+        if textBeforeCursor != lastObservedWindow {
+            dotReplacement = nil
+            punctuationAttachmentArmed = false
+        }
 
         let (context, currentWord) = Self.splitCurrentWord(of: textBeforeCursor)
 
@@ -278,7 +295,22 @@ public final class TypingSession {
         // typing the same letters afresh — this is the discriminator.
         let windowShrank = lastSeenWindow.map { textBeforeCursor.count < $0.count } ?? false
 
-        switch classifyChange(to: textBeforeCursor) {
+        var change = classifyChange(to: textBeforeCursor)
+        // The edit the ledger matched this observation to (nil for stale,
+        // unexplained, legacy and heuristic-only observations).
+        let selfEdit = ledger.matchedEdit
+        // A reported replacement that the visible window does not show did
+        // not land as described (an apply across an active selection over-
+        // deletes: "ok hest|r|" + space → "ok hhestur ", ProxyFidelity
+        // seam audit). Whatever is there now is not text we can account
+        // for — never commit or learn it. External is the safe reading.
+        if case .evolution = change, let replacement = selfEdit?.replacement,
+            !Self.replacementLanded(replacement, in: textBeforeCursor)
+        {
+            change = .external
+        }
+
+        switch change {
         case .evolution(let appendedAfterContext):
             noteDotReplacementIfAny(currentWord: currentWord)
             confirmIfCommitted(
@@ -291,13 +323,45 @@ public final class TypingSession {
                 currentWord: currentWord,
                 appendedAfterContext: appendedAfterContext
             )
-        case .truncationReset:
-            // Window collapsed to empty right after a sentence terminator —
-            // the proxy's ". " sentence cut. Two shapes:
-            confirmPendingWordAfterTruncationReset()
+        case .newSentenceStart:
+            // Lagging boundary cut: the previous sentence/paragraph left the
+            // window one keystroke late and this window is the first text of
+            // the new one. Nothing was pending (the boundary keystroke was
+            // observed in full), so no commit can occur; the whole window is
+            // the appended text — the same keystroke bookkeeping as an
+            // evolution, with the last committed word carried as bigram
+            // context exactly like the immediate-collapse path does.
+            carriedContext = lastCommittedWord
+            armPunctuationAttachmentIfAny(
+                window: textBeforeCursor,
+                currentWord: currentWord,
+                appendedAfterContext: textBeforeCursor
+            )
+        case .collapse(let sentenceBoundary):
+            // Window collapsed to empty because the host cut it at the
+            // delimiter our own edit inserted: the ". " sentence cut, or a
+            // newline cut after a Return that the embedder described.
+            confirmPendingWordAfterCollapse(sentenceBoundary: sentenceBoundary, edit: selfEdit)
+        case .delimiterRewrite(let sentenceBoundary):
+            // Only the trailing delimiters of an already-committed word
+            // changed (the extension's dot attachment, KeyboardKit's auto-
+            // space removal/reinsertion around a '.', the double-space
+            // sentence ender). Nothing new to commit; a deferred dot left
+            // pending on the committed word is remembered so the next
+            // delimiter does not commit it again, and a sentence boundary
+            // that appeared relaxes the lane — once, here, since no commit
+            // will observe it.
+            if !currentWord.isEmpty {
+                committedDotToken = currentWord
+            }
+            if sentenceBoundary {
+                engine.noteSentenceBoundary()
+                previousCommittedForEvents = nil
+            }
         case .external:
             carriedContext = nil
             verbatimChoice = nil
+            committedDotToken = nil
             // A cursor jump / host mutation / field switch dissolves the
             // "right after the corrected word" adjacency the reserved slot
             // depends on — never offer a stale literal after one.
@@ -335,6 +399,11 @@ public final class TypingSession {
         // handling, which consumes the record aligned to the OLD word, and
         // BEFORE previousCurrentWord is replaced).
         reconcileTapRecord(with: currentWord)
+
+        // The attached-dot memo belongs to exactly one pending token.
+        if committedDotToken != currentWord {
+            committedDotToken = nil
+        }
 
         previousCurrentWord = currentWord
         lastSeenWindow = textBeforeCursor
@@ -552,6 +621,13 @@ public final class TypingSession {
     private func resolveBackspaceRevert(textBeforeCursor: String, windowShrank: Bool) {
         guard let memo = backspaceRevert else { return }
 
+        // An observation of the unchanged window is not a user action and
+        // never spends the memo — including the EMPTY window a sentence-cut
+        // host shows right after the autocorrect commit, which neither shape
+        // below recognizes (real seed 20009: a duplicate pass between
+        // "Gtet." + space and the backspace lost the escape hatch).
+        if textBeforeCursor == lastObservedWindow { return }
+
         if textBeforeCursor.hasSuffix(memo.corrected) {
             if windowShrank || literalSlotShowing {
                 // Backspacing an unwanted correction is an explicit rejection
@@ -649,10 +725,54 @@ public final class TypingSession {
     ///
     /// No-op windows (`before == after`) are ignored, so embedders may call
     /// this unconditionally around actions that might not edit the proxy.
-    public func noteSelfEdit(before: String, after: String) {
+    ///
+    /// `keystroke` / `replacement` (2026-10 seam audit) describe the edit
+    /// beyond its window shape, for the cases where the observed window
+    /// CANNOT show what happened — the host cut the window at the very
+    /// delimiter the edit inserted (". " sentence cut, newline cut):
+    ///  * `keystroke` is the character the user typed when the edit was a
+    ///    keystroke (space, '.', '\n', letters); nil for taps, backspaces
+    ///    and other edits. It tells a Return that committed the pending word
+    ///    ("hestur" → "") from a backspace that deleted it, and the
+    ///    double-space sentence ender ("hestur␣" → "") from a newline;
+    ///  * `replacement` is the text the embedder replaced the pending token
+    ///    with — the applied autocorrect, or a tapped non-verbatim bar
+    ///    suggestion — exactly as the bar showed it (deferred dot included);
+    ///    nil when the token was committed as typed (plain delimiter, stale
+    ///    apply skipped by `AutocorrectApplyGuard`, verbatim tap).
+    /// A record carrying a `keystroke` is fully described: a nil
+    /// `replacement` then MEANS nothing was replaced, and a collapsed window
+    /// commits the typed token. Records without either field are legacy
+    /// window-only records and keep the historical reconstruction (an armed
+    /// autocorrect is assumed applied on a ". " collapse). When the window
+    /// does show the committed text, the window wins and a reported
+    /// replacement that is not there classifies the change as external.
+    public func noteSelfEdit(
+        before: String, after: String, keystroke: Character? = nil, replacement: String? = nil
+    ) {
         guard before != after else { return }
         ledgerRecordsSelfEdits = true
-        ledger.record(before: before, after: after, anchor: lastObservedWindow)
+        ledger.record(
+            before: before, after: after, anchor: lastObservedWindow,
+            edit: ExpectedEditLedger.SelfEdit(keystroke: keystroke, replacement: replacement))
+    }
+
+    /// Does `window` show `replacement` as the text just before the cursor
+    /// (trailing delimiters allowed, a deferred dot on the replacement
+    /// ignored)? A whole-token match: the character before it, if any, must
+    /// be a delimiter — "hhestur" does not show "hestur".
+    private static func replacementLanded(_ replacement: String, in window: String) -> Bool {
+        let stem = strippedEventToken(replacement)
+        guard !stem.isEmpty else { return true }
+        var end = window.endIndex
+        while end > window.startIndex, isDelimiter(window[window.index(before: end)]) {
+            end = window.index(before: end)
+        }
+        let core = window[..<end]
+        guard core.hasSuffix(stem) else { return false }
+        let start = core.index(core.endIndex, offsetBy: -stem.count)
+        guard start > core.startIndex else { return true }
+        return !isWordable(core[core.index(before: start)])
     }
 
     /// Tell the session the text before the cursor changed for a reason
@@ -672,6 +792,7 @@ public final class TypingSession {
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
+        committedDotToken = nil
         backspaceRevert = nil
         backspaceRevertJustArmed = false
         longPressedCharacters = []
@@ -702,7 +823,7 @@ public final class TypingSession {
     public func noteExternalTextChange(window: String) {
         guard lastSeenWindow != nil else { return }
         if ledger.wouldExplain(observed: window, anchor: lastObservedWindow) { return }
-        if case .external = heuristicChange(to: window) {
+        if case .external = heuristicChange(to: window, selfEdit: nil) {
             noteExternalTextChange()
         }
     }
@@ -719,6 +840,7 @@ public final class TypingSession {
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
+        committedDotToken = nil
         backspaceRevert = nil
         backspaceRevertJustArmed = false
         literalSlotShowing = false
@@ -931,14 +1053,18 @@ public final class TypingSession {
 
         // Field-type gate (layer 2) + verbatim-choice memo (layer 1): keep
         // the suggestions, strip the auto-apply flag.
+        // The attached-dot memo joins them: the word under that pending dot
+        // is already committed text, never re-corrected by the next space.
         if fieldKind.suppressesAutocorrect || verbatimChoice == currentWord
-            || verbatimChoice == stem
+            || verbatimChoice == stem || committedDotToken == currentWord
         {
             if engineSuggestions.contains(where: \.isAutocorrect) {
                 trace?.note(
                     fieldKind.suppressesAutocorrect
                         ? "auto-apply flag stripped: field kind \(fieldKind.rawValue)"
-                        : "auto-apply flag stripped: verbatim-choice memo")
+                        : committedDotToken == currentWord
+                            ? "auto-apply flag stripped: attached dot on a committed word"
+                            : "auto-apply flag stripped: verbatim-choice memo")
             }
             engineSuggestions = engineSuggestions.map {
                 $0.isAutocorrect
@@ -1015,8 +1141,14 @@ public final class TypingSession {
             bar.append(
                 Suggestion(text: currentWord, isAutocorrect: false, confidence: 0, isVerbatim: true)
             )
+            // A lower-ranked engine suggestion can still equal the typed token
+            // (real fuzz seed 256: "I" after backspacing "Is" — the single-
+            // letter path's capitalized "i" meets the typed "I"); the verbatim
+            // slot already shows it, so it is dropped rather than duplicated.
+            bar.append(contentsOf: engineSuggestions.filter { $0.text != currentWord })
+        } else {
+            bar.append(contentsOf: engineSuggestions)
         }
-        bar.append(contentsOf: engineSuggestions)
         return Self.titleCaseNameSuggestions(Array(bar.prefix(limit)), context: context)
     }
 
@@ -1072,9 +1204,23 @@ public final class TypingSession {
         /// `appendedAfterContext` is the text that appeared after the
         /// previous committed context ("" when nothing was added there).
         case evolution(appendedAfterContext: String)
-        /// The window collapsed to empty immediately after a sentence
-        /// terminator — the iOS proxy's sentence cut (". " boundary).
-        case truncationReset
+        /// The window collapsed to empty because the host cut it at the
+        /// delimiter our own edit inserted: the iOS proxy's ". " sentence
+        /// cut (`sentenceBoundary` true), or a newline cut after a Return
+        /// the embedder described (`sentenceBoundary` false — a paragraph
+        /// break commits the word but is not a sentence end for the lane).
+        case collapse(sentenceBoundary: Bool)
+        /// Only the trailing delimiters of the previous window were
+        /// rewritten by our own edit ("hestur␣" → "hestur." / "hestur.␣"):
+        /// the committed text is unchanged, nothing new commits.
+        /// `sentenceBoundary` is true when the rewrite ENDED the sentence
+        /// where the previous window had not.
+        case delimiterRewrite(sentenceBoundary: Bool)
+        /// Lagging boundary cut: the previous window ended with a sentence
+        /// boundary or newline and the host dropped it from the window only
+        /// now, with the new sentence's first keystroke ("hestur. " → "o").
+        /// The whole window is new text after a fully observed boundary.
+        case newSentenceStart
         /// The window cannot be explained by typing since the last call:
         /// cursor jump, host mutation, field switch.
         case external
@@ -1106,7 +1252,7 @@ public final class TypingSession {
         case .stale:
             return .evolution(appendedAfterContext: "")
         case .matched:
-            let shape = heuristicChange(to: window)
+            let shape = heuristicChange(to: window, selfEdit: ledger.matchedEdit ?? .legacy)
             if case .external = shape { return .external }
             return shape
         case .noRecords:
@@ -1115,17 +1261,27 @@ public final class TypingSession {
             {
                 return .external
             }
-            return heuristicChange(to: window)
+            return heuristicChange(to: window, selfEdit: nil)
         }
     }
 
-    /// Legacy shape heuristics: is `window` a plausible typing evolution of
+    /// Shape heuristics: is `window` a plausible typing evolution of
     /// `lastSeenWindow` (append / word replacement / shrink / truncation
     /// slide / sentence cut), judged from the strings alone? For embedders
     /// that record self-edits this only ever runs on changes the ledger has
     /// already attributed (or on unchanged windows); for everyone else it
     /// is the whole classifier, exactly as before the ledger existed.
-    private func heuristicChange(to window: String) -> WindowChange {
+    ///
+    /// `selfEdit` is non-nil ONLY when the ledger has proven the change is
+    /// our own edit (`.matched`). The 2026-10 seam-audit shapes — trailing-
+    /// delimiter rewrite, slide-plus-replace at a length cap, keystroke-
+    /// described collapse, lagging boundary cut — are gated on it: each
+    /// would be a plausible host mutation when read from the strings alone,
+    /// and for un-instrumented embedders (and the lenient window note)
+    /// external stays the safe default.
+    private func heuristicChange(
+        to window: String, selfEdit: ExpectedEditLedger.SelfEdit?
+    ) -> WindowChange {
         guard let previous = lastSeenWindow else {
             // No trusted state: adopt the window without committing anything.
             return .external
@@ -1155,7 +1311,24 @@ public final class TypingSession {
             if window.isEmpty, Self.endsWithSentenceTerminator(previous),
                 lastCommittedWord != nil || !previousCurrentWord.isEmpty
             {
-                return .truncationReset
+                return .collapse(sentenceBoundary: true)
+            }
+            // Our own keystroke collapsed a window with no terminator in
+            // it: only a described keystroke can tell this from deleting
+            // the whole word (a repeat-backspace step, a one-letter word).
+            //  * Return commits the pending word (if any) and the newline
+            //    cut hides it — a paragraph break, not a sentence end;
+            //  * a space or '.' with NO word pending is KeyboardKit's
+            //    double-space ender / the '.' after a tap's auto-space:
+            //    ". " was written and cut away — a sentence boundary the
+            //    plain path would have seen as "hestur. ".
+            if window.isEmpty, let keystroke = selfEdit?.keystroke {
+                if keystroke.isNewline {
+                    return .collapse(sentenceBoundary: false)
+                }
+                if keystroke == " " || keystroke == ".", previousCurrentWord.isEmpty {
+                    return .collapse(sentenceBoundary: true)
+                }
             }
             return .evolution(appendedAfterContext: "")
         }
@@ -1165,6 +1338,22 @@ public final class TypingSession {
         // suggestion/autocorrect (KeyboardKit inserts word + delimiter).
         if window.hasPrefix(previousContext) {
             return .evolution(appendedAfterContext: String(window.dropFirst(previousContext.count)))
+        }
+
+        if selfEdit != nil {
+            // Trailing-delimiter rewrite of a committed word (ours only):
+            // the space-commit dot attachment "hestur␣" → "hestur.", the
+            // tap-then-'.' auto-space dance "hestur␣" → "hestur.␣", the
+            // double-space ender. The text up to the committed word is
+            // unchanged and only delimiters follow it.
+            let core = Self.droppingTrailingDelimiters(previous)
+            if !core.isEmpty, core.count < previous.count, window.count > core.count,
+                window.hasPrefix(core), window.dropFirst(core.count).allSatisfy(Self.isDelimiter)
+            {
+                return .delimiterRewrite(
+                    sentenceBoundary: Self.endsWithSentenceBoundary(window)
+                        && !Self.endsWithSentenceBoundary(previous))
+            }
         }
 
         // Sliding window (length-capped proxy): the front of the previous
@@ -1185,7 +1374,68 @@ public final class TypingSession {
             index = previous.index(after: index)
         }
 
+        guard selfEdit != nil else { return .external }
+
+        // Slide + replace (ours only): at the length cap the delimiter that
+        // APPLIED an autocorrect both slid the window and replaced the
+        // pending word (" ok hestr" → "k hestur "), so no suffix of the
+        // whole previous window survives. Align a suffix of the previous
+        // COMMITTED CONTEXT instead; what follows it is the committed word
+        // (plus delimiters) — or an emitted multi-word split.
+        // (An empty previous context never reaches here: every window has
+        // prefix "" and the append branch above takes it.)
+        var contextIndex = previousContext.isEmpty
+            ? previousContext.endIndex : previousContext.index(after: previousContext.startIndex)
+        while contextIndex < previousContext.endIndex {
+            let candidate = previousContext[contextIndex...]
+            if window.hasPrefix(candidate) {
+                let appended = String(window.dropFirst(candidate.count))
+                let tokens = Self.wordTokens(in: appended)
+                let joined = tokens.joined(separator: " ")
+                if tokens.count <= 1
+                    || lastEmittedSuggestionTexts.contains(where: { $0 == joined || $0 == joined + "." })
+                {
+                    return .evolution(appendedAfterContext: appended)
+                }
+                break
+            }
+            contextIndex = previousContext.index(after: contextIndex)
+        }
+
+        // Lagging boundary cut (ours only): hosts whose window still shows
+        // "hestur. " / "hestur\n" right after the delimiter drop the old
+        // sentence only with the next keystroke, so the window becomes just
+        // that keystroke ("o"). The boundary was fully observed (nothing is
+        // pending) and the new window is one token at most — a keystroke
+        // or one tapped prediction, never a paste.
+        if previousCurrentWord.isEmpty,
+            Self.endsWithSentenceBoundary(previous) || previous.last?.isNewline == true,
+            !window.isEmpty, !window.contains(where: \.isNewline),
+            Self.wordTokens(in: window).count <= 1
+        {
+            return .newSentenceStart
+        }
+
         return .external
+    }
+
+    /// `text` without its trailing run of delimiter characters (whitespace
+    /// and delimiter punctuation, judged by character class).
+    private static func droppingTrailingDelimiters(_ text: String) -> String {
+        var end = text.endIndex
+        while end > text.startIndex, isDelimiter(text[text.index(before: end)]) {
+            end = text.index(before: end)
+        }
+        return String(text[..<end])
+    }
+
+    /// Does `text` END with a sentence boundary — its last non-whitespace
+    /// character is a terminator that is a delimiter at its position? A
+    /// deferred trailing dot ("hestur.") is not one yet; "hestur. " and
+    /// "hestur!" are.
+    private static func endsWithSentenceBoundary(_ text: String) -> Bool {
+        guard let index = text.lastIndex(where: { !$0.isWhitespace }) else { return false }
+        return isSentenceTerminator(text[index]) && isDelimiter(at: index, in: text)
     }
 
     private static func isSentenceTerminator(_ character: Character) -> Bool {
@@ -1233,6 +1483,16 @@ public final class TypingSession {
         guard currentWord.isEmpty, !previousCurrentWord.isEmpty else { return }
         guard !appendedAfterContext.isEmpty else { return }
         let boundary = Self.containsSentenceBoundary(appendedAfterContext)
+        // Attached dot on an already-committed word (bug (a)): the word
+        // committed at the earlier space; this delimiter only ends the
+        // sentence. No second confirmWord, no self-bigram event.
+        if previousCurrentWord == committedDotToken {
+            if boundary {
+                engine.noteSentenceBoundary()
+                previousCommittedForEvents = nil
+            }
+            return
+        }
         let appendedTokens = Self.wordTokens(in: appendedAfterContext)
         // A single keystroke commits at most one word — a change that
         // introduced several words at once is a host paste/autofill, never
@@ -1271,10 +1531,16 @@ public final class TypingSession {
         // suggestion the previous bar offered = that suggestion was applied
         // (tap or autocorrect-on-delimiter) — a suggestionAccepted event
         // (the raw typed token is a typo by definition, never learned).
+        // Bar texts for a deferred-dot token carry the pending dot
+        // ("hestur.") while the committed word read back from "hestur. " does
+        // not — match either spelling, exactly as the split path above does
+        // (fuzz seeds 121/140: a host whose window stays visible at ". "
+        // logged such an acceptance as a plain wordCommitted and never armed
+        // the backspace-revert slot).
         let typedToken = Self.strippedEventToken(previousCurrentWord)
         let accepted =
             committed != previousCurrentWord && committed != typedToken
-            && lastEmittedSuggestionTexts.contains(committed)
+            && lastEmittedSuggestionTexts.contains(where: { $0 == committed || $0 == committed + "." })
         // Arm the reserved literal-revert slot only when the committed form
         // is exactly the AUTOCORRECT the previous bar armed (an engine
         // force-correction the user may want to reject) — not a manual tap of
@@ -1282,29 +1548,74 @@ public final class TypingSession {
         // token, byte-exact (quote/casing/accents preserved), taken from the
         // session's own record of the pending word — never re-derived.
         let revertLiteral =
-            accepted && committed == lastEmittedAutocorrect ? previousCurrentWord : nil
+            accepted && Self.isSameEmittedText(committed, lastEmittedAutocorrect)
+            ? previousCurrentWord : nil
         confirm(
             committed, sentenceBoundary: boundary,
             acceptedFromTyped: accepted ? typedToken : nil,
             revertLiteral: revertLiteral)
     }
 
-    /// The proxy's ". " sentence cut collapsed the window in the same
-    /// keystroke that committed the pending deferred-dot token: the commit
-    /// must be recovered from session state, because the corrected text is
-    /// no longer visible in any window. If the previous call armed an
-    /// autocorrect, the embedder's delimiter keystroke applied it (that is
-    /// the auto-apply contract), so the committed form is that suggestion's
-    /// stem; otherwise it is the pending token's own stem.
-    private func confirmPendingWordAfterTruncationReset() {
+    /// The host cut the window at the delimiter our own edit inserted (the
+    /// ". " sentence cut; the newline cut after a described Return), in the
+    /// same keystroke that committed the pending token: the commit must be
+    /// recovered from session state, because the committed text is no
+    /// longer visible in any window. What committed, in order of evidence:
+    ///  * the replacement the embedder reported for this edit (an applied
+    ///    autocorrect, a tapped suggestion) — the text that landed;
+    ///  * the typed token when the user chose it via the verbatim slot
+    ///    (`verbatimChoice`), or when the embedder described the edit and
+    ///    reported no replacement (a plain delimiter, a stale apply skipped
+    ///    by the apply guard — fuzz seed 20054 logged a suggestionAccepted
+    ///    for an autocorrect nothing ever applied);
+    ///  * legacy window-only records: the historical reconstruction — if the
+    ///    previous call armed an autocorrect, the delimiter applied it (the
+    ///    auto-apply contract of embedders that report nothing more).
+    /// A word that was already committed before an attached dot
+    /// (`committedDotToken`) is not committed again; only the sentence
+    /// boundary is noted.
+    private func confirmPendingWordAfterCollapse(
+        sentenceBoundary: Bool, edit: ExpectedEditLedger.SelfEdit?
+    ) {
+        func noteBoundaryIfNew() {
+            // The legacy shape ("stór. " → "") noted its boundary when the
+            // ". " was observed; the ender/tap-dot collapse ("hestur " → "")
+            // is the first and only sight of this one.
+            guard sentenceBoundary, !Self.endsWithSentenceBoundary(lastSeenWindow ?? "") else {
+                return
+            }
+            engine.noteSentenceBoundary()
+            previousCommittedForEvents = nil
+        }
         guard !previousCurrentWord.isEmpty else {
-            // Legacy shape: the word was already committed one keystroke
-            // earlier; just carry it as bigram context across the cut.
+            // Nothing was pending: the word was committed one keystroke
+            // earlier (or the collapse was a sentence ender after it); carry
+            // it as bigram context across the cut.
+            noteBoundaryIfNew()
             carriedContext = lastCommittedWord
             return
         }
-        let token = lastEmittedAutocorrect ?? previousCurrentWord
-        let stem = token.hasSuffix(".") ? String(token.dropLast()) : token
+        if previousCurrentWord == committedDotToken {
+            noteBoundaryIfNew()
+            carriedContext = lastCommittedWord
+            return
+        }
+        let typedStem = Self.strippedEventToken(previousCurrentWord)
+        let token: String
+        let replaced: Bool
+        if let replacement = edit?.replacement {
+            token = replacement
+            replaced = true
+        } else if verbatimChoice == previousCurrentWord || verbatimChoice == typedStem
+            || edit?.isFullyDescribed == true
+        {
+            token = previousCurrentWord
+            replaced = false
+        } else {
+            token = lastEmittedAutocorrect ?? previousCurrentWord
+            replaced = lastEmittedAutocorrect != nil
+        }
+        let stem = Self.strippedEventToken(token)
         // A split autocorrect ("smellir á.") recovers as multiple words;
         // ordinary tokens as one.
         let words = Self.wordTokens(in: stem)
@@ -1312,23 +1623,31 @@ public final class TypingSession {
             carriedContext = lastCommittedWord
             return
         }
-        // Single word recovered from an applied autocorrect = a suggestion
-        // acceptance (same event mapping as the visible-window commit path).
-        let typedStem = Self.strippedEventToken(previousCurrentWord)
-        if words.count == 1, lastEmittedAutocorrect != nil, words[0] != typedStem {
-            // Same autocorrect-commit arming as the visible-window path, for
-            // the deferred-dot ". "-collapse case. The reserved slot won't
-            // actually show here until the window re-expands past a
-            // backspace, but arming keeps the escape hatch available.
+        // Single word recovered from a replacement = a suggestion acceptance
+        // (same event mapping as the visible-window commit path); the
+        // reserved literal-revert slot arms only for the armed AUTOCORRECT,
+        // never for a tapped alternative.
+        if words.count == 1, replaced, words[0] != typedStem {
+            // The reserved slot won't actually show here until the window
+            // re-expands past a backspace, but arming keeps the escape hatch
+            // available.
             confirm(
-                words[0], sentenceBoundary: true, acceptedFromTyped: typedStem,
-                revertLiteral: previousCurrentWord)
+                words[0], sentenceBoundary: sentenceBoundary, acceptedFromTyped: typedStem,
+                revertLiteral: Self.isSameEmittedText(token, lastEmittedAutocorrect)
+                    ? previousCurrentWord : nil)
         } else {
             for (index, word) in words.enumerated() {
-                confirm(word, sentenceBoundary: index == words.count - 1)
+                confirm(word, sentenceBoundary: sentenceBoundary && index == words.count - 1)
             }
         }
         carriedContext = words.last
+    }
+
+    /// Two bar/committed spellings of one text, a deferred dot apart
+    /// ("hestur" ~ "hestur."). nil never matches.
+    private static func isSameEmittedText(_ a: String, _ b: String?) -> Bool {
+        guard let b else { return false }
+        return a == b || strippedEventToken(a) == strippedEventToken(b)
     }
 
     /// Arm the punctuation-attachment memo (see `punctuationAttachment`)
@@ -1345,6 +1664,12 @@ public final class TypingSession {
         guard let beforeSpace = window.dropLast(2).last, Self.isWordable(beforeSpace) else {
             return
         }
+        // Only a CURRENT observation may arm a one-shot memo: a window that
+        // is still one recorded edit behind shows the '.' as the latest
+        // keystroke while the user has typed on (fuzz seed 106, stale read:
+        // "sa .x" read as "sa ." armed the memo and the next space deleted
+        // the x).
+        guard ledger.isCurrent else { return }
         punctuationAttachmentArmed = true
     }
 
@@ -1510,6 +1835,10 @@ public final class TypingSession {
         guard currentWord != previousCurrentWord + "." else { return }
         let stem = String(currentWord.dropLast())
         guard stem == lastEmittedAutocorrect else { return }
+        // Same currency rule as the attachment memo: a revert instruction
+        // built from a lagging observation would undo text the document has
+        // already moved past.
+        guard ledger.isCurrent else { return }
         dotReplacement = (original: previousCurrentWord + ".", corrected: currentWord)
     }
 

@@ -38,6 +38,7 @@ public enum EventLogError: Error, Equatable, CustomStringConvertible {
 /// 1<TAB><day><TAB>cr<TAB><original><TAB><applied>
 /// 1<TAB><day><TAB>wt<TAB><word>
 /// 1<TAB><day><TAB>ts<TAB><keyChar><TAB><dx><TAB><dy>
+/// <torn fragment><TAB><TAB>\#torn                  ← healed torn tail (skipped)
 /// ```
 ///
 /// - The leading `1` is the per-line schema version; readers skip lines with
@@ -60,11 +61,23 @@ public enum EventLogError: Error, Equatable, CustomStringConvertible {
 ///   parsed; trailing unterminated bytes are ignored and excluded from the
 ///   returned `ConsumedMarker`.
 /// - **Appends self-heal a torn tail**: before appending, the writer checks
-///   the current last byte and inserts a `\n` if it isn't one, so the torn
-///   fragment becomes an isolated garbage line (skipped by readers, counted
-///   in `ReadResult.skippedLines`) instead of corrupting the next record.
-///   The at-most-one-event loss window is a deliberate trade — no fsync per
-///   keystroke.
+///   the current last byte and, if it isn't a `\n`, terminates the fragment
+///   with `tornMark` + `\n`. The mark is a trailing field that `escape`
+///   can never produce (a lone backslash), so readers skip the whole line
+///   (counted in `ReadResult.skippedLines`) — a cut inside a free-text last
+///   field ("Þórsmörk" → "Þórs") can never heal into a *different*, valid
+///   record, and the fragment cannot corrupt the next record either. The
+///   at-most-one-event loss window is a deliberate trade — no fsync per
+///   keystroke. The mark only ever appears on torn lines, so files written
+///   by builds that healed with a bare `\n` decode exactly as before.
+/// - **Headerless files are adopted before consumption**
+///   (`adoptIfHeaderless`): a file whose header is missing or garbled gets
+///   a fresh generation header by atomic rewrite as the compactor's first
+///   step, so the compactor never records a `.none` marker with a non-zero
+///   offset — an offset can neither be honoured against a *different*
+///   headerless file nor be lost to a crash between save and truncate.
+///   (An empty file or a still-torn header line yields `(.none, 0)`:
+///   nothing consumed, nothing to honour — inert.)
 /// - **Truncation** (`truncate(consumedUpTo:)`) rewrites the file atomically
 ///   (write-temp-then-rename) with a *new* generation UUID, keeping every
 ///   byte after the consumed offset. A compactor that crashes at any point
@@ -149,6 +162,9 @@ public struct EventLog {
         for scalar in word.unicodeScalars {
             if CharacterSet.whitespacesAndNewlines.contains(scalar) { return false }
             if CharacterSet.controlCharacters.contains(scalar) { return false }
+            // U+FFFD is what `String(decoding:)` substitutes for a broken
+            // UTF-8 sequence — a decoding artefact, never vocabulary.
+            if scalar == "\u{FFFD}" { return false }
             // Emoji/pictograph rejection: `isEmoji` alone is true for ASCII
             // digits, so require a scalar beyond the basic ranges (0x203C is
             // the first emoji-capable scalar above ASCII/Latin).
@@ -159,6 +175,18 @@ public struct EventLog {
             if CharacterSet.letters.contains(scalar) { hasLetter = true }
         }
         return hasLetter
+    }
+
+    /// Whether a touch offset pair is allowed into the log. Offsets are
+    /// normalized to the key cell (±0.5 at its edges), so anything beyond
+    /// `maxTouchOffset` key widths is garbage, and NaN/±inf would poison the
+    /// per-key Welford aggregates (`TouchKeyStats`) and make the model file
+    /// unencodable. The same rule is applied on read, so a line that slipped
+    /// in some other way is skipped — not re-read forever.
+    public static let maxTouchOffset: Double = 16
+
+    public static func isValidTouchOffset(dx: Double, dy: Double) -> Bool {
+        dx.isFinite && dy.isFinite && abs(dx) <= maxTouchOffset && abs(dy) <= maxTouchOffset
     }
 
     // MARK: - Append (keyboard extension side)
@@ -210,7 +238,16 @@ public struct EventLog {
         }
 
         var start = headerEnd
-        if let marker, marker.generation == generation {
+        // The `.none` generation is shared by EVERY headerless incarnation
+        // (torn first write, garbled UUID), so an offset taken against one
+        // such file proves nothing about another — never resume mid-file
+        // there; a headerless file is always read from its first byte. The
+        // compactor never persists a `.none` marker past offset 0 (it adopts
+        // first, see `adoptIfHeaderless`), so this only ever bites a marker
+        // written by a build from before adoption existed.
+        if let marker,
+           marker.generation == generation,
+           generation != ConsumedMarker.none.generation {
             let offset = Int(marker.offset)
             if offset >= headerEnd && offset <= bytes.count {
                 start = offset
@@ -241,6 +278,58 @@ public struct EventLog {
         )
     }
 
+    // MARK: - Adopt a headerless file (containing app / compactor side)
+
+    /// Give a file that has no usable generation header — a first write
+    /// torn before `#gen\t` completed and later healed, a garbled UUID, or
+    /// a file that predates headers — a real identity BEFORE anything is
+    /// consumed from it. Such files all share the `.none` sentinel, so an
+    /// offset recorded against one can never be trusted against another
+    /// (`read(after:)` refuses it); but without an identity a compactor
+    /// that crashes between saving its marker and truncating would re-read
+    /// the same file from byte 0 and double-apply. Adoption resolves both:
+    /// the file is atomically rewritten as `#gen\t<new UUID>\n` + every
+    /// data byte after the old (garbled) header line, verbatim — complete
+    /// lines keep their exact bytes, a trailing torn fragment stays torn
+    /// (the next append still marks it), garbage lines stay garbage — and
+    /// the rest of compaction runs on an ordinary generation.
+    ///
+    /// Crash-safe at every point: the write is write-temp-then-rename, so
+    /// the file is either the old headerless one (nothing consumed, nothing
+    /// persisted — the next compaction simply adopts again) or the fully
+    /// adopted one. Concurrent extension appends are excluded exactly as
+    /// for `truncate`: callers run this inside the same coordinated-write
+    /// block as the read that follows (`PersonalModel.compact` does).
+    ///
+    /// Returns the new generation when the file was adopted; nil when it
+    /// already had one, is missing/empty, or its header line is still torn
+    /// (nothing is consumable from such a file, so nothing needs identity;
+    /// the next append heals it into a garbled header and adoption happens
+    /// on the following compaction).
+    @discardableResult
+    public func adoptIfHeaderless() throws -> UUID? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let bytes: [UInt8]
+        do {
+            bytes = [UInt8](try Data(contentsOf: url))
+        } catch {
+            throw EventLogError.ioError("read for adopt failed: \(error)")
+        }
+        guard !bytes.isEmpty else { return nil }
+        let (generation, headerEnd) = Self.parseHeader(bytes)
+        guard generation == ConsumedMarker.none.generation, let headerEnd else { return nil }
+
+        let newGeneration = UUID()
+        var newContents = Data(Self.headerLine(generation: newGeneration).utf8)
+        newContents.append(contentsOf: bytes[headerEnd...])
+        do {
+            try newContents.write(to: url, options: .atomic)
+        } catch {
+            throw EventLogError.ioError("adopt rewrite failed: \(error)")
+        }
+        return newGeneration
+    }
+
     // MARK: - Truncate (containing app / compactor side)
 
     /// Drop the consumed prefix `[header, marker.offset)`, preserving every
@@ -259,11 +348,15 @@ public struct EventLog {
     ///
     /// If the file's generation no longer matches `marker.generation` (the
     /// log was already rotated) this is a no-op and returns `marker`
-    /// unchanged. Must run inside the same coordinated-write block as the
+    /// unchanged — as is a `.none` marker, whatever the file: the sentinel
+    /// is shared by every headerless incarnation, so such an offset proves
+    /// nothing (use `adoptIfHeaderless` first; `PersonalModel.compact`
+    /// does). Must run inside the same coordinated-write block as the
     /// `read` that produced `marker` (see `CoordinatedFileAccess`), so no
     /// append can land between read and truncate unseen.
     @discardableResult
     public func truncate(consumedUpTo marker: ConsumedMarker) throws -> ConsumedMarker {
+        guard marker.generation != ConsumedMarker.none.generation else { return marker }
         guard FileManager.default.fileExists(atPath: url.path) else { return marker }
         let bytes: [UInt8]
         do {
@@ -295,10 +388,26 @@ public struct EventLog {
         "#gen\t\(generation.uuidString)\n"
     }
 
+    /// Appended (on the same line) to a torn tail before the healing `\n`.
+    /// Two tabs then a lone backslash: `escape` only ever emits `\\` `\t`
+    /// `\n` `\r`, and every other field is a fixed token or a number, so no
+    /// well-formed line can end this way — `decodeLine` rejects any line
+    /// carrying it, whatever its field count happens to be. The DOUBLE tab
+    /// is for readers that predate the mark (a downgraded install) and only
+    /// check field counts: it adds two fields to every fragment, so none of
+    /// them can land on a record's exact count with a non-empty last field
+    /// (`sa`/`cr` accept any non-empty 5th field — one tab would have let
+    /// `1 d sa typed` + mark decode as a 5-field record).
+    static let tornMark = "\t\t\\#torn"
+
     /// Returns (generation, byte offset just past the header's newline).
     /// `headerEnd == nil` means the header line is torn/unreadable.
     /// A file that doesn't start with `#gen` is treated as generation
     /// `.none` with the data starting at offset 0.
+    ///
+    /// The UUID field ends at the first tab, so a header that merely lost
+    /// its newline and was healed (`#gen\t<UUID>` + `tornMark`) keeps its
+    /// real generation rather than degrading to `.none`.
     static func parseHeader(_ bytes: [UInt8]) -> (generation: UUID, headerEnd: Int?) {
         let prefix = Array("#gen\t".utf8)
         guard bytes.count >= prefix.count, Array(bytes[0..<prefix.count]) == prefix else {
@@ -309,7 +418,8 @@ public struct EventLog {
         guard let newlineIndex = bytes.firstIndex(of: 0x0A) else {
             return (ConsumedMarker.none.generation, nil)
         }
-        let uuidString = String(decoding: bytes[prefix.count..<newlineIndex], as: UTF8.self)
+        let uuidField = bytes[prefix.count..<newlineIndex].prefix { $0 != 0x09 }
+        let uuidString = String(decoding: uuidField, as: UTF8.self)
         guard let uuid = UUID(uuidString: uuidString) else {
             return (ConsumedMarker.none.generation, newlineIndex + 1)
         }
@@ -340,6 +450,9 @@ public struct EventLog {
         case .wordTapped(let word):
             fields = ["wt", try validated(word, field: "word")]
         case .touchSample(let keyChar, let dx, let dy):
+            guard isValidTouchOffset(dx: dx, dy: dy) else {
+                throw EventLogError.invalidContent("touch offset is not finite / in range")
+            }
             fields = [
                 "ts",
                 escape(String(keyChar)),
@@ -350,33 +463,44 @@ public struct EventLog {
         return "1\t\(day)\t" + fields.joined(separator: "\t") + "\n"
     }
 
+    /// Readers re-apply the writer's validation (`isLearnableWord`,
+    /// `isValidTouchOffset`) rather than trusting the file: a hand-edited,
+    /// bit-flipped or torn line must never put something into the model that
+    /// `append` would have refused. Well-formed lines written by any shipped
+    /// build pass unchanged — the rules are the same ones they were written
+    /// under. An invalid `previousWord` downgrades to nil, as on write.
     static func decodeLine(_ line: String) -> LoggedEvent? {
+        guard !line.hasSuffix(tornMark) else { return nil }  // healed torn fragment
         let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
         guard fields.count >= 3, fields[0] == "1", let day = Int32(fields[1]) else { return nil }
         switch fields[2] {
         case "wc":
             guard fields.count == 6, let hint = LanguageHint(rawValue: fields[5]) else { return nil }
             let word = unescape(fields[3])
-            let prev = fields[4].isEmpty ? nil : unescape(fields[4])
-            guard !word.isEmpty else { return nil }
-            return LoggedEvent(day: day, event: .wordCommitted(word: word, previousWord: prev, languageHint: hint))
+            guard isLearnableWord(word) else { return nil }
+            let prev = unescape(fields[4])
+            return LoggedEvent(day: day, event: .wordCommitted(
+                word: word,
+                previousWord: isLearnableWord(prev) ? prev : nil,
+                languageHint: hint))
         case "sa":
             guard fields.count == 5 else { return nil }
             let typed = unescape(fields[3]), accepted = unescape(fields[4])
-            guard !typed.isEmpty, !accepted.isEmpty else { return nil }
+            guard isLearnableWord(typed), isLearnableWord(accepted) else { return nil }
             return LoggedEvent(day: day, event: .suggestionAccepted(typed: typed, accepted: accepted))
         case "cr":
             guard fields.count == 5 else { return nil }
             let original = unescape(fields[3]), applied = unescape(fields[4])
-            guard !original.isEmpty, !applied.isEmpty else { return nil }
+            guard isLearnableWord(original), isLearnableWord(applied) else { return nil }
             return LoggedEvent(day: day, event: .correctionReverted(original: original, applied: applied))
         case "wt":
             guard fields.count == 4 else { return nil }
             let word = unescape(fields[3])
-            guard !word.isEmpty else { return nil }
+            guard isLearnableWord(word) else { return nil }
             return LoggedEvent(day: day, event: .wordTapped(word: word))
         case "ts":
-            guard fields.count == 6, let dx = Double(fields[4]), let dy = Double(fields[5]) else { return nil }
+            guard fields.count == 6, let dx = Double(fields[4]), let dy = Double(fields[5]),
+                  isValidTouchOffset(dx: dx, dy: dy) else { return nil }
             let key = unescape(fields[3])
             guard key.count == 1, let keyChar = key.first else { return nil }
             return LoggedEvent(day: day, event: .touchSample(keyChar: keyChar, dx: dx, dy: dy))
@@ -427,7 +551,7 @@ public struct EventLog {
 
     /// One `open(O_RDWR|O_APPEND|O_CREAT)` + one `write(2)` of the whole
     /// batch. Writes the generation header first when the file is empty, and
-    /// a healing `\n` first when the current tail is torn.
+    /// a healing `tornMark` + `\n` first when the current tail is torn.
     private func appendRaw(_ lines: String) throws {
         let fd = url.withUnsafeFileSystemRepresentation { path -> Int32 in
             guard let path else { return -1 }
@@ -450,7 +574,10 @@ public struct EventLog {
             var lastByte: UInt8 = 0
             let readCount = pread(fd, &lastByte, 1, status.st_size - 1)
             if readCount == 1 && lastByte != 0x0A {
-                payload += "\n"  // heal a torn tail into an isolated garbage line
+                // Heal a torn tail into an isolated, MARKED garbage line —
+                // the mark is what stops a cut inside a word from healing
+                // into a shorter, perfectly valid word.
+                payload += Self.tornMark + "\n"
             }
         }
         payload += lines

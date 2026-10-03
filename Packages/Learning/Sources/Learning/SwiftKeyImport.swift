@@ -35,12 +35,16 @@ public enum SwiftKeyImport {
     ///   at least 2 characters — single-character entries are either already
     ///   in the base lexicons or noise.
     /// - Case is preserved (names matter); exact duplicates dedupe.
+    /// - Any line ending works: LF, CRLF (SwiftKey exports produced on
+    ///   Windows), lone CR, or a mix. Swift treats `"\r\n"` as ONE
+    ///   `Character`, so splitting on `"\n"` alone would never split a CRLF
+    ///   file at all — hence `isNewline`, which covers every variant.
     public static func parseVocabulary(_ text: String) -> (words: [String], skipped: Int) {
         var seen = Set<String>()
         var words: [String] = []
         var skipped = 0
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            var line = rawLine.trimmingCharacters(in: .whitespaces)
+        for rawLine in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            var line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             if line.isEmpty { continue }
             // Header comments start with "# " or are bare "#"; hashtag
             // vocabulary entries are "#word" — strip the marker and keep

@@ -4,7 +4,7 @@
 and search keywords in Unicode CLDR 48.2, limited and ordered by the complete
 Emoji 17.0 fully-qualified repertoire.
 
-Three compact runtime artifacts are bundled with the keyboard extension:
+Four compact runtime artifacts are bundled with the keyboard extension:
 
 - `catalog.json` is the authoritative 1,914-family / 3,944-sequence picker
   repertoire. Every exact sequence carries a release tier: Emoji 15.1 on iOS
@@ -12,6 +12,10 @@ Three compact runtime artifacts are bundled with the keyboard extension:
 
 - `is-suggestions.json` maps conservative, exact, single-token Icelandic
   labels to one unambiguous emoji for the ordinary suggestion bar;
+- `en-suggestions.json` is the same index built from CLDR's English labels
+  (terms of three letters or more). It is consulted only while the typing
+  lane is English, because many English labels are ordinary Icelandic words
+  with another meaning (`man`, `send`); an Icelandic label always wins;
 - `is-search.json` contains all 1,914 base emoji with their
   Icelandic and English CLDR names and keywords for explicit browse search.
   It records both pinned source locales, catalog schema and corpus counts, is
