@@ -170,7 +170,7 @@ enum Strings {
         static let hapticSectionTitle = "Titringur og hljóð"
         static let hapticToggleTitle = "Titringur við innslátt"
         static let audioToggleTitle = "Hljóð við innslátt"
-        static let hapticSectionFooter = "Slekkur á öllum titringi frá Lyklaborði, líka við langa snertingu og val á broddstöfum. iOS krefst „Allow Full Access“ til að titringur virki. Hljóðið heyrist ekki þegar síminn er stilltur á hljóðlaust."
+        static let hapticSectionFooter = "Titringurinn nær líka til langrar snertingar og vals á broddstöfum. iOS krefst „Allow Full Access“ til að titringur virki. Hljóðið heyrist ekki þegar síminn er stilltur á hljóðlaust."
 
         static let aboutSectionTitle = "Um Lyklaborð"
         static let aboutOpenSourceTitle = "Opinn hugbúnaður"
@@ -327,7 +327,7 @@ enum Strings {
         static let worksWithoutBody = "Þú getur skrifað, notað sjálfvirka leiðréttingu og fengið orðauppástungur þótt slökkt sé á fullum aðgangi — ekkert við innsláttinn sjálfan þarfnast hans. Lyklaborðið er fullkomlega nothæft á þennan hátt."
 
         static let enablesTitle = "Hvað fullur aðgangur gerir"
-        static let enablesBody = "Með því að veita fullan aðgang geta lyklaborðið og þetta smáforrit deilt sömu orðabók, þannig að orð sem þú lærir við innslátt birtast hér og samstillast við iCloud. Það kveikir einnig á snertiviðbragði (titringi) við innslátt — iOS lokar á titringsvélina fyrir öll lyklaborð frá þriðja aðila þar til fullur aðgangur er veittur; þetta er takmörkun sem við ráðum ekki við, ekki val sem við tókum."
+        static let enablesBody = "Með því að veita fullan aðgang geta lyklaborðið og þetta smáforrit deilt sömu orðabók, þannig að orð sem þú lærir við innslátt birtast hér og samstillast við iCloud. Það gerir einnig kleift að kveikja á snertiviðbragði (titringi) við innslátt — iOS lokar á titringsvélina fyrir öll lyklaborð frá þriðja aðila þar til fullur aðgangur er veittur; þetta er takmörkun sem við ráðum ekki við, ekki val sem við tókum."
 
         static let noNetworkTitle = "Það tengist samt aldrei netinu"
         static let noNetworkBody = "Fullur aðgangur bætir engri nettengingu við lyklaborðið. Viðbótin inniheldur engan netkóða yfirhöfuð, hvort sem kveikt er á honum eða ekki — þú getur lesið frumkóðann og staðfest það."

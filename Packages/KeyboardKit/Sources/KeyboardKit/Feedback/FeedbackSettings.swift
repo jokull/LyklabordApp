@@ -25,15 +25,15 @@ public struct FeedbackSettings: Sendable {
 
     /// Whether audio feedback is enabled, by default `false`.
     ///
-    /// Lyklaborð fork: upstream defaults to `true`. The click can't follow
-    /// the iOS Keyboard Feedback sound setting, so it is opt-in from the
-    /// app's settings instead.
+    /// Lyklaborð fork: upstream defaults both feedback settings to `true`.
+    /// Neither can follow the iOS Keyboard Feedback settings, so both are
+    /// opt-in from the app's settings instead.
     @AppStorage("\(settingsPrefix)isAudioFeedbackEnabled", store: .keyboardSettings)
     public var isAudioFeedbackEnabled = false
 
-    /// Whether haptic feedback is enabled, by default `true`.
+    /// Whether haptic feedback is enabled, by default `false`.
     @AppStorage("\(settingsPrefix)isHapticFeedbackEnabled", store: .keyboardSettings)
-    public var isHapticFeedbackEnabled = true
+    public var isHapticFeedbackEnabled = false
 }
 
 public extension FeedbackSettings {

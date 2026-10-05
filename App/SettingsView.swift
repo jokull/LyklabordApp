@@ -61,9 +61,10 @@ struct SettingsView: View {
     private var spacebarModeRaw: String = SpacebarMode.completeCurrentWord.rawValue
 
     /// KeyboardKit reads this same App Group-backed preference inside the
-    /// extension. Defaults on to preserve the current behavior.
+    /// extension. Defaults off, matching
+    /// `FeedbackSettings.isHapticFeedbackEnabled` in the extension.
     @AppStorage(AppModel.hapticFeedbackEnabledDefaultsKey, store: UserDefaults(suiteName: AppModel.appGroupIdentifier))
-    private var hapticFeedbackEnabled: Bool = true
+    private var hapticFeedbackEnabled: Bool = false
 
     /// Same App Group-backed store as the haptic preference. Defaults off,
     /// matching `FeedbackSettings.isAudioFeedbackEnabled` in the extension.
