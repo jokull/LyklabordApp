@@ -65,6 +65,11 @@ struct SettingsView: View {
     @AppStorage(AppModel.hapticFeedbackEnabledDefaultsKey, store: UserDefaults(suiteName: AppModel.appGroupIdentifier))
     private var hapticFeedbackEnabled: Bool = true
 
+    /// Same App Group-backed store as the haptic preference. Defaults off,
+    /// matching `FeedbackSettings.isAudioFeedbackEnabled` in the extension.
+    @AppStorage(AppModel.audioFeedbackEnabledDefaultsKey, store: UserDefaults(suiteName: AppModel.appGroupIdentifier))
+    private var audioFeedbackEnabled: Bool = false
+
     /// iCloud sync opt-out flag, default ON (PLAN decision #5: transparent,
     /// zero-config sync). Same App Group suite; the coordinator's engine
     /// reads the same key at each sync call, so a flipped toggle takes
@@ -146,13 +151,17 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Haptics
+    // MARK: - Haptics and sound
 
     private var hapticSection: some View {
         Section {
             Toggle(
                 Strings.Settings.hapticToggleTitle,
                 isOn: $hapticFeedbackEnabled
+            )
+            Toggle(
+                Strings.Settings.audioToggleTitle,
+                isOn: $audioFeedbackEnabled
             )
         } header: {
             Text(Strings.Settings.hapticSectionTitle)

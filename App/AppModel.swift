@@ -46,6 +46,11 @@ final class AppModel {
     static let hapticFeedbackEnabledDefaultsKey =
         "com.keyboardkit.settings.feedback.isHapticFeedbackEnabled"
 
+    /// KeyboardKit's App Group-backed key-click sound preference, written
+    /// and read the same way as `hapticFeedbackEnabledDefaultsKey`.
+    static let audioFeedbackEnabledDefaultsKey =
+        "com.keyboardkit.settings.feedback.isAudioFeedbackEnabled"
+
     // MARK: - State
 
     enum ContainerState: Equatable {

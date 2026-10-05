@@ -23,9 +23,13 @@ public struct FeedbackSettings: Sendable {
         KeyboardSettings.storeKeyPrefix(for: "feedback")
     }
 
-    /// Whether audio feedback is enabled, by default `true`.
+    /// Whether audio feedback is enabled, by default `false`.
+    ///
+    /// Lyklaborð fork: upstream defaults to `true`. The click can't follow
+    /// the iOS Keyboard Feedback sound setting, so it is opt-in from the
+    /// app's settings instead.
     @AppStorage("\(settingsPrefix)isAudioFeedbackEnabled", store: .keyboardSettings)
-    public var isAudioFeedbackEnabled = true
+    public var isAudioFeedbackEnabled = false
 
     /// Whether haptic feedback is enabled, by default `true`.
     @AppStorage("\(settingsPrefix)isHapticFeedbackEnabled", store: .keyboardSettings)
