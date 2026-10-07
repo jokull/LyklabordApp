@@ -84,6 +84,7 @@ public struct KeyboardViewItem<Content: View>: View, KeyboardButtonStyleResolver
     @State var isPressed = false
     
     public var body: some View {
+        let _ = KeyLatencyProbe.count("body.KeyboardViewItem")
         let buttonStyle = buttonStyle
         ZStack(alignment: item.alignment) {
             Color.clearInteractable

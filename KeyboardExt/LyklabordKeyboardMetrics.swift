@@ -8,6 +8,7 @@
 //
 
 import CoreGraphics
+import KeyboardKit
 
 enum LyklabordKeyboardMetrics {
     /// Slightly tighter than Apple's roughly 48pt suggestion surface while
@@ -18,6 +19,19 @@ enum LyklabordKeyboardMetrics {
     /// KeyboardKit uses 56pt rows on large/liquid-glass phones. Apple's
     /// reference keyboard uses roughly 54pt rows in portrait.
     static let maxPortraitRowHeight: CGFloat = 54
+
+    /// Keys read raw UIKit touches through `KeyTouchRouter` instead of a
+    /// SwiftUI gesture. `false` restores KeyboardKit's stock gesture path.
+    static let usesRawTouchRouting = true
+
+    /// Long-press menu sized to fit above the top letter row (see the
+    /// call site in `KeyboardViewController`).
+    static var calloutStyle: Callouts.CalloutStyle {
+        var style = Callouts.CalloutStyle.standard
+        style.actionItemMaxSize = CGSize(width: 50, height: 40)
+        style.actionItemPadding = CGSize(width: 0, height: 2)
+        return style
+    }
 
     static func rowHeight(
         standard: CGFloat,

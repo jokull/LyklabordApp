@@ -44,9 +44,15 @@ extension AutocompleteContext {
 /// context changes — so the env update re-renders the keys in lockstep with
 /// the word label.
 struct SpaceCommitHintContainer<Content: View>: View {
-    @ObservedObject var autocompleteContext: AutocompleteContext
+    /// Deliberately NOT observed: re-running this body on every autocomplete
+    /// publish re-applied the style closure below, and SwiftUI cannot compare
+    /// closures, so every key re-rendered on every keystroke. The armed state
+    /// is mirrored into `armed` instead, which only changes when it flips.
+    let autocompleteContext: AutocompleteContext
     let keyboardContext: KeyboardContext
     let content: Content
+
+    @State private var armed = false
 
     init(
         autocompleteContext: AutocompleteContext,
@@ -59,16 +65,24 @@ struct SpaceCommitHintContainer<Content: View>: View {
     }
 
     var body: some View {
-        let armed = autocompleteContext.armedAutocorrectText != nil
-        content.keyboardButtonStyle { params in
-            var style = params.standardStyle(for: keyboardContext)
-            if armed, params.action == .space {
-                style.backgroundColor = params.isPressed
-                    ? Color.accentColor.opacity(0.8) : Color.accentColor
-                style.foregroundColor = .white
+        content
+            .keyboardButtonStyle { params in
+                var style = params.standardStyle(for: keyboardContext)
+                if armed, params.action == .space {
+                    style.backgroundColor = params.isPressed
+                        ? Color.accentColor.opacity(0.8) : Color.accentColor
+                    style.foregroundColor = .white
+                }
+                return style
             }
-            return style
-        }
+            // `objectWillChange` fires before the new value is stored, so
+            // read it on the next main-queue turn.
+            .onReceive(autocompleteContext.objectWillChange) { _ in
+                DispatchQueue.main.async {
+                    let isArmed = autocompleteContext.armedAutocorrectText != nil
+                    if isArmed != armed { armed = isArmed }
+                }
+            }
     }
 }
 

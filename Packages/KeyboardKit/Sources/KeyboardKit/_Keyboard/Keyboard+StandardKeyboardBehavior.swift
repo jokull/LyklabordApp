@@ -100,8 +100,10 @@ extension Keyboard {
         // MARK: - KeyboardBehavior
 
         open var backspaceRange: Keyboard.BackspaceRange {
+            // Lyklaborð fork: words after 2s of repeating (about twenty
+            // characters), upstream waits 3s.
             let duration = repeatGestureTimer.duration ?? 0
-            return duration > 3 ? .word : .character
+            return duration > 2 ? .word : .character
         }
 
         open func preferredKeyboardCase(

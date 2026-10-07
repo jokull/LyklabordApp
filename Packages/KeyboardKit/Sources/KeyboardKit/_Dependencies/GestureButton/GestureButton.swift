@@ -83,7 +83,7 @@ public struct GestureButton<Label: View>: View {
     private let initConfig: GestureButtonConfiguration?
 
     public typealias Action = () -> Void
-    public typealias DragAction = (DragGesture.Value) -> Void
+    public typealias DragAction = (GestureButtonDragValue) -> Void
     public typealias LabelBuilder = (_ isPressed: Bool) -> Label
     
     private let pressAction: Action?
@@ -105,6 +105,11 @@ public struct GestureButton<Label: View>: View {
     
     @Environment(\.gestureButtonConfiguration)
     private var environmentConfig
+
+    #if os(iOS)
+    @Environment(\.keyTouchRouter)
+    private var touchRouter
+    #endif
 
     private let isInScrollView: Bool
     private let label: LabelBuilder
@@ -132,9 +137,9 @@ public struct GestureButton<Label: View>: View {
                 repeatDelay: config.repeatDelay,
                 repeatAction: repeatAction,
                 repeatTimer: state.repeatTimer,
-                dragStartAction: dragStartAction,
-                dragAction: dragAction,
-                dragEndAction: dragEndAction,
+                dragStartAction: dragStartAction.map { action in { action(.init($0)) } },
+                dragAction: dragAction.map { action in { action(.init($0)) } },
+                dragEndAction: dragEndAction.map { action in { action(.init($0)) } },
                 endAction: endAction,
                 label: label
             )
@@ -145,11 +150,67 @@ public struct GestureButton<Label: View>: View {
     
     var content: some View {
         label(state.isPressed)
-            .overlay(gestureView)
+            .overlay(touchView)
             .onDisappear { state.isRemoved = true }
             .accessibilityAddTraits(.isButton)
     }
+
+    /// Lyklaborð fork: with a ``KeyTouchRouter`` in the environment (and
+    /// outside a scroll view) the button takes raw touches from the router
+    /// and installs no SwiftUI gesture at all.
+    @ViewBuilder
+    var touchView: some View {
+        #if os(iOS)
+        if let touchRouter, !isInScrollView {
+            routedTouchView(touchRouter)
+        } else {
+            gestureView
+        }
+        #else
+        gestureView
+        #endif
+    }
 }
+
+#if os(iOS)
+private extension GestureButton {
+
+    /// Registers the button's frame and handlers with the router. The
+    /// registration is refreshed on every evaluation, so the router always
+    /// holds the handlers of the current view value.
+    func routedTouchView(_ router: KeyTouchRouter) -> some View {
+        GeometryReader { geo in
+            let id = state.routerID
+            let _ = router.register(
+                id: id,
+                frame: geo.frame(in: .global),
+                changed: { handleDragWithState($0) },
+                ended: { handleDragEndedWithState($0, in: geo) },
+                cancelled: { handleCancelled() }
+            )
+            // A gesture that does nothing still has a job: it claims the
+            // touch for this key in SwiftUI's hit-testing. Without it a
+            // touch on the upper part of a top-row key fell through to the
+            // suggestion bar, whose tap area reaches down over the keys, so
+            // one touch both typed the letter and tapped a suggestion.
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { _ in })
+                .onDisappear { router.unregister(id: id) }
+        }
+    }
+
+    /// The system took the touch away (a system gesture began): end the
+    /// press without releasing it.
+    func handleCancelled() {
+        defer { state.stopDragGesture() }
+        guard state.isDragGestureStarted else { return }
+        setScrollGestureDisabledState(false)
+        reset()
+        endAction?()
+    }
+}
+#endif
 
 private extension GestureButton {
     
@@ -157,8 +218,8 @@ private extension GestureButton {
         for geo: GeometryProxy
     ) -> some Gesture {
         DragGesture(minimumDistance: 0)
-            .onChanged { handleDrag($0) }
-            .onEnded { handleDragEnded($0, in: geo) }
+            .onChanged { handleDrag(.init($0)) }
+            .onEnded { handleDragEnded(.init($0), in: geo) }
     }
     
     var gestureView: some View {
@@ -170,7 +231,7 @@ private extension GestureButton {
     }
     
     func handleDrag(
-        _ value: DragGesture.Value
+        _ value: GestureButtonDragValue
     ) {
         if scrollState.isScrolling { return }
         if isInScrollView {
@@ -183,18 +244,30 @@ private extension GestureButton {
     }
     
     func handleDragWithState(
-        _ value: DragGesture.Value
+        _ value: GestureButtonDragValue
     ) {
         state.updateDragGesture(with: value)
         if scrollState.isScrolling { return }
         tryHandleDrag(value)
         if state.isDragGestureStarted { return }
+        // Lyklaborð fork: latency probe. `value.time` is the touch-down
+        // event time, so the first number is how long the touch waited
+        // before SwiftUI delivered it.
+        let probeStart = KeyLatencyProbe.now
+        KeyLatencyProbe.record("press.1-touchToCallback", ms: (KeyLatencyProbe.now - value.time.timeIntervalSinceReferenceDate) * 1000)
         state.startDragGesture(with: value)
         setScrollGestureDisabledState(true)
         tryHandlePress(value)
+        KeyLatencyProbe.record("press.2-handler", ms: (KeyLatencyProbe.now - probeStart) * 1000)
+        if KeyLatencyProbe.isEnabled {
+            DispatchQueue.main.async {
+                KeyLatencyProbe.record("press.3-untilMainFree", ms: (KeyLatencyProbe.now - probeStart) * 1000)
+                KeyLatencyProbe.notePress()
+            }
+        }
     }
     
-    func handleDragEnded(_ value: DragGesture.Value, in geo: GeometryProxy) {
+    func handleDragEnded(_ value: GestureButtonDragValue, in geo: GeometryProxy) {
         if isInScrollView {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 handleDragEndedWithState(value, in: geo)
@@ -205,13 +278,21 @@ private extension GestureButton {
     }
     
     func handleDragEndedWithState(
-        _ value: DragGesture.Value,
+        _ value: GestureButtonDragValue,
         in geo: GeometryProxy
     ) {
         defer { state.stopDragGesture() }
         guard state.isDragGestureStarted else { return }
         setScrollGestureDisabledState(false)
+        let probeStart = KeyLatencyProbe.now
+        KeyLatencyProbe.record("release.1-touchToCallback", ms: (KeyLatencyProbe.now - value.time.timeIntervalSinceReferenceDate) * 1000)
         tryHandleRelease(value, in: geo)
+        KeyLatencyProbe.record("release.2-handler", ms: (KeyLatencyProbe.now - probeStart) * 1000)
+        if KeyLatencyProbe.isEnabled {
+            DispatchQueue.main.async {
+                KeyLatencyProbe.record("release.3-untilMainFree", ms: (KeyLatencyProbe.now - probeStart) * 1000)
+            }
+        }
     }
 
     func handleRepeatAction() {
@@ -234,9 +315,18 @@ private extension GestureButton {
 
 private extension GestureButton {
 
-    func tryHandlePress(_ value: DragGesture.Value) {
+    var usesTouchRouter: Bool {
+        #if os(iOS)
+        touchRouter != nil && !isInScrollView
+        #else
+        false
+        #endif
+    }
+
+    func tryHandlePress(_ value: GestureButtonDragValue) {
         if state.isPressed { return }
         state.isPressed = true
+        state.pressSerial += 1
         pressAction?()
         dragStartAction?(value)
         tryTriggerCancelAfterDelay()
@@ -245,7 +335,7 @@ private extension GestureButton {
     }
 
     /// Try to handle any new drag gestures as a press event.
-    func tryHandleDrag(_ value: DragGesture.Value) {
+    func tryHandleDrag(_ value: GestureButtonDragValue) {
         guard state.isPressed else { return }
         dragAction?(value)
     }
@@ -254,7 +344,7 @@ private extension GestureButton {
     /// how the gesture is ended. It will always trigger the
     /// drag end and end actions, then either of the release
     /// inside or outside actions.
-    func tryHandleRelease(_ value: DragGesture.Value, in geo: GeometryProxy) {
+    func tryHandleRelease(_ value: GestureButtonDragValue, in geo: GeometryProxy) {
         let shouldTrigger = state.isPressed
         reset()
         guard shouldTrigger else { return }
@@ -280,8 +370,20 @@ private extension GestureButton {
     /// and should be replaced by a proper bug fix.
     func tryTriggerCancelAfterDelay() {
         guard let delay = config.cancelDelay else { return }
+        // Lyklaborð fork: the stuck-press guard exists because SwiftUI can
+        // lose a gesture's end event. Routed touches always end or cancel,
+        // so the guard is not armed for them.
+        if usesTouchRouter { return }
         let value = state.lastDragGestureValue
+        let pressSerial = state.pressSerial
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            // Lyklaborð fork: only cancel the press that armed this timer,
+            // and only if it is still down. Upstream fired for any earlier
+            // tap whose touch never moved, three seconds after the fact,
+            // and its `endAction` cleared the shared callout context: a
+            // long-press menu opened within three seconds of typing a
+            // top-row key flashed and closed.
+            guard state.pressSerial == pressSerial, state.isPressed else { return }
             let location = state.lastDragGestureValue?.location
             guard location == value?.location else { return }
             self.reset()

@@ -67,6 +67,7 @@ extension KeyboardContext {
         ifHasChanged val: ValueType
     ) {
         if self[keyPath: keypath] != val {
+            KeyLatencyProbe.count("ctx.sync")
             self[keyPath: keypath] = val
         }
     }

@@ -138,6 +138,12 @@ public class KeyboardContext: ObservableObject {
         _ value: Bool,
         animated: Bool
     ) {
+        // Lyklaborð fork: every space press, release and gesture end sets
+        // this to `false`. Assigning an unchanged value still publishes,
+        // and here inside an animation, so each space tap rebuilt and
+        // animated the whole key grid three times.
+        guard isSpaceDragGestureActive != value else { return }
+        KeyLatencyProbe.count("ctx.spaceDragActive")
         if animated {
             withAnimation { isSpaceDragGestureActive = value }
         } else {

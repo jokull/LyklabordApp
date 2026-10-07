@@ -201,8 +201,12 @@ final class KeyboardViewController: KeyboardInputViewController {
         // D2/D3 (docs/PUNCTUATION_BEHAVIOR.md): a period preceded by a digit is
         // an ordinal/decimal, not a sentence end — don't auto-cap the next word
         // ("þann 21. mars" stays lowercase). Everything else is stock behavior.
+        // The shared repeat timer MUST be passed: without it the behavior
+        // owns a timer that never starts, so a held backspace never
+        // escalates from characters to words.
         services.keyboardBehavior = LyklabordKeyboardBehavior(
-            keyboardContext: state.keyboardContext
+            keyboardContext: state.keyboardContext,
+            repeatGestureTimer: services.repeatGestureTimer
         )
 
         // Adaptive quote key (issue #10): the numeric quote key's layout
@@ -227,6 +231,58 @@ final class KeyboardViewController: KeyboardInputViewController {
     }
 
     // MARK: - Appearance
+
+    /// Delivers raw touches to the keys (see `KeyTouchRouter` for why
+    /// SwiftUI's own gesture is too late on a keyboard window).
+    private let keyTouchRouter = KeyTouchRouter()
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if keyTouchRouter.recognizer.view == nil {
+            view.addGestureRecognizer(keyTouchRouter.recognizer)
+        }
+        syncKeyLatencyProbe()
+    }
+
+    /// The key-latency probe (research/tap-delay.md) runs only while the
+    /// containing app has a developer recording session armed, the same
+    /// App Group flag `SessionRecorder` honours. Timings and counts only,
+    /// appended to `Documents/key-latency.jsonl` in the App Group container
+    /// (`devicectl` can only copy out of Library, Documents or tmp). The
+    /// flag is read off the main thread.
+    private func syncKeyLatencyProbe() {
+        guard let appGroupId = KeyboardApp.lyklabord.appGroupId else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let defaults = UserDefaults(suiteName: appGroupId)
+            let armedUntil = defaults?.double(forKey: SessionRecorder.armedUntilKey) ?? 0
+            let isArmed = Date().timeIntervalSince1970 < armedUntil
+            DispatchQueue.main.async {
+                guard isArmed else { return KeyLatencyProbe.stop() }
+                KeyLatencyProbe.sink = { line in
+                    DispatchQueue.global(qos: .utility).async {
+                        guard let dir = FileManager.default.containerURL(
+                            forSecurityApplicationGroupIdentifier: appGroupId)
+                        else { return }
+                        let docs = dir.appendingPathComponent("Documents", isDirectory: true)
+                        try? FileManager.default.createDirectory(
+                            at: docs, withIntermediateDirectories: true)
+                        let url = docs.appendingPathComponent("key-latency.jsonl")
+                        let stamped =
+                            "{\"t\":\(Int(Date().timeIntervalSince1970)),\"build\":\"\(BuildInfo.builtAt)\",\"d\":\(line)}\n"
+                        guard let data = stamped.data(using: .utf8) else { return }
+                        if let handle = try? FileHandle(forWritingTo: url) {
+                            defer { try? handle.close() }
+                            _ = try? handle.seekToEnd()
+                            try? handle.write(contentsOf: data)
+                        } else {
+                            try? data.write(to: url)
+                        }
+                    }
+                }
+                KeyLatencyProbe.start()
+            }
+        }
+    }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
@@ -405,6 +461,16 @@ final class KeyboardViewController: KeyboardInputViewController {
                 height: LyklabordKeyboardMetrics.toolbarHeight,
                 padding: LyklabordKeyboardMetrics.toolbarPadding
             ))
+            // Long-press (diacritic menus, space cursor) fires after 0.4s
+            // instead of KeyboardKit's 0.5s (user feedback 2026-10: the
+            // hold felt slow).
+            .keyboardButtonGestureConfiguration(.init(longPressDelay: 0.4))
+            // A keyboard extension cannot draw above its own view, and the
+            // only room above the top letter row is the 44pt suggestion
+            // bar. KeyboardKit's stock long-press menu is ~55pt tall, so
+            // top-row menus were cropped at the top edge. Slimmer items and
+            // padding keep the whole menu inside the bar's height.
+            .keyboardCalloutStyle(LyklabordKeyboardMetrics.calloutStyle)
             .keyboardCalloutActions { params in
                 // Long-press the emoji key → a quick row of the user's top-10
                 // emoji by frecency (seeded with popular defaults), rendered by
@@ -457,6 +523,7 @@ final class KeyboardViewController: KeyboardInputViewController {
                     }
             )
             } // SpaceCommitHintContainer
+            .keyTouchRouter(LyklabordKeyboardMetrics.usesRawTouchRouting ? self.keyTouchRouter : nil)
         }
     }
 }
@@ -741,11 +808,12 @@ final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
 
     /// Bottom-row width tuning (dogfood feedback 2026-07-15: the period key
     /// plus KeyboardKit's stock 25% return squeezed the spacebar to ~38% of
-    /// the row, causing space-taps to land on '.'). Return narrows to 19%
+    /// the row, causing space-taps to land on '.'). Return narrowed to 19%
     /// (landscape 16%) and the period key to 8% — slimmer than a letter key,
-    /// it's a modifier-class target — handing the reclaimed ~11% to the
-    /// spacebar (~45%, near Apple's proportions). Alphabetic only; other
-    /// keyboard types keep stock widths.
+    /// it's a modifier-class target — handing the reclaimed width to the
+    /// spacebar. User feedback 2026-10: space-taps still landed on return
+    /// (which submits in URL/search fields), so return is now 15% (landscape
+    /// 13%). Alphabetic only; other keyboard types keep stock widths.
     override func itemSizeWidth(
         for action: KeyboardAction,
         row: Int,
@@ -765,7 +833,7 @@ final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
                 return .percentage(0.11)
             case .primary:
                 let portrait = context.interfaceOrientation.isPortrait
-                return .percentage(portrait ? 0.19 : 0.16)
+                return .percentage(portrait ? 0.15 : 0.13)
             default:
                 break
             }
@@ -949,10 +1017,15 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
     /// the proxy suffix again at consumption.
     private var spaceCommitMemo: String?
 
+    /// Repeat ticks seen since a held backspace entered its word phase.
+    private var wordDeleteTick = 0
+
     private func recordPendingSelfEdit() {
         guard let before = ledgerBeforeWindow else { return }
         ledgerBeforeWindow = nil
-        let after = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+        let after = KeyLatencyProbe.measure("any.ledgerReadAfter") {
+            keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+        }
         lyklabordAutocompleteService?.noteSelfEdit(
             before: before, after: after,
             keystroke: ledgerKeystroke, replacement: ledgerReplacement)
@@ -1027,6 +1100,19 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         on action: KeyboardAction,
         replaced: Bool
     ) {
+        // Held backspace, word phase (see `LyklabordKeyboardBehavior
+        // .backspaceRange`): the repeat timer ticks every 0.1s, which is
+        // right for characters but would erase ten words a second. Act on
+        // every third tick only.
+        if action == .backspace {
+            if gesture == .press {
+                wordDeleteTick = 0
+            } else if gesture == .repeatPress, behavior.backspaceRange == .word {
+                wordDeleteTick += 1
+                if wordDeleteTick % 3 != 1 { return }
+            }
+        }
+
         // Emoji-search firewall. Search keystrokes are private view state,
         // consumed before the proxy ledger, autocorrect, recorder, touch
         // evidence, or learning pipeline. Only a selected `.emoji` is ever
@@ -1072,8 +1158,11 @@ final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
         // tryPerformAutocomplete override, or at the exit fallback for
         // paths that never reach autocomplete. Outermost call only.
         if ledgerHandleDepth == 0 {
-            ledgerBeforeWindow =
+            ledgerBeforeWindow = KeyLatencyProbe.measure(
+                gesture == .press ? "press.ledgerRead" : "other.ledgerRead"
+            ) {
                 keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+            }
             ledgerKeystroke = gesture == .release ? Self.ledgerKeystroke(for: action) : nil
             ledgerReplacement = nil
         }

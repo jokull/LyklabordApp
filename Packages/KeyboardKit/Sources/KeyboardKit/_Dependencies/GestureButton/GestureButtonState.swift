@@ -24,13 +24,20 @@ class GestureButtonState: ObservableObject {
     
     let repeatTimer: GestureButtonTimer
 
+    /// Identifies this button to a ``KeyTouchRouter``.
+    let routerID = UUID()
+
+    /// Incremented on every press, so delayed work can tell whether the
+    /// press that scheduled it is still the current one.
+    var pressSerial = 0
+
     @Published
     var isPressed = false {
         didSet { isPressedBinding.wrappedValue = isPressed }
     }
     
     private(set) var isDragGestureStarted = false
-    private(set) var lastDragGestureValue: DragGesture.Value?
+    private(set) var lastDragGestureValue: GestureButtonDragValue?
     private(set) var lastMaxDragDistance = -1.0
     
     var isPressedBinding: Binding<Bool>
@@ -40,7 +47,7 @@ class GestureButtonState: ObservableObject {
     var repeatDate = Date()
     
     func startDragGesture(
-        with value: DragGesture.Value
+        with value: GestureButtonDragValue
     ) {
         isDragGestureStarted = true
         lastMaxDragDistance = -1
@@ -52,7 +59,7 @@ class GestureButtonState: ObservableObject {
     }
     
     func updateDragGesture(
-        with value: DragGesture.Value
+        with value: GestureButtonDragValue
     ) {
         lastDragGestureValue = value
         let distance = distance(

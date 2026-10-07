@@ -219,7 +219,7 @@ extension Keyboard {
         private let dragAction: KeyboardDragGestureAction?
         private let endAction: KeyboardGestureAction?
 
-        @SwiftUI.State private var lastDragValue: DragGesture.Value?
+        @SwiftUI.State private var lastDragValue: GestureButtonDragValue?
 
         @Environment(\.gestureButtonConfiguration) private var configuration
         @Environment(\.keyboardCalloutActionsBuilder) private var calloutActionsBuilder
@@ -296,7 +296,7 @@ private extension Keyboard.ButtonGestures {
         doubleTapAction?()
     }
 
-    func handleDrag(in geo: GeometryProxy, value: DragGesture.Value) {
+    func handleDrag(in geo: GeometryProxy, value: GestureButtonDragValue) {
         lastDragValue = value
         updateCalloutActionSelection(for: value)
         dragAction?(value.startLocation, value.location)
@@ -308,7 +308,7 @@ private extension Keyboard.ButtonGestures {
     // coordinate plumbing (TypeEngine touch decoding). Deliberately does
     // NOT touch `lastDragValue`, so KeyboardKit's own release-outside
     // tolerance logic is byte-identical to upstream.
-    func handleDragEnd(in geo: GeometryProxy, value: DragGesture.Value) {
+    func handleDragEnd(in geo: GeometryProxy, value: GestureButtonDragValue) {
         guard let action else { return }
         let size = geo.size
         guard size.width > 0, size.height > 0 else { return }
@@ -332,8 +332,10 @@ private extension Keyboard.ButtonGestures {
     }
 
     func handlePress(in geo: GeometryProxy) {
-        pressAction?()
-        calloutContext?.updateInputAction(action, in: geo)
+        KeyLatencyProbe.measure("press.2a-action") { pressAction?() }
+        KeyLatencyProbe.measure("press.2b-inputCallout") {
+            calloutContext?.updateInputAction(action, in: geo)
+        }
     }
 
     func handleReleaseInside(in geo: GeometryProxy) {
@@ -395,7 +397,7 @@ private extension Keyboard.ButtonGestures {
     }
 
     func updateCalloutActionSelection(
-        for value: DragGesture.Value
+        for value: GestureButtonDragValue
     ) {
         guard let context = calloutContext else { return }
         context.updateSecondaryActionsSelection(with: value)

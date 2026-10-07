@@ -20,7 +20,10 @@ extension Keyboard {
         
         var view: () -> ViewType
     
-        @EnvironmentObject var autocompleteContext: AutocompleteContext
+        // Lyklaborð fork: upstream also declares the autocomplete context
+        // here without using it. Observing it re-ran `view()` on every
+        // suggestion update, handing SwiftUI a brand-new `KeyboardView`
+        // (new closures, so nothing can be skipped) once per keystroke.
         @EnvironmentObject var externalContext: ExternalKeyboardContext
         @EnvironmentObject var keyboardContext: KeyboardContext
         @EnvironmentObject var themeContext: KeyboardThemeContext

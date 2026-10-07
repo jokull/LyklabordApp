@@ -256,7 +256,7 @@ extension KeyboardAction {
             tryRemoveAutocompleteInsertedSpace(before: gesture, on: action)
             tryAutocompleteIgnoreCurrentWord(before: gesture, on: action)
             tryApplyAutocorrectSuggestion(before: gesture, on: action)
-            gestureAction(keyboardController)
+            KeyLatencyProbe.measure("release.2a-proxyEdit") { gestureAction(keyboardController) }
             tryReinsertAutocompleteRemovedSpace(after: gesture, on: action)
             tryEndCurrentSentence(after: gesture, on: action)
             tryChangeKeyboardCase(after: gesture, on: action)
@@ -344,6 +344,7 @@ extension KeyboardAction {
         ) {
             let new = preferredKeyboardCase(after: gesture, on: action)
             guard keyboardContext.keyboardCase != new else { return }
+            KeyLatencyProbe.count("ctx.keyboardCase")
             keyboardContext.keyboardCase = new
         }
 
@@ -663,7 +664,7 @@ extension KeyboardAction {
         ) {
             if !shouldTriggerAudioFeedback(for: gesture, on: action) { return }
             guard let feedback = audioFeedback(for: gesture, on: action) else { return }
-            triggerAudioFeedback(feedback)
+            KeyLatencyProbe.measure("feedback.audio") { triggerAudioFeedback(feedback) }
         }
 
         /// Try to trigger haptic feedback for the action.
@@ -673,7 +674,7 @@ extension KeyboardAction {
         ) {
             if !shouldTriggerHapticFeedback(for: gesture, on: action) { return }
             guard let feedback = hapticFeedback(for: gesture, on: action) else { return }
-            triggerHapticFeedback(feedback)
+            KeyLatencyProbe.measure("feedback.haptic") { triggerHapticFeedback(feedback) }
         }
 
         /// Trigger feedback for a certain action gesture.

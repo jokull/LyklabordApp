@@ -119,8 +119,8 @@ public struct KeyboardView<
         self.emojiKeyboardBuilder = emojiKeyboard
         self.toolbarBuilder = toolbar
 
-        _autocompleteContext = .init(wrappedValue: autocompleteContext)
-        _calloutContext = .init(wrappedValue: calloutContext)
+        self.autocompleteContext = autocompleteContext
+        self.calloutContext = calloutContext
         _keyboardContext = .init(wrappedValue: keyboardContext)
     }
 
@@ -144,11 +144,21 @@ public struct KeyboardView<
     @Environment(\.keyboardInputToolbarDisplayMode) var inputToolbarDisplayModeFromEnvironment
     @Environment(\.keyboardViewStyle) var keyboardViewStyleFromEnvironment
 
-    @ObservedObject var autocompleteContext: AutocompleteContext
-    @ObservedObject var calloutContext: CalloutContext
+    // Lyklaborð fork: the autocomplete and callout contexts are NOT
+    // observed here. Upstream observes both, so every key press (the
+    // callout context publishes the pressed key) and every suggestion
+    // update rebuilt the whole key grid on the main thread, before the
+    // pressed key could even highlight. The views that render that state
+    // observe it themselves: the callout overlays, and `ToolbarObserver`
+    // below for the suggestion bar. Consequence: `nextCharacterPrediction`
+    // (per-key tap-area growth, a KeyboardKit Pro feature this keyboard's
+    // service never populates) is read without being observed.
+    let autocompleteContext: AutocompleteContext
+    let calloutContext: CalloutContext
     @ObservedObject var keyboardContext: KeyboardContext
 
     public var body: some View {
+        let _ = KeyLatencyProbe.count("body.KeyboardView")
         if keyboardContext.isKeyboardCollapsed {
             collapsedContent
                 .transition(.move(edge: .bottom))
@@ -326,6 +336,16 @@ public extension KeyboardView {
 
 // MARK: - Views
 
+/// Lyklaborð fork: re-evaluates only the suggestion bar when the
+/// autocomplete context publishes (see the note on `autocompleteContext`).
+private struct ToolbarObserver<Content: View>: View {
+
+    @ObservedObject var autocompleteContext: AutocompleteContext
+    @ViewBuilder let content: () -> Content
+
+    var body: some View { content() }
+}
+
 private extension KeyboardView {
 
     var keyboardView: some View {
@@ -398,6 +418,12 @@ private extension KeyboardView {
     }
 
     var toolbar: some View {
+        ToolbarObserver(autocompleteContext: autocompleteContext) {
+            toolbarContent
+        }
+    }
+
+    var toolbarContent: some View {
         let style = autocompleteToolbarStyle
         return ZStack {
             toolbarEmojiHeight(for: style)

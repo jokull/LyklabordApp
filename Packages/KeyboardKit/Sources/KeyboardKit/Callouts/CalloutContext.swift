@@ -140,7 +140,7 @@ public extension CalloutContext {
     #if os(iOS) || os(macOS) || os(watchOS) || os(visionOS)
     /// Update the secondary action selection with a drag gesture value.
     func updateSecondaryActionsSelection(
-        with value: DragGesture.Value
+        with value: GestureButtonDragValue
     ) {
         guard buttonFrame != .zero else { return }
         if shouldResetSecondaryActions(for: value.translation) { return resetSecondaryActions() }

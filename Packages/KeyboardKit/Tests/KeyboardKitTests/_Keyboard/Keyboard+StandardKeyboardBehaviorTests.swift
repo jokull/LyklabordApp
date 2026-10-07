@@ -44,8 +44,9 @@ class Keyboard_StandardKeyboardBehaviorTests: XCTestCase {
             return behavior.backspaceRange
         }
         XCTAssertEqual(result(after: 0), .character)
-        XCTAssertEqual(result(after: 2.9), .character)
-        XCTAssertEqual(result(after: 3.1), .word)
+        // Lyklaborð fork: words start after 2s (upstream 3s).
+        XCTAssertEqual(result(after: 1.9), .character)
+        XCTAssertEqual(result(after: 2.1), .word)
     }
 
 

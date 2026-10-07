@@ -270,7 +270,9 @@ final class ScreenshotUITests: XCTestCase {
             if isKeyboardActive(app) { break }
             let globe = app.buttons["Next keyboard"]
             guard globe.waitForExistence(timeout: 3) else { break }
-            globe.tap()
+            // Coordinate tap: on the iOS 18.3 simulator the element tap
+            // fails with "failed to scroll to visible" for this button.
+            globe.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             // Extension processes cold-start slowly; poll for its marker.
             for _ in 0..<10 {
                 if isKeyboardActive(app) { break }
