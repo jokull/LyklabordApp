@@ -7,6 +7,34 @@ in `scores/history.jsonl`; behavioral contracts live in
 `Packages/TypeEngine/Scenarios/*.scenarios` (scenario comments cite sessions);
 architecture in `docs/adr/`. Newest first.
 
+## 2026-10-07 — TestFlight 1.3 (25) publication
+
+- **Built from** `7284bd5` ("keyboard: read raw touches for keys, stop
+  rebuilding the grid per keystroke"), on top of `33819cb` (edge-undershoot
+  yield for "ap" → "að", centred-slip rescue for "Hverbig") and the
+  2026-10-05 settings pair `d4b61fe` + `eab1761` (key sound and haptics off
+  by default, each with a toggle).
+- **Why 1.3**: 1.2 is live on the App Store, so its train is closed to new
+  builds. `MARKETING_VERSION` was overridden on the archive command line;
+  `project.yml` still says 1.2 (24).
+- **Trigger and evidence**: user reports of a press-to-response delay.
+  Device probe on an iPhone 14 Pro: press callback 102 → 22 ms median, worst
+  case 788 → 42 ms, after moving key input off SwiftUI's gated gesture
+  (`research/tap-delay.md`, `research/tap-veto-centred-slips.md`).
+- **Gates**: KeyboardKit 401 tests, rig unit tests 26/26, TypeEngine 81;
+  scenario suites green except the pre-existing `compounds.scenarios:121`
+  (`stokklei`); bench max 6.1 ms. Corpus dev unchanged per the engine
+  subagents' A/B; heldout not run. **The raw-touch key path has no automated
+  coverage**: it was checked by the owner typing a script on one device, in
+  the app's own text field.
+- **Upload**: 1.3 (25), IPA SHA-256
+  `43831e7b21eb5b2cee3eaf706d6f7d2eff29b1f108b161db824a21466e72d175`,
+  processed `VALID` with exempt encryption under build ID
+  `da913d5b-4151-41da-91a0-a83a46a27a45`.
+- **Groups**: assigned to internal `Innri prófun` and external `Vinir`; Beta
+  App Review submission `da913d5b-4151-41da-91a0-a83a46a27a45` reached
+  `WAITING_FOR_REVIEW` on 2026-10-07.
+
 ## 2026-10-03 — App Store 1.2 (24) submission
 
 - **Built from** `b754a54` (merge of PR #17, `agent/harness-and-bugs`):
