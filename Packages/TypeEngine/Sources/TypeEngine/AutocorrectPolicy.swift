@@ -13,6 +13,11 @@ struct AutocorrectPolicyInput {
     let contextPrev: String?
     let pIcelandic: Double
     let capitalizedMidSentence: Bool
+    /// An uppercase letter past the first character ("AP", "iPhone") —
+    /// casing the autocap never produces, so always deliberate.
+    let typedHasInteriorUppercase: Bool
+    /// The candidate the centred-slip cap repriced, if any.
+    let centredSlipRescue: String?
     let typedIsValid: Bool
     let typedIsProtected: Bool
     let typedCompoundSplit: CompoundSplit?
@@ -93,7 +98,46 @@ extension Corrector {
                         && Self.isLinkingLetterRepair(
                             typedChars: typedChars, candidate: best.word, split: $0)
                 } ?? false
-            let effectiveProtected = typedIsProtected && !linkingYield
+            // Edge-undershoot yield (see `EngineConfig
+            // .edgeUndershootYieldEnabled`): a token valid ONLY by
+            // frequency-table attestation yields to a BÍN-known winner
+            // one directional edge-undershoot substitution away, behind
+            // the triple gate. SHORT tokens only: at three letters and up
+            // the class reaches real English words (lip→lið, sip→sið,
+            // burp→burð) that the valid-word rule exists to protect.
+            // Structural preconditions first — the triple gate (and its
+            // trace lines) runs only for the shape.
+            var edgeYield = false
+            if action.edgeUndershootYieldEnabled, preconditionsOK, typedIsValid,
+                typedChars.count <= action.autocorrectShortLengthMax,
+                deliberate.isEmpty, !capitalizedMidSentence, !input.typedHasInteriorUppercase,
+                best.cost.errorOps == 1, best.cost.restorationOps == 0,
+                Self.isSingleEdgeUndershoot(typedChars: typedChars, candidate: best.word),
+                let morphology = model.morphology,
+                !morphology.isKnown(typed), morphology.isKnown(best.word),
+                !model.isPersonalProtected(typed), !model.isPersonalTombstoned(typed)
+            {
+                let laneOK = pIcelandic >= action.edgeUndershootYieldMinPosterior
+                trace?.gate(
+                    "edge-undershoot-lane",
+                    "P(IS) \(String(format: "%.3f", pIcelandic))"
+                        + " >= edgeUndershootYieldMinPosterior"
+                        + " \(action.edgeUndershootYieldMinPosterior)",
+                    pass: laneOK)
+                let tripleOK = passesRestorationTripleGate(
+                    typed: typed,
+                    candidate: best.word,
+                    previousWord: previousWord,
+                    pIcelandic: pIcelandic,
+                    trace: trace)
+                edgeYield = laneOK && tripleOK
+                trace?.note(
+                    "typed \"\(typed)\" is valid by frequency-table attestation only (no BÍN"
+                        + " reading); winner \"\(best.word)\" is one edge-undershoot"
+                        + " substitution away -> valid-word protection "
+                        + (edgeYield ? "YIELDS to the ordinary gates" : "HOLDS"))
+            }
+            let effectiveProtected = typedIsProtected && !linkingYield && !edgeYield
             if linkingYield {
                 trace?.note(
                     "compound protection YIELDS: winner \"\(best.word)\" is an attested"
@@ -107,7 +151,8 @@ extension Corrector {
                 isRestorationOnly: best.cost.isRestorationOnly,
                 winnerTypicality: model.isPersonalValid(best.word)
                     ? .infinity
-                    : (attestedTypicality(of: best.word) ?? -.infinity)
+                    : (attestedTypicality(of: best.word) ?? -.infinity),
+                isCentredSlipRescue: input.centredSlipRescue == best.word
             )
             if let trace {
                 trace.margin = margin

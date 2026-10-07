@@ -714,3 +714,255 @@ EXPECT_NO_AUTOCORRECT
 EXPECT_VERBATIM vold
 T " "
 EXPECT_LAST_COMMIT vold
+
+# ============================================================================
+# Edge-undershoot yield — "ap" → "að" (user report + owner dogfood, 2026-10-06)
+# ============================================================================
+# The report: typing "ap" for "að" is never autocorrected. p sits directly
+# left of ð on the top row (… o p ð) and fast typists undershoot the
+# rightmost column onto its neighbour (SpatialModel.edgeUndershootPairs —
+# the same recorded-session class wave 30 priced). Trace before the fix:
+#
+#   decide "ap"  prev="ætla"  P(IS)=0.880  typedIsValid=true
+#   #1 að  cost=1.020 (err=1 rest=0)  score=+3.011  margin=+2.701
+#   rule=valid-word (no auto-apply path)
+#
+# "ap" is not a word in either language's morphology — it is protected only
+# because both frequency tables attest the string (is.lex f=5939, BÍN
+# unknown; en.lex f=568466 from the abbreviation "AP"). The yield lets the
+# ORDINARY margin/typicality gates judge the winner when, and only when:
+# the typed token is SHORT (two letters — where attestation is no evidence
+# of wordhood), its validity is frequency-table-only (no BÍN reading, not
+# personal, not tombstoned), carries no deliberate casing, the winner
+# differs by exactly ONE edge-undershoot substitution (p→ð, l→æ, æ→ö,
+# m→þ), the lane is established Icelandic, and the winner passes the
+# existing past-the-valid-word triple gate (≥ 10× is.lex dominance,
+# context advantage, sletta guard against the English reading).
+
+SCENARIO ap autocorrects to að mid-sentence in an Icelandic lane (2026-10-06)
+T "Ég ætla ap"
+EXPECT_VERBATIM ap
+EXPECT_AUTOCORRECT að
+T " "
+EXPECT_LAST_COMMIT að
+EXPECT_BUFFER "Ég ætla að "
+
+SCENARIO ap autocorrects to að deeper in an Icelandic sentence (2026-10-06)
+T "Við þurfum ap fara heim og ætlum ap "
+EXPECT_BUFFER "Við þurfum að fara heim og ætlum að "
+
+SCENARIO ap with dead-center taps still autocorrects to að (2026-10-06)
+# The recorded undershoot shape: the p tap lands on p's CENTER with intent
+# ð — the tap point carries no information, so the dead-center veto must
+# not block the edge pair.
+T "Ég ætla "
+TAP a 0 0
+TAP p 0 0
+EXPECT_AUTOCORRECT að
+
+SCENARIO guard: cold-start ap is never touched (2026-10-06)
+# Neutral lane: nothing licenses reading a both-lexicon token as Icelandic.
+T ap
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT ap
+
+SCENARIO Ég held ap → að: one Icelandic commit plus a both-language word is enough (2026-10-06)
+# edgeUndershootYieldMinPosterior is 0.7 (owner decision 2026-10-06). The
+# lane starts neutral in every field: "Ég" lifts it to 0.75 and the
+# both-language "held" lets it drift to 0.71, so a 0.8 floor missed the
+# slip in a field's first words. The accepted cost is the two ACCEPTED
+# scenarios below, which sit at 0.75 and so fire as well.
+T "Ég held ap"
+EXPECT_AUTOCORRECT að
+T " "
+EXPECT_LAST_COMMIT að
+
+SCENARIO ACCEPTED: Ég ap → að after a single Icelandic word (2026-10-06)
+T "Ég ap"
+EXPECT_AUTOCORRECT að
+T " "
+EXPECT_LAST_COMMIT að
+
+SCENARIO ACCEPTED: an Icelandic name in an English sentence licenses ap → að (2026-10-06)
+# "Hello Jón" lands at P(IS) = 0.75 on one Icelandic-only token. Accepted
+# cost of the 0.7 floor; the typed "ap" stays in the verbatim slot.
+T "Hello Jón ap"
+EXPECT_AUTOCORRECT að
+T " "
+EXPECT_LAST_COMMIT að
+
+SCENARIO QUIRK: sentence-initial autocapped Ap stays after a truncated sentence (2026-10-06)
+# The proxy window is cut at the sentence boundary but the bigram carry
+# still supplies prev="heim", so the capitalized token reads as
+# mid-sentence (deliberate casing) and the yield stands down. Conservative
+# direction; lowercase "ap" in the same position fires.
+T "Ég ætla að fara heim. Ap"
+EXPECT_NO_AUTOCORRECT
+EXPECT_TOP Að
+
+SCENARIO guard: English ap commits as typed (2026-10-06)
+T "I will use the ap"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT ap
+
+SCENARIO guard: English app is never turned into að (2026-10-06)
+T "I will use the ap"
+EXPECT_NO_AUTOCORRECT
+T p
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT app
+
+SCENARIO guard: English api is never turned into að (2026-10-06)
+T "I will use the ap"
+EXPECT_NO_AUTOCORRECT
+T i
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT api
+
+SCENARIO guard: English apt is never turned into að (2026-10-06)
+T "That is very ap"
+EXPECT_NO_AUTOCORRECT
+T t
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT apt
+
+SCENARIO guard: Icelandic-lane app and api slettur commit as typed (2026-10-06)
+# Typing THROUGH "ap" toward a longer word only arms the bar; nothing
+# applies without a delimiter, and the finished words are valid.
+T "Ég ætla að nota app "
+EXPECT_LAST_COMMIT app
+T "og api "
+EXPECT_LAST_COMMIT api
+
+SCENARIO guard: capitalized AP and Ap mid-sentence are deliberate (2026-10-06)
+# The abbreviation reading (AP-fréttastofan): deliberate casing keeps the
+# valid-word rule intact even in a saturated Icelandic lane.
+T "Ég las frétt frá AP"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT AP
+T "og Ap"
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO guard: explicitly added ap keeps full autocorrect veto (2026-10-06)
+PERSONAL_EXPLICIT ap 3
+T "Ég ætla ap"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT ap
+
+SCENARIO þap autocorrects to það — sibling slip, unknown token (2026-10-06)
+# Already worked before the yield ("þap" is attested nowhere, so the
+# ordinary-unknown rule fires it); locked here beside its sibling.
+T "Ég held þap"
+EXPECT_AUTOCORRECT það
+T " "
+EXPECT_LAST_COMMIT það
+
+SCENARIO guard: three-letter vip is NOT yielded to við (2026-10-06)
+# HONEST MISS, deliberate: "vip" → "við" is the same slip, but the yield is
+# capped at two letters. Measured without the cap, the class reaches real
+# English words in an Icelandic lane (lips→liðs, burp→burð, sips→siðs
+# fired) — exactly what the valid-word rule exists to prevent. "við" stays
+# a one-tap offer.
+T "Þetta er vip"
+EXPECT_NO_AUTOCORRECT
+EXPECT_CONTAINS við
+T " "
+EXPECT_LAST_COMMIT vip
+
+SCENARIO guard: English lips and burp survive a saturated Icelandic lane (2026-10-06)
+T "Þetta er svo lips"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT lips
+T "og svo burp"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT burp
+
+# ============================================================================
+# Centred-slip cap — "Hverbig" → "Hvernig" (owner dogfood, 2026-10-06)
+# ============================================================================
+# The report: "Hverbig" (b for its neighbour n) was not armed, but after
+# space + backspace "Hvernig" was. Cause: the re-opened word has no tap
+# record (the commit clears it and backspacing rebuilds the token from text),
+# so it ran the tapless engine, which fires at cost 1.02. With the taps, a
+# b hit near b's CENTER priced b→n at the full Gaussian exponent:
+#
+#   all taps (0,0):      #1 "hver íg" (split)  #3 hvernig cost=7.229  no fire
+#   taps ~(0.1,0.1):     #1 hvernig cost=5.060 margin=+0.639 < 1.150 x 3.96
+#
+# Recorded sessions (tools/session-analyzer, one typist): 60 of 64 confirmed
+# adjacent-key slips leaned >= 0.25 toward the intended key and were already
+# handled; 4 did not. For a token attested nowhere, when the pool holds
+# exactly ONE attested single-substitution reading, on an adjacent key, of
+# typical vocabulary (z >= 1.0), that candidate prices at static + 3.0 nats
+# and the margin veto is lifted for it (EngineConfig.tapCentredSlipCapEnabled).
+# A second single-substitution reading of any kind stands the cap down.
+
+SCENARIO Hverbig with dead-center taps autocorrects to Hvernig (2026-10-06)
+TAP H 0 0
+TAP v 0 0
+TAP e 0 0
+TAP r 0 0
+TAP b 0 0
+TAP i 0 0
+TAP g 0 0
+EXPECT_VERBATIM Hverbig
+EXPECT_AUTOCORRECT Hvernig
+T " "
+EXPECT_LAST_COMMIT Hvernig
+
+SCENARIO Hverbig with near-center taps autocorrects to Hvernig (2026-10-06)
+TAP H 0.1 0.1
+TAP v 0.1 0.1
+TAP e 0.1 0.1
+TAP r 0.1 0.1
+TAP b 0.15 0.1
+TAP i 0.1 0.1
+TAP g 0.1 0.1
+EXPECT_AUTOCORRECT Hvernig
+
+SCENARIO guard: dead-center name Mytton is never rewritten to Mutton (2026-10-06)
+# One adjacent substitution (y→u) from an attested word with no competing
+# reading — the shape the cap prices — but mutton is not typical
+# vocabulary (z −0.73 < tapCentredSlipWinnerMinZ), so the dead-center veto
+# stands. Tapless, this fires.
+T "Hann heitir "
+TAP M 0 0
+TAP y 0 0
+TAP t 0 0
+TAP t 0 0
+TAP o 0 0
+TAP n 0 0
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT Mytton
+
+SCENARIO guard: dead-center retour stays as typed (2026-10-06)
+TAP r 0 0
+TAP e 0 0
+TAP t 0 0
+TAP o 0 0
+TAP u 0 0
+TAP r 0 0
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT retour
+
+SCENARIO guard: dead-center thwn has two real-word neighbours and stays (2026-10-06)
+# then (w→e) and than (w→a) are both one adjacent key away: two real-word
+# readings, so the cap stands down and the dead-center veto holds.
+TAP t 0 0
+TAP h 0 0
+TAP w 0 0
+TAP n 0 0
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT thwn

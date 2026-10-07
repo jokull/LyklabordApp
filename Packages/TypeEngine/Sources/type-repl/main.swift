@@ -1,3 +1,4 @@
+import EvalKit
 import Foundation
 import Learning
 import TypeEngine
@@ -21,6 +22,11 @@ import TypeEngine
 //   --no-inflect     skip the Stage-B inflection artifacts (paradigms.bin +
 //                    governors.json.gz) — the frequency-only baseline engine
 //   --limit <n>      suggestion bar size    (default 5; bench default 3 = extension)
+//   --config <p>     EngineConfig overrides JSON (same keys as
+//                    `type-eval ab --config`) — A/B a scenario suite or a
+//                    REPL session against a knob
+//   --deterministic  lift the wall-clock decode budgets outside `run` too
+//                    (piped REPL replays stay reproducible under load)
 //   --personal <p>   personal-model JSON (Learning.PersonalModel file, the
 //                    same personal-model.json the app writes to the App
 //                    Group container) injected as the engine's personal
@@ -53,6 +59,8 @@ let noMorph = takeFlag("--no-morph")
 let noInflect = takeFlag("--no-inflect")
 let limitOverride = takeOption("--limit").flatMap(Int.init)
 let personalOverride = takeOption("--personal")
+let configOverride = takeOption("--config")
+let deterministicBudgets = takeFlag("--deterministic")
 // The `inflect` subcommand builds its own engine pair (morph vs baseline)
 // from `paths`, so peek before the engine below is constructed.
 let isInflectEval = arguments.first == "inflect"
@@ -91,9 +99,22 @@ if isInflectEval {
 // load) flip on machine timing alone. Latency stays the bench's job — the
 // `bench` subcommand keeps the shipping budgets.
 var engineConfig = EngineConfig()
-if arguments.first == "run" {
+if arguments.first == "run" || deterministicBudgets {
     engineConfig.beamTimeBudget = 3600
     engineConfig.splitTimeBudget = 3600
+}
+
+if let configOverride {
+    do {
+        let data = try Data(contentsOf: URL(fileURLWithPath: configOverride))
+        guard let overrides = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ConfigOverrideError.wrongType(key: "<root>", expected: "JSON object")
+        }
+        try ConfigOverrides.apply(overrides, to: &engineConfig)
+    } catch {
+        warn("bad --config: \(error)")
+        exit(2)
+    }
 }
 
 let engine: TypeEngine

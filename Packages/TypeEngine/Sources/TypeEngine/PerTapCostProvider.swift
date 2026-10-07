@@ -133,6 +133,12 @@ struct PerTapCostProvider: PositionCostProvider {
     /// stage-1 byte-identical path.
     private let personalGaussians: [Character: KeyGaussian]?
 
+    /// Centred-slip cap (see `EngineConfig.tapCentredSlipCapEnabled`): the
+    /// uplift over static, set by the corrector — which owns the lexical
+    /// judgement — when the typed token is attested nowhere; nil = off.
+    /// The provider's own per-position prices never read it.
+    var centredSlipUplift: Double?
+
     /// Mean confidence over the positions that HAVE taps; nil when none
     /// do. The corrector's margin-veto aggregate.
     let meanTapConfidence: Double?

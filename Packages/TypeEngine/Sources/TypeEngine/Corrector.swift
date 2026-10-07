@@ -199,7 +199,7 @@ public struct Corrector {
         // Coordinate evidence (PLAN.md "Touch decoding"): swap in the
         // per-tap provider when aligned samples exist; otherwise the static
         // provider (identical to the pre-coordinate engine).
-        let perTap: PerTapCostProvider? =
+        var perTap: PerTapCostProvider? =
             taps.count == typedChars.count && taps.contains(where: { $0 != nil })
             ? PerTapCostProvider(
                 taps: taps, spatial: spatial, config: config,
@@ -236,6 +236,11 @@ public struct Corrector {
         // valid words never pay for decomposition.
         let typedCompoundSplit = typedIsValid ? nil : model.compoundSplit(of: typed)
         let typedIsProtected = typedIsValid || typedCompoundSplit != nil
+        // Centred-slip cap: only for a token attested nowhere and typed
+        // without a long-press (see `EngineConfig.tapCentredSlipCapEnabled`).
+        if config.tapCentredSlipCapEnabled, !typedIsProtected, deliberate.isEmpty {
+            perTap?.centredSlipUplift = config.tapCentredSlipMaxUplift
+        }
         trace?.typedIsValid = typedIsValid
         if let split = typedCompoundSplit {
             trace?.note(
@@ -1138,6 +1143,17 @@ public struct Corrector {
             }
         }
 
+        // Centred-slip cap: the pool is complete, so "the only real-word
+        // reading one substitution away" can be judged here.
+        let centredSlipRescue = centredSlipRescue(
+            typedChars: typedChars, candidates: &candidates, perTap: perTap)
+        if let centredSlipRescue {
+            trace?.note(
+                "centred-slip cap: \"\(centredSlipRescue)\" is the only attested"
+                    + " single-substitution reading (adjacent key) -> priced static +"
+                    + " \(config.tapCentredSlipMaxUplift), margin veto lifted")
+        }
+
         // ---- Scoring ------------------------------------------------------
         // score = -channelCost + λ·S_lang(candidate | context, posterior),
         // where S_lang blends per-lexicon CALIBRATED scores by the posterior
@@ -1317,6 +1333,8 @@ public struct Corrector {
                 contextPrev: contextPrev,
                 pIcelandic: pIcelandic,
                 capitalizedMidSentence: capitalizedMidSentence,
+                typedHasInteriorUppercase: rawTyped.dropFirst().contains(where: \.isUppercase),
+                centredSlipRescue: centredSlipRescue,
                 typedIsValid: typedIsValid,
                 typedIsProtected: typedIsProtected,
                 typedCompoundSplit: typedCompoundSplit,
@@ -1561,10 +1579,14 @@ public struct Corrector {
         candidate: String,
         perTap: PerTapCostProvider?,
         isRestorationOnly: Bool = false,
-        winnerTypicality: Double = -.infinity
+        winnerTypicality: Double = -.infinity,
+        isCentredSlipRescue: Bool = false
     ) -> Double {
         guard let perTap else { return 1 }
         if isRestorationOnly { return 1 }
+        // The cap already charged this winner for its unsupportive tap
+        // (static + uplift); the aggregate veto would charge it twice.
+        if isCentredSlipRescue { return 1 }
         let candidateChars = Array(candidate)
         let mean: Double?
         var maxFactor = config.tapVetoMaxFactor
@@ -2460,6 +2482,82 @@ public struct Corrector {
     /// whose insertion/removal at a compound boundary counts as a
     /// linking-letter repair for the wave-31 protection yield.
     static let linkingLetters: Set<Character> = ["s", "a", "r", "u"]
+
+    /// Centred-slip cap (see `EngineConfig.tapCentredSlipCapEnabled`): when
+    /// the finished pool holds exactly ONE attested-or-personal candidate
+    /// that is the typed word with a single character substituted, that
+    /// substitution is between physically adjacent keys, and the word is
+    /// typical vocabulary, reprice it at static + uplift. Returns the
+    /// repriced word (the policy lifts the margin veto for it), nil when
+    /// the shape does not hold or the tap already prices it cheaper. Any
+    /// second single-substitution reading — adjacent or not — is a
+    /// competing real word and stands the cap down, so the per-tap
+    /// ordering between rival readings is never flattened.
+    func centredSlipRescue(
+        typedChars: [Character],
+        candidates: inout CandidateAdmissionPool,
+        perTap: PerTapCostProvider?
+    ) -> String? {
+        guard let uplift = perTap?.centredSlipUplift else { return nil }
+        var sole: (word: String, index: Int, cost: ChannelCost)?
+        for (word, cost) in candidates where cost.errorOps == 1 && cost.restorationOps == 0 {
+            let chars = Array(word)
+            // Splits are not rival readings: a space-miss split shares the
+            // typed length and keeps its own raised margin.
+            guard !word.contains(" "), chars.count == typedChars.count,
+                let index = Self.singleSubstitutionIndex(typedChars, chars),
+                isAttestedOrPersonal(word)
+            else { continue }
+            if sole != nil { return nil }
+            sole = (word, index, cost)
+        }
+        guard let sole else { return nil }
+        let typed = typedChars[sole.index]
+        let intended = Array(sole.word)[sole.index]
+        guard let a = spatial.keyCenter(of: typed), let b = spatial.keyCenter(of: intended)
+        else { return nil }
+        // Same-row neighbours and the staggered diagonals (≤ ~1.12 pitches).
+        let d = a - b
+        let d2 = d.x * d.x + d.y * d.y
+        guard d2 > 0, d2 <= 1.27 else { return nil }
+        let capped = spatial.substitutionCost(typed: typed, intended: intended) + uplift
+        guard sole.cost.total > capped else { return nil }
+        let typicality =
+            model.isPersonalValid(sole.word)
+            ? Double.infinity : (attestedTypicality(of: sole.word) ?? -.infinity)
+        guard typicality >= config.tapCentredSlipWinnerMinZ else { return nil }
+        candidates.reprice(sole.word, total: capped)
+        return sole.word
+    }
+
+    /// Index of the only differing position of two equal-length words; nil
+    /// when they differ at zero or several positions.
+    static func singleSubstitutionIndex(_ lhs: [Character], _ rhs: [Character]) -> Int? {
+        guard lhs.count == rhs.count else { return nil }
+        var found: Int?
+        for index in 0..<lhs.count where lhs[index] != rhs[index] {
+            if found != nil { return nil }
+            found = index
+        }
+        return found
+    }
+
+    /// Whether `candidate` is the typed word with exactly ONE character
+    /// substituted, and that substitution is a directional edge-undershoot
+    /// pair (`SpatialModel.edgeUndershootPairs`: typed p for ð, l for æ,
+    /// æ for ö, m for þ). Pure shape test for the edge-undershoot
+    /// protection yield — every lexical gate stays the caller's job.
+    static func isSingleEdgeUndershoot(typedChars: [Character], candidate: String) -> Bool {
+        let candidateChars = Array(candidate)
+        guard candidateChars.count == typedChars.count else { return false }
+        var undershoots = 0
+        for (typed, intended) in zip(typedChars, candidateChars) where typed != intended {
+            guard SpatialModel.edgeUndershootPairs.contains(String(typed) + String(intended))
+            else { return false }
+            undershoots += 1
+        }
+        return undershoots == 1
+    }
 
     /// Whether `candidate` equals the typed word with exactly one linking
     /// letter inserted at — or removed just before — a modifier boundary

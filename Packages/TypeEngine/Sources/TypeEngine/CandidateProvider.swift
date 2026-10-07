@@ -176,6 +176,12 @@ struct CandidateAdmissionPool: Sequence {
         return true
     }
 
+    /// Replace an admitted candidate's channel total, keeping its op
+    /// decomposition and provenance (centred-slip cap).
+    mutating func reprice(_ word: String, total: Double) {
+        costs[word]?.total = total
+    }
+
     func providers(for word: String) -> CandidateProviderSet {
         provenance?[word] ?? []
     }

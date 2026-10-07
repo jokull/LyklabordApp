@@ -287,6 +287,40 @@ public struct EngineConfig: Sendable {
     /// compounds stay protected: a linking-letter sibling of a REAL
     /// productive compound is essentially never attested vocabulary.
     public var compoundLinkingRepairYieldEnabled = true
+    /// Edge-undershoot yield (user report "ap" → "að", 2026-10-06): the
+    /// valid-word rule (ADR-0006 rule 1) protects any token EITHER
+    /// frequency table attests, but at two letters nearly every string is
+    /// attested somewhere (is.lex web noise, en.lex abbreviations) — "ap"
+    /// (is.lex f=5939, en.lex "AP", no BÍN reading) shielded the single
+    /// most common slip onto the language's most frequent word. When a
+    /// SHORT typed token (≤ `autocorrectShortLengthMax` — longer tokens
+    /// never yield: measured at any length the class reaches real English
+    /// words, lips→liðs, burp→burð, sips→siðs) has validity that is
+    /// FREQUENCY-TABLE-ONLY (no BÍN reading, not personal, not
+    /// tombstoned, no deliberate casing or long-press) and the ranked
+    /// winner is a BÍN-known word exactly ONE directional edge-undershoot
+    /// substitution away (`SpatialModel.edgeUndershootPairs`: p→ð, l→æ,
+    /// æ→ö, m→þ — the recorded aim error onto the rightmost column's
+    /// neighbour), the protection yields IF the winner also passes the
+    /// existing past-the-valid-word triple gate (`passesRestorationTripleGate`:
+    /// ≥ `restorationDominanceRatio`× own-lane dominance, context
+    /// advantage, sletta guard against the other language's reading) at
+    /// an ESTABLISHED Icelandic lane (`edgeUndershootYieldMinPosterior`).
+    /// Yielding only removes the veto: the ordinary margin, short-token
+    /// typicality floor (headline vocabulary, z ≥ `autocorrectShortMinZ`),
+    /// junk scaling and tap veto still decide the fire. BÍN-valid typed
+    /// words never yield. Enumerated against both lexicons on 2026-10-06
+    /// the two-letter shape class is {ap→að, bl→bæ, ep→eð, mj→þj, nl→næ};
+    /// only ap→að clears the gates.
+    public var edgeUndershootYieldEnabled = true
+    /// Lane floor of the edge-undershoot yield. Slightly above
+    /// `accentAutoApplyMinPosterior` (0.65, the restoration floor). Set so
+    /// one Icelandic-only commit followed by a both-language word still
+    /// qualifies ("Ég held ap" sits at 0.71): the lane starts neutral in
+    /// every field, and a 0.8 floor missed the slip in a field's first
+    /// words. Owner decision 2026-10-06, accepting that "Ég ap" and
+    /// "Hello Jón ap" (0.75) fire too.
+    public var edgeUndershootYieldMinPosterior: Double = 0.7
     /// Hyphen-join repair (wave 31, the missing-hyphen class — the single
     /// largest compound-adjacent error class in the iceErrorCorpus
     /// harvest): a space-miss split whose first half is a capitalized-
@@ -649,6 +683,38 @@ public struct EngineConfig: Sendable {
     public var tapVetoCommonWinnerMinZ: Double = 2.0
     /// The relaxed clamp for extreme-common winners (see above).
     public var tapVetoCommonMaxFactor: Double = 2.5
+
+    // --- Centred-slip cap (2026-10-06, dogfood "Hverbig" → "Hvernig").
+    // A wrong-key hit that lands near the wrong key's CENTER prices at the
+    // full Gaussian exponent (b→n dead center: 7.23 nats vs 1.02 static),
+    // which did more than veto the auto-apply — it pushed the right word
+    // out of the top of the bar behind space-miss splits ("Hver íg"), and
+    // made the same token behave differently once space+backspace had
+    // dropped its tap record. The recorded sessions say such hits are
+    // rare but real (4 of 64 confirmed adjacent-key slips leaned < 0.25
+    // toward the intended key), so the Gaussian's thin tail over-states
+    // the evidence. For a token attested NOWHERE (not valid, not
+    // compound-protected, no long-press): when the finished pool holds
+    // exactly ONE attested single-substitution reading, it is an adjacent
+    // key, and the word is typical vocabulary
+    // (`tapCentredSlipWinnerMinZ`), that candidate is repriced at static +
+    // `tapCentredSlipMaxUplift` and the margin veto is lifted for it (the
+    // uplift is the tap's charge; the veto would bill it twice). Any
+    // second single-substitution reading stands the cap down, so rival
+    // readings keep their per-tap ordering ("gair": hair/fair; the
+    // personal-touch hole/home flip). Tapless typing is byte-identical.
+
+    /// Master switch (A/B: `tapCentredSlipCapEnabled`).
+    public var tapCentredSlipCapEnabled: Bool = true
+    /// Cap on the capped substitution's price, in nats ABOVE its static
+    /// geometry price — the tap's remaining say. Recorded sessions put a
+    /// non-leaning slip at roughly 1/15 the odds of a leaning one (4 of
+    /// 64), i.e. ~2.7 nats.
+    public var tapCentredSlipMaxUplift: Double = 3.0
+    /// Typicality floor (calibrated z) for the repriced candidate.
+    /// hvernig +1.71 qualifies; names' accidental neighbours do not
+    /// (mutton −0.73, detour −0.95, myrtle −0.87).
+    public var tapCentredSlipWinnerMinZ: Double = 1.0
 
     // --- Deep-decode mash recovery (wave 30, the eotthbap→eitthvað class).
     // Fast-typing mashes carry SEVERAL adjacent-key substitutions whose

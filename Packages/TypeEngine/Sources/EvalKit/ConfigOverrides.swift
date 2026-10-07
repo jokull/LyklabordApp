@@ -82,12 +82,15 @@ public enum ConfigOverrides {
         "slettaGuardBlendThreshold": { $0.slettaGuardBlendThreshold = $1 },
         "vacuumAutoApplyMargin": { $0.vacuumAutoApplyMargin = $1 },
         "accentAutoApplyMinPosterior": { $0.accentAutoApplyMinPosterior = $1 },
+        "edgeUndershootYieldMinPosterior": { $0.edgeUndershootYieldMinPosterior = $1 },
         // Coordinate margin veto (tap-veto asymmetry work)
         "tapVetoBaseline": { $0.tapVetoBaseline = $1 },
         "tapVetoStrength": { $0.tapVetoStrength = $1 },
         "tapVetoMaxFactor": { $0.tapVetoMaxFactor = $1 },
         "tapVetoCommonWinnerMinZ": { $0.tapVetoCommonWinnerMinZ = $1 },
         "tapVetoCommonMaxFactor": { $0.tapVetoCommonMaxFactor = $1 },
+        "tapCentredSlipMaxUplift": { $0.tapCentredSlipMaxUplift = $1 },
+        "tapCentredSlipWinnerMinZ": { $0.tapCentredSlipWinnerMinZ = $1 },
         // Two-lane switching model
         "laneSwitchProbability": { $0.laneSwitchProbability = $1 },
         "laneEmissionTemperature": { $0.laneEmissionTemperature = $1 },
@@ -164,6 +167,10 @@ public enum ConfigOverrides {
         "compoundCompletionEnabled": { $0.compoundCompletionEnabled = $1 },
         // Compound guard hardening (wave 31)
         "compoundLinkingRepairYieldEnabled": { $0.compoundLinkingRepairYieldEnabled = $1 },
+        // Edge-undershoot yield ("ap" → "að", 2026-10-06)
+        "edgeUndershootYieldEnabled": { $0.edgeUndershootYieldEnabled = $1 },
+        // Centred-slip cap ("Hverbig" → "Hvernig", 2026-10-06)
+        "tapCentredSlipCapEnabled": { $0.tapCentredSlipCapEnabled = $1 },
         "hyphenJoinRepairEnabled": { $0.hyphenJoinRepairEnabled = $1 },
         // Context ranking (wave 27)
         "bigramContextFoldBackoffEnabled": { $0.bigramContextFoldBackoffEnabled = $1 },

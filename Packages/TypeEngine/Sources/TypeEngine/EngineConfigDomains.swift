@@ -116,6 +116,8 @@ public struct ActionPolicyConfiguration: Sendable {
     public let properNounGuardEnabled: Bool
     public let closeCandidateGate: Double
     public let compoundLinkingRepairYieldEnabled: Bool
+    public let edgeUndershootYieldEnabled: Bool
+    public let edgeUndershootYieldMinPosterior: Double
     public let splitAutocorrectMargin: Double
     public let splitAutoApplySingleWordCutoff: Double
     public let restorationAutoApplyMargin: Double
@@ -152,6 +154,8 @@ public struct ActionPolicyConfiguration: Sendable {
         properNounGuardEnabled = config.properNounGuardEnabled
         closeCandidateGate = config.closeCandidateGate
         compoundLinkingRepairYieldEnabled = config.compoundLinkingRepairYieldEnabled
+        edgeUndershootYieldEnabled = config.edgeUndershootYieldEnabled
+        edgeUndershootYieldMinPosterior = config.edgeUndershootYieldMinPosterior
         splitAutocorrectMargin = config.splitAutocorrectMargin
         splitAutoApplySingleWordCutoff = config.splitAutoApplySingleWordCutoff
         restorationAutoApplyMargin = config.restorationAutoApplyMargin
