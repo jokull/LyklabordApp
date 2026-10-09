@@ -64,15 +64,12 @@ Made in Iceland.
 
 Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 
-## What's New (v1.2)
-Steadier typing, sharper learning.
+## What's New (v1.3)
+Faster keys.
 
-• Emoji suggestions now work when you type English too: “coffee” offers the coffee emoji, just like “kaffi”.
-• Fixed: a corrected word followed by a period could be counted twice.
-• Corrections now register reliably in long messages and when you press Return.
-• Autocorrect no longer fires while text is selected.
-• Lighter launch when you switch back to the keyboard.
-• Lyklaborð+: undoing a deleted word now sticks across your devices, and SwiftKey exports saved on Windows import correctly.
+• Keys respond noticeably faster to each press.
+• Key-click sound and haptics are now off by default, each with its own switch in Settings.
+• Fixed: “ap” now corrects to “að”, and taps that slip onto a neighbouring key are recovered more often.
 
 Everything still happens on-device.
 

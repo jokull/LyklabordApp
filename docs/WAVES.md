@@ -7,6 +7,20 @@ in `scores/history.jsonl`; behavioral contracts live in
 `Packages/TypeEngine/Scenarios/*.scenarios` (scenario comments cite sessions);
 architecture in `docs/adr/`. Newest first.
 
+## 2026-10-09 — App Store 1.3 (25) submission
+
+- **Build**: the TestFlight build below, 1.3 (25), build ID
+  `da913d5b-4151-41da-91a0-a83a46a27a45`, unchanged. Submitted after the
+  owner's device pass ("it's solid").
+- **App Store**: version `d2603f63-94d4-4de3-848b-76360bfe6b7f`, review
+  submission `a78133f1-1fbc-4a4e-9e67-26cacb1088c0`, `WAITING_FOR_REVIEW` on
+  2026-10-09. Release type `AFTER_APPROVAL` (1.2 was held on manual release
+  because it had not been device-tested; this build has). en-US What's New
+  from `store/metadata/en.md`; screenshots carried over from 1.2 (v3 shots
+  1–4).
+- **Repo**: `project.yml` now says 1.3 (25), closing the gap noted below.
+- 1.2 (24) went `Ready for Sale` between 2026-10-03 and 2026-10-07.
+
 ## 2026-10-07 — TestFlight 1.3 (25) publication
 
 - **Built from** `7284bd5` ("keyboard: read raw touches for keys, stop
