@@ -82,7 +82,7 @@ final class LyklabordAutocompleteService: AutocompleteService {
     // MARK: - Queue-confined state (touch ONLY on `queue`)
 
     private var session: TypingSession?
-    private var bootstrapFailed = false
+    private var bootstrapAttemptCount = 0
     /// One-shot cold-start telemetry state, confined to `queue`.
     private var hasRecordedFirstAutocompletePass = false
     private var hasRecordedFirstStableNonEmptyResult = false
@@ -719,7 +719,8 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// paged, so this is fast (~1ms per artifact) and nearly free against
     /// the extension's dirty-memory jetsam cap (see data/README.md).
     private func bootstrapIfNeeded() {
-        guard session == nil, !bootstrapFailed else { return }
+        guard session == nil, bootstrapAttemptCount < 2 else { return }
+        bootstrapAttemptCount += 1
         let bundle = Bundle(for: Self.self)
         let start = AutocompleteColdStartTracker.now
         coldStartTracker.bootstrapStarted(at: start)
@@ -733,8 +734,8 @@ final class LyklabordAutocompleteService: AutocompleteService {
                 let enURL = bundle.url(forResource: "en", withExtension: "lex"),
                 let isURL = bundle.url(forResource: "is", withExtension: "lex")
             else {
-                bootstrapFailed = true
-                NSLog("[LyklaborÃ°] autocomplete bootstrap FAILED: .lex artifacts missing from extension bundle")
+                bootstrapAttemptCount = 2 // permanent: bundle is missing resources
+                NSLog("[LyklaborÐ] autocomplete bootstrap FAILED: .lex artifacts missing from extension bundle")
                 return
             }
             let english = try FrequencyLexicon(contentsOf: enURL)
@@ -838,7 +839,7 @@ final class LyklabordAutocompleteService: AutocompleteService {
             // engine queue and never sits in front of a first keystroke.
             scheduleInflectionLoad()
         } catch {
-            bootstrapFailed = true
+            bootstrapAttemptCount = 2 // permanent after retry exhausted
             Self.coldStartSignposter.emitEvent("Bootstrap failed")
             NSLog("[LyklaborÃ°] autocomplete bootstrap FAILED: %@", String(describing: error))
         }
@@ -1150,6 +1151,13 @@ final class LyklabordAutocompleteService: AutocompleteService {
 
     private func performAutocomplete(_ text: String) -> Autocomplete.ServiceResult {
         bootstrapIfNeeded()
+        // URL, email, and secure fields: show nothing. The engine would read
+        // the field's existing content (e.g. a full URL) as typing context and
+        // produce meaningless candidates. The system keyboard shows no bar in
+        // these fields either.
+        guard fieldKind != .url, fieldKind != .email, fieldKind != .secure else {
+            return .init(inputText: text, suggestions: [])
+        }
         // The queued bootstrap normally completed before this pass. A nil
         // session therefore means bootstrap failed; stay silent and let the
         // keyboard remain usable without suggestions.

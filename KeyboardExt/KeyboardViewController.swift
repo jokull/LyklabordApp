@@ -290,6 +290,13 @@ final class KeyboardViewController: KeyboardInputViewController {
         // learning gate) before the first keystroke of a newly focused
         // field can be autocompleted.
         forwardTextContextChange()
+        // Eagerly clear stale suggestions from the previous field so the
+        // spacebar doesn't briefly show an armed autocorrect word from that
+        // field while the engine queue processes the new field kind.
+        let kind = LyklabordAutocompleteService.fieldKind(for: state.keyboardContext)
+        if kind != .standard && kind != .webSearch {
+            state.autocompleteContext.reset()
+        }
         // M2: re-stat the personal model (the containing app compacts it on
         // its own schedule) — one mtime check per keyboard presentation,
         // reload only when the file actually changed.
